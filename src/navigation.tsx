@@ -13,22 +13,22 @@ export function NavigationBox({ onCameraChange }: NavigationBoxProps) {
   const handleFaceClick = (face: string) => {
     switch (face) {
       case 'front':
-        onCameraChange([0, 0, 5], [0, 0, 0])
+        onCameraChange([0, 0, 6], [0, 0, 0])
         break
       case 'back':
-        onCameraChange([0, 0, -5], [0, 0, 0])
+        onCameraChange([0, 0, -6], [0, 0, 0])
         break
       case 'left':
-        onCameraChange([-5, 0, 0], [0, 0, 0])
+        onCameraChange([-6, 0, 0], [0, 0, 0])
         break
       case 'right':
-        onCameraChange([5, 0, 0], [0, 0, 0])
+        onCameraChange([6, 0, 0], [0, 0, 0])
         break
       case 'top':
-        onCameraChange([0, 5, 0], [0, 0, 0])
+        onCameraChange([0, 6, 0], [0, 0, 0])
         break
       case 'bottom':
-        onCameraChange([0, -5, 0], [0, 0, 0])
+        onCameraChange([0, -6, 0], [0, 0, 0])
         break
     }
   }

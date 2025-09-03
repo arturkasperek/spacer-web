@@ -1,8 +1,12 @@
 import { useThree, useFrame } from "@react-three/fiber";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import * as THREE from "three";
 
-export function CameraControls() {
+export interface CameraControlsRef {
+  updateMouseState: (pitch: number, yaw: number) => void;
+}
+
+export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   const { camera, gl } = useThree();
   const [keys, setKeys] = useState({
     ArrowUp: false,
@@ -31,6 +35,14 @@ export function CameraControls() {
     pitch: 0,
     yaw: 0,
   });
+
+  // Expose updateMouseState function to parent component
+  useImperativeHandle(ref, () => ({
+    updateMouseState: (pitch: number, yaw: number) => {
+      mouseState.current.pitch = pitch;
+      mouseState.current.yaw = yaw;
+    }
+  }), []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -156,4 +168,4 @@ export function CameraControls() {
   });
 
   return null;
-}
+});
