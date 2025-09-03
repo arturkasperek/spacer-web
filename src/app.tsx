@@ -38,7 +38,7 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
       <SkyComponent
         sunPosition={(() => {
           // Convert elevation and azimuth to sun position (like original example)
-          const elevation = 2;
+          const elevation = 10;
           const azimuth = 180;
           const phi = THREE.MathUtils.degToRad(90 - elevation);
           const theta = THREE.MathUtils.degToRad(azimuth);
@@ -65,7 +65,7 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
         distortionScale={3.7}
         sunDirection={(() => {
           // Same sun position as sky for consistency
-          const elevation = 2;
+          const elevation = 10;
           const azimuth = 180;
           const phi = THREE.MathUtils.degToRad(90 - elevation);
           const theta = THREE.MathUtils.degToRad(azimuth);
