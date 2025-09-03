@@ -6,6 +6,8 @@ import { Box } from "./box.js";
 import { NavigationOverlay } from "./navigation.js";
 import { AxesHelper } from "./axes.js";
 import { BoundingBox } from "./bounding-box.js";
+import { WaterComponent } from "./water.js";
+import { SkyComponent } from "./sky.js";
 import { createRef, RefObject, useRef } from "react";
 import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 
@@ -25,18 +27,29 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
   return (
     <>
       <CameraControls ref={cameraControlsRef} />
-      <ambientLight intensity={Math.PI / 2} />
-      <spotLight
-        position={[10, 10, 10]}
-        angle={0.15}
-        penumbra={1}
-        decay={0}
-        intensity={Math.PI}
+      <ambientLight intensity={0.1} />
+      <directionalLight
+        position={[1, 1, 1]}
+        intensity={1}
+        color="#ffffff"
       />
-      <pointLight
-        position={[-10, -10, -10]}
-        decay={0}
-        intensity={Math.PI}
+
+      {/* Sky */}
+      <SkyComponent
+        sunPosition={(() => {
+          // Convert elevation and azimuth to sun position (like original example)
+          const elevation = 2;
+          const azimuth = 180;
+          const phi = THREE.MathUtils.degToRad(90 - elevation);
+          const theta = THREE.MathUtils.degToRad(azimuth);
+          const sun = new THREE.Vector3();
+          sun.setFromSphericalCoords(1, phi, theta);
+          return sun;
+        })()}
+        turbidity={10}
+        rayleigh={2}
+        mieCoefficient={0.005}
+        mieDirectionalG={0.8}
       />
 
       <AxesHelper />
@@ -44,6 +57,25 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
         <Box position={[-1.2, 0, 0]} />
       </BoundingBox>
       <Box position={[1.2, 0, 0]} />
+
+      {/* Water surface */}
+      <WaterComponent
+        position={[-1, -1, 0]}
+        size={10000}
+        distortionScale={3.7}
+        sunDirection={(() => {
+          // Same sun position as sky for consistency
+          const elevation = 2;
+          const azimuth = 180;
+          const phi = THREE.MathUtils.degToRad(90 - elevation);
+          const theta = THREE.MathUtils.degToRad(azimuth);
+          const sun = new THREE.Vector3();
+          sun.setFromSphericalCoords(1, phi, theta);
+          return sun;
+        })()}
+        waterColor={0x001e0f}
+        sunColor={0xffffff}
+      />
     </>
   );
 }
@@ -87,9 +119,13 @@ export function App() {
   return (
     <>
       <Canvas
-        gl={{ alpha: false }}
-        camera={{ position: [0, 0, 5], fov: 75 }}
-        scene={{ background: new THREE.Color('#404040') }}
+        gl={{ 
+          alpha: false,
+          antialias: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 0.5
+        }}
+        camera={{ position: [30, 30, 100], fov: 55 }}
       >
         <Scene cameraControlsRef={cameraControlsRef} />
       </Canvas>
