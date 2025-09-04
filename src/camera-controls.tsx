@@ -4,6 +4,7 @@ import * as THREE from "three";
 
 export interface CameraControlsRef {
   updateMouseState: (pitch: number, yaw: number) => void;
+  setPose: (position: [number, number, number], lookAt: [number, number, number]) => void;
 }
 
 export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
@@ -41,8 +42,33 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
     updateMouseState: (pitch: number, yaw: number) => {
       mouseState.current.pitch = pitch;
       mouseState.current.yaw = yaw;
+    },
+    setPose: (position: [number, number, number], lookAt: [number, number, number]) => {
+      // Set camera position
+      camera.position.set(position[0], position[1], position[2]);
+
+      // Compute yaw/pitch from position and lookAt, Y-up, right-handed
+      const from = new THREE.Vector3(position[0], position[1], position[2]);
+      const to = new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]);
+      const dir = new THREE.Vector3().subVectors(to, from).normalize();
+
+      const pitch = Math.asin(dir.y);
+      let yaw = 0;
+      if (Math.abs(dir.x) > 0.0001 || Math.abs(dir.z) > 0.0001) {
+        yaw = Math.atan2(-dir.x, -dir.z);
+      }
+
+      camera.rotation.order = 'YXZ';
+      camera.rotation.x = pitch;
+      camera.rotation.y = yaw;
+      camera.rotation.z = 0;
+      camera.updateProjectionMatrix();
+
+      // Sync internal mouse state so the next drag starts from this pose
+      mouseState.current.pitch = pitch;
+      mouseState.current.yaw = yaw;
     }
-  }), []);
+  }), [camera]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

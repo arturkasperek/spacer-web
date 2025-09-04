@@ -75,35 +75,8 @@ export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
 
   const handleCameraChange = (position: [number, number, number], lookAt: [number, number, number]) => {
-    if (cameraRef.current) {
-      // Set camera position
-      cameraRef.current.position.set(...position);
-
-      // Calculate the direction vector from position to lookAt
-      const direction = new THREE.Vector3();
-      direction.subVectors(new THREE.Vector3(...lookAt), new THREE.Vector3(...position));
-      direction.normalize();
-
-      // Calculate spherical coordinates for pitch and yaw
-      const pitch = Math.asin(direction.y);
-      
-      // Handle pure Y-axis cases (top/bottom views) where X and Z are ~0
-      let yaw = 0;
-      if (Math.abs(direction.x) > 0.0001 || Math.abs(direction.z) > 0.0001) {
-        yaw = Math.atan2(-direction.x, -direction.z);
-      }
-
-      // Apply rotation using the same order as camera controls
-      cameraRef.current.rotation.order = 'YXZ';
-      cameraRef.current.rotation.x = pitch;
-      cameraRef.current.rotation.y = yaw;
-      cameraRef.current.rotation.z = 0;
-      cameraRef.current.updateProjectionMatrix();
-
-      // Update camera controls mouse state to match the new orientation
-      if (cameraControlsRef.current) {
-        cameraControlsRef.current.updateMouseState(pitch, yaw);
-      }
+    if (cameraControlsRef.current) {
+      cameraControlsRef.current.setPose(position, lookAt);
     }
   };
 
