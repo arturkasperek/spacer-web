@@ -9,6 +9,9 @@ interface SkyProps {
   mieCoefficient?: number;
   mieDirectionalG?: number;
   sunPosition?: THREE.Vector3;
+  debugMode?: 0 | 1 | 2 | 3 | 4 | 5;
+  mieGlowScale?: number; // scales Mie glow contribution near the sun
+  sunDiskDelta?: number; // width of sundisk smoothstep
 }
 
 export function SkyComponent({
@@ -18,6 +21,9 @@ export function SkyComponent({
   mieCoefficient = 0.005,
   mieDirectionalG = 0.8,
   sunPosition,
+  debugMode = 0,
+  mieGlowScale = 0.7,
+  sunDiskDelta = 0.00001,
 }: SkyProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -36,6 +42,8 @@ export function SkyComponent({
   // Create custom shader material implementing Preetham atmospheric scattering
   const skyMaterial = useMemo(() => {
     const vertexShader = `
+      precision highp float;
+      precision highp int;
       varying vec3 vWorldPosition;
       varying vec3 vSunDirection;
       varying float vSunfade;
@@ -102,6 +110,8 @@ export function SkyComponent({
     `;
 
     const fragmentShader = `
+      precision highp float;
+      precision highp int;
       varying vec3 vWorldPosition;
       varying vec3 vSunDirection;
       varying float vSunfade;
@@ -110,7 +120,11 @@ export function SkyComponent({
       varying float vSunE;
 
       uniform vec3 cameraPos;
+      uniform vec3 upUniform;
       uniform float mieDirectionalG;
+      uniform int debugMode;
+      uniform float mieGlowScale;
+      uniform float sunDiskDelta;
 
       void main() {
         // constants for atmospheric scattering
@@ -127,11 +141,11 @@ export function SkyComponent({
         // 1.0 / (4.0 * pi)
         float ONE_OVER_FOURPI = 0.07957747154594767;
 
-        vec3 direction = normalize(vWorldPosition - cameraPos);
+        vec3 direction = normalize(vWorldPosition - cameraPosition);
 
         // optical length
         // cutoff angle at 90 to avoid singularity in next formula.
-        float zenithAngle = acos(max(0.0, dot(vec3(0.0, 1.0, 0.0), direction)));
+        float zenithAngle = acos(max(0.0, dot(upUniform, direction)));
         float inverse = 1.0 / (cos(zenithAngle) + 0.15 * pow(93.885 - (zenithAngle * 180.0) / pi, -1.253));
         float sR = rayleighZenithLength * inverse;
         float sM = mieZenithLength * inverse;
@@ -152,20 +166,47 @@ export function SkyComponent({
         float inv = 1.0 / pow(1.0 - 2.0 * mieDirectionalG * cosTheta + g2, 1.5);
         float mPhase = ONE_OVER_FOURPI * (1.0 - g2) * inv;
         vec3 betaMTheta = vBetaM * mPhase;
+        vec3 betaMThetaScaled = betaMTheta * mieGlowScale;
 
-        vec3 Lin = pow(vSunE * (betaRTheta + betaMTheta) / (vBetaR + vBetaM) * (1.0 - Fex), vec3(1.5));
-        Lin = Lin * mix(vec3(1.0), pow(vSunE * (betaRTheta + betaMTheta) / (vBetaR + vBetaM) * Fex, vec3(1.0 / 2.0)), clamp(pow(1.0 - dot(vec3(0.0, 1.0, 0.0), vSunDirection), 5.0), 0.0, 1.0));
+        vec3 Lin = pow(vSunE * (betaRTheta + betaMThetaScaled) / (vBetaR + vBetaM) * (1.0 - Fex), vec3(1.5));
+        Lin = Lin * mix(vec3(1.0), pow(vSunE * (betaRTheta + betaMThetaScaled) / (vBetaR + vBetaM) * Fex, vec3(1.0 / 2.0)), clamp(pow(1.0 - dot(upUniform, vSunDirection), 5.0), 0.0, 1.0));
 
         // nightsky
         vec3 L0 = vec3(0.1) * Fex;
 
-        // composition + solar disc
-        float sundisk = smoothstep(sunAngularDiameterCos, sunAngularDiameterCos + 0.00002, cosTheta);
+        // composition + solar disc (match reference values)
+        float sundisk = smoothstep(sunAngularDiameterCos, sunAngularDiameterCos + sunDiskDelta, cosTheta);
         L0 = L0 + vSunE * 19000.0 * Fex * sundisk;
 
         vec3 texColor = (Lin + L0) * 0.04 + vec3(0.0, 0.0003, 0.00075);
 
         vec3 retColor = pow(texColor, vec3(1.0 / (1.2 + vSunfade * 1.2)));
+
+        if (debugMode == 1) {
+          float v = cosTheta * 0.5 + 0.5;
+          gl_FragColor = vec4(vec3(v), 1.0);
+          return;
+        }
+        if (debugMode == 2) {
+          float m = smoothstep(sunAngularDiameterCos, sunAngularDiameterCos + 0.00002, cosTheta);
+          gl_FragColor = vec4(m, 0.0, 1.0 - m, 1.0);
+          return;
+        }
+        if (debugMode == 3) {
+          gl_FragColor = vec4(Fex, 1.0);
+          return;
+        }
+        if (debugMode == 4) {
+          float e = clamp(vSunE / 20000.0, 0.0, 1.0);
+          gl_FragColor = vec4(e, 0.0, 1.0 - e, 1.0);
+          return;
+        }
+        if (debugMode == 5) {
+          vec3 l = normalize(Lin);
+          float s = clamp(length(Lin) / 10.0, 0.0, 1.0);
+          gl_FragColor = vec4(l * s, 1.0);
+          return;
+        }
 
         gl_FragColor = vec4(retColor, 1.0);
       }
@@ -182,11 +223,14 @@ export function SkyComponent({
         mieCoefficient: { value: mieCoefficient },
         mieDirectionalG: { value: mieDirectionalG },
         cameraPos: { value: new THREE.Vector3() },
+        debugMode: { value: debugMode },
+        mieGlowScale: { value: mieGlowScale },
+        sunDiskDelta: { value: sunDiskDelta },
       },
       side: THREE.BackSide,
       depthWrite: false,
     });
-  }, [turbidity, rayleigh, mieCoefficient, mieDirectionalG, sunPosition]);
+  }, [turbidity, rayleigh, mieCoefficient, mieDirectionalG, sunPosition, debugMode, mieGlowScale, sunDiskDelta]);
 
   // Store sky geometry in state for PMREM generation
   const [currentSkyGeometry] = useMemo(() => [skyGeometry], []);

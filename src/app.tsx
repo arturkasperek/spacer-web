@@ -8,7 +8,8 @@ import { AxesHelper } from "./axes.js";
 import { BoundingBox } from "./bounding-box.js";
 import { WaterComponent } from "./water.js";
 import { SkyComponent } from "./sky.js";
-import { createRef, RefObject, useRef } from "react";
+import { createRef, RefObject, useMemo, useRef } from "react";
+import { Leva, useControls } from "leva";
 import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 
 const store = createXRStore({});
@@ -24,32 +25,41 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
   // Store the camera reference
   cameraRef.current = camera;
 
+  const controls = useControls('Sky/Water', {
+    elevation: { value: 10, min: -5, max: 90, step: 0.1 },
+    azimuth: { value: 180, min: -180, max: 180, step: 0.1 },
+    turbidity: { value: 10, min: 0, max: 20, step: 0.1 },
+    rayleigh: { value: 0.82, min: 0, max: 4, step: 0.01 },
+    mieCoefficient: { value: 0.001, min: 0.0, max: 0.02, step: 0.0005 },
+    mieDirectionalG: { value: 0.8, min: 0.0, max: 0.999, step: 0.001 },
+    mieGlowScale: { value: 0.7, min: 0.1, max: 1.5, step: 0.01 },
+    sunDiskDelta: { value: 0.00001, min: 0.0, max: 0.0002, step: 0.000001 },
+    exposure: { value: 0.5, min: 0.1, max: 1.5, step: 0.01 },
+    debugMode: { value: 0, min: 0, max: 5, step: 1 },
+  });
+
+  const sunVec = useMemo(() => {
+    const phi = THREE.MathUtils.degToRad(90 - controls.elevation);
+    const theta = THREE.MathUtils.degToRad(controls.azimuth);
+    const sun = new THREE.Vector3();
+    sun.setFromSphericalCoords(1, phi, theta);
+    return sun;
+  }, [controls.elevation, controls.azimuth]);
+
   return (
     <>
       <CameraControls ref={cameraControlsRef} />
-      <ambientLight intensity={0.1} />
-      <directionalLight
-        position={[1, 1, 1]}
-        intensity={1}
-        color="#ffffff"
-      />
 
       {/* Sky */}
       <SkyComponent
-        sunPosition={(() => {
-          // Convert elevation and azimuth to sun position (like original example)
-          const elevation = 10;
-          const azimuth = 180;
-          const phi = THREE.MathUtils.degToRad(90 - elevation);
-          const theta = THREE.MathUtils.degToRad(azimuth);
-          const sun = new THREE.Vector3();
-          sun.setFromSphericalCoords(1, phi, theta);
-          return sun;
-        })()}
-        turbidity={10}
-        rayleigh={2}
-        mieCoefficient={0.005}
-        mieDirectionalG={0.8}
+        sunPosition={sunVec}
+        turbidity={controls.turbidity}
+        rayleigh={controls.rayleigh}
+        mieCoefficient={controls.mieCoefficient}
+        mieDirectionalG={controls.mieDirectionalG}
+        mieGlowScale={controls.mieGlowScale}
+        sunDiskDelta={controls.sunDiskDelta}
+        debugMode={controls.debugMode as 0 | 1 | 2 | 3 | 4 | 5}
       />
 
       <AxesHelper />
@@ -63,16 +73,7 @@ function Scene({ cameraControlsRef }: { cameraControlsRef: React.RefObject<Camer
         position={[-1, -1, 0]}
         size={10000}
         distortionScale={3.7}
-        sunDirection={(() => {
-          // Same sun position as sky for consistency
-          const elevation = 10;
-          const azimuth = 180;
-          const phi = THREE.MathUtils.degToRad(90 - elevation);
-          const theta = THREE.MathUtils.degToRad(azimuth);
-          const sun = new THREE.Vector3();
-          sun.setFromSphericalCoords(1, phi, theta);
-          return sun;
-        })()}
+        sunDirection={sunVec}
         waterColor={0x001e0f}
         sunColor={0xffffff}
       />
@@ -129,6 +130,7 @@ export function App() {
       >
         <Scene cameraControlsRef={cameraControlsRef} />
       </Canvas>
+      <Leva collapsed={false} />
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>
   );
