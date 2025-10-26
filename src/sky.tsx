@@ -8,12 +8,12 @@ interface SkyProps {
 }
 
 export function SkyComponent({
-  scale = 10000,
+  scale = 100000,
   sunPosition,
 }: SkyProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
-  const { scene, gl } = useThree();
+  const { scene, gl, camera } = useThree();
 
   // Create sky geometry (large box)
   const skyGeometry = useMemo(() => {
@@ -235,6 +235,13 @@ export function SkyComponent({
       materialRef.current = skyMaterial;
     }
   }, [skyMaterial]);
+
+  // Make sky follow the camera position
+  useFrame(() => {
+    if (meshRef.current) {
+      meshRef.current.position.copy(camera.position);
+    }
+  });
 
   return (
     <mesh

@@ -38,6 +38,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus }: Readonly<{
 
       <AxesHelper />
 
+      <SkyComponent />
+
       {/* World Renderer */}
       <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} />
     </>
