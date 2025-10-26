@@ -21,7 +21,7 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         onLoadingStatus('Loading ZenKit...');
 
         // Import ZenKit WebAssembly module
-        const zenkitModule = await import('@kolarz3/zenkit');
+        const zenkitModule = await import('@kolarz3/zenkit' as any);
         const ZenKitModule = zenkitModule.default;
         const zenKit = await ZenKitModule();
 
@@ -200,4 +200,4 @@ async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Pr
   }
 }
 
-export { WorldRenderer };
+export { WorldRenderer, tgaNameToCompiledUrl };
