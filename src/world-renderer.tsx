@@ -187,10 +187,11 @@ async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Pr
     tex.needsUpdate = true;
     tex.flipY = false;  // OpenGothic doesn't flip Y
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;  // Reasonable anisotropic filtering
     // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.minFilter = THREE.LinearMipmapNearestFilter;  // Use nearest mipmap for more blur
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = true;
 

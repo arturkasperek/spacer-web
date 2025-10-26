@@ -88,9 +88,10 @@ export function App() {
         gl={{
           alpha: false,
           antialias: true,
-          logarithmicDepthBuffer: true,  // Better depth precision for large scenes
           outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
-          sortObjects: true  // Ensure proper depth sorting
+          sortObjects: true,  // Ensure proper depth sorting
+          pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
+          powerPreference: 'default'  // Match zen-viewer default
         }}
         camera={{
           position: [0, 0, 0],

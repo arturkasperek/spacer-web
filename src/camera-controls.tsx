@@ -25,7 +25,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   });
 
   // Camera control variables (matching zen-viewer.html)
-  const moveSpeedRef = useRef(50);
+  const moveSpeedRef = useRef(25);  // Reduce default speed to reduce grain
   const mouseSensitivity = 0.002;
   let pitch = 0, yaw = 0;
   const velocity = new THREE.Vector3();
@@ -129,7 +129,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   }, [gl, camera]);
 
   // Movement update function (matching zen-viewer)
-  const updateMovement = () => {
+  const updateMovement = (delta?: number) => {
     velocity.set(0, 0, 0);
 
     // Movement directions relative to camera (matching zen-viewer)
@@ -168,7 +168,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   };
 
   useFrame((state, delta) => {
-    updateMovement();
+    updateMovement(delta);
   });
 
   return null;
