@@ -22,9 +22,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus }: Readonly<{
   // Store the camera reference
   cameraRef.current = camera;
 
-  // Reset initial camera rotation to zero
+  // Set initial camera orientation to match zen-viewer.html
   useEffect(() => {
-    camera.rotation.set(0, 0, 0);
+    camera.lookAt(-1, 0, 0); // Look along positive X axis
     camera.rotation.order = 'YXZ';
     camera.updateProjectionMatrix();
     if (cameraControlsRef.current) {
@@ -89,7 +89,13 @@ export function App() {
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 0.5
         }}
-        camera={{ position: [0, 0, 20], fov: 90 }}
+        camera={{
+          position: [0, 0, 0],
+          fov: 75,
+          near: 1.0,
+          far: 100000
+        }}
+        style={{ background: '#222222' }}
       >
         <Scene
           cameraControlsRef={cameraControlsRef}

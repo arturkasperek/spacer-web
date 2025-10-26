@@ -18,7 +18,6 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
 
     const loadWorld = async () => {
       try {
-        console.log('🔍 Loading ZenKit...');
         onLoadingStatus('Loading ZenKit...');
 
         // Import ZenKit WebAssembly module
@@ -26,7 +25,6 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         const ZenKitModule = zenkitModule.default;
         const zenKit = await ZenKitModule();
 
-        console.log(`📁 Loading ${worldPath}...`);
         onLoadingStatus(`Loading ${worldPath}...`);
 
         // Fetch the ZEN file
@@ -38,7 +36,6 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         const arrayBuffer = await response.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
 
-        console.log('🔧 Processing world data...');
         onLoadingStatus('Processing world data...');
 
         // Create world and load
@@ -49,7 +46,6 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
           throw new Error(world.getLastError() || 'Unknown loading error');
         }
 
-        console.log('⚙️ Processing mesh data...');
         onLoadingStatus('Processing mesh data...');
 
         // Get the world mesh
@@ -60,7 +56,7 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         const idxCount = processed.indices.size();
         const matCount = processed.materials.size();
 
-        console.log(`✅ World loaded: ${vertCount/8} vertices, ${idxCount/3} triangles, ${matCount} materials`);
+        console.log(`World loaded: ${vertCount/8} vertices, ${idxCount/3} triangles, ${matCount} materials`);
 
         // Build Three.js geometry
         const positions = new Float32Array(idxCount * 3);
@@ -71,17 +67,14 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
           const vertIdx = processed.indices.get(i);
           const vertBase = vertIdx * 8;
 
-          // Position
           positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
           positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
           positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
 
-          // Normal
           normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
           normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
           normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
 
-          // UV
           uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
           uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
         }
@@ -91,33 +84,120 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
         geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
-        // Create basic material
-        const material = new THREE.MeshBasicMaterial({
-          color: 0x888888,
-          side: THREE.DoubleSide,
-          wireframe: false
-        });
+        // Build materials array from deduplicated materials
+        const materialArray: THREE.MeshBasicMaterial[] = [];
 
-        // Create mesh
-        const threeMesh = new THREE.Mesh(geometry, material);
+        for (let mi = 0; mi < matCount; mi++) {
+          const mat = processed.materials.get(mi);
+          const material = new THREE.MeshBasicMaterial({
+            color: 0x888888, // Gray fallback
+            side: THREE.DoubleSide,
+            transparent: false,
+            alphaTest: 0.5
+          });
+          materialArray.push(material);
+
+          // Load texture asynchronously
+          if (mat && mat.texture && mat.texture.length) {
+            const textureUrl = tgaNameToCompiledUrl(mat.texture);
+            loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
+              if (tex && materialArray[mi]) {
+                materialArray[mi].map = tex;
+                materialArray[mi].color.setHex(0xFFFFFF);
+                materialArray[mi].needsUpdate = true;
+                console.log(`Loaded texture: ${mat.texture}`);
+              }
+            }).catch(() => {
+              console.warn(`Failed to load texture: ${mat.texture}`);
+            });
+          }
+        }
+
+        // Set up geometry groups for multi-material mesh
+        // materialIds is per-triangle, so we need to find consecutive runs
+        const triCount = processed.materialIds.size();
+        geometry.clearGroups();
+
+        let currentMatId = processed.materialIds.get(0);
+        let groupStart = 0;
+
+        for (let t = 1; t <= triCount; t++) {
+          const matId = (t < triCount) ? processed.materialIds.get(t) : -1; // Force flush at end
+
+          if (t === triCount || matId !== currentMatId) {
+            // End of group
+            const vertexStart = groupStart * 3; // 3 vertices per triangle
+            const vertexCount = (t - groupStart) * 3;
+            geometry.addGroup(vertexStart, vertexCount, currentMatId);
+
+            groupStart = t;
+            currentMatId = matId;
+          }
+        }
+
+        console.log(`Created ${geometry.groups.length} material groups for ${matCount} materials`);
+
+        // Create mesh with materials array
+        const threeMesh = new THREE.Mesh(geometry, materialArray);
         threeMesh.scale.x = -1; // Fix mirrored world
 
         setWorldMesh(threeMesh);
-        console.log('🎉 World loaded successfully!');
         onLoadingStatus('World loaded successfully!');
 
       } catch (error) {
-        console.error('❌ Failed to load world:', error);
+        console.error('Failed to load world:', error);
         onLoadingStatus(`Error: ${(error as Error).message}`);
-        // Reset loading flag on error so user can retry
         hasLoadedRef.current = false;
       }
     };
 
     loadWorld();
-  }, [worldPath]);
+  }, [worldPath, onLoadingStatus]);
 
   return worldMesh ? <primitive object={worldMesh} ref={meshRef} /> : null;
+}
+
+// Helper function to convert TGA texture name to compiled TEX URL
+function tgaNameToCompiledUrl(name: string): string | null {
+  if (!name || typeof name !== 'string') return null;
+  const base = name.replace(/\.[^.]*$/, '').toUpperCase();
+  return `/TEXTURES/_COMPILED/${base}-C.TEX`;
+}
+
+// Helper function to load compiled TEX file as DataTexture
+async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Promise<THREE.DataTexture | null> {
+  if (!url) return null;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+
+    const buf = await res.arrayBuffer();
+    const arr = new Uint8Array(buf);
+
+    const zkTex = new zenKit.Texture();
+    const ok = zkTex.loadFromArray(arr);
+    if (!ok || !ok.success) return null;
+
+    const w = zkTex.width;
+    const h = zkTex.height;
+    const rgba = zkTex.asRgba8(0);
+    if (!rgba) return null;
+
+    const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
+    tex.needsUpdate = true;
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+
+    return tex;
+  } catch (error) {
+    return null;
+  }
 }
 
 export { WorldRenderer };
