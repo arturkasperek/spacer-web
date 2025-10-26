@@ -136,6 +136,8 @@ jest.mock('three', () => {
       length: jest.fn(() => 0),
       addScaledVector: jest.fn().mockReturnThis(),
       applyQuaternion: jest.fn().mockReturnThis(),
+      distanceTo: jest.fn(() => 0),
+      copy: jest.fn().mockReturnThis(),
     };
     vector.subVectors = jest.fn().mockReturnValue(vector);
     vector.crossVectors = jest.fn().mockReturnValue(vector);
