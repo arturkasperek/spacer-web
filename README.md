@@ -32,7 +32,6 @@ The following libraries are used - checkout the linked docs to learn more
 - [@react-three/drei](https://drei.docs.pmnd.rs/) - Useful helpers for @react-three/fiber
 - [@react-three/handle](https://pmndrs.github.io/xr/docs/handles/introduction) - interactive controls and handles for your 3D objects
 - [koota](https://github.com/pmndrs/koota) - ECS-based state management library optimized for real-time apps, games, and XR experiences
-- [leva](https://github.com/pmndrs/leva) - HTML GUI panel for React with lightweight, beautiful and extensible controls
 - [@react-three/rapier](https://github.com/pmndrs/react-three-rapier) - Physics based on Rapier for your @react-three/fiber scene
 - [@react-three/uikit](https://pmndrs.github.io/uikit/docs/) - UI primitives for React Three Fiber
 - [@react-three/xr](https://pmndrs.github.io/xr/docs/) - VR/AR support for @react-three/fiber
