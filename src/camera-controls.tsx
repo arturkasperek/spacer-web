@@ -25,7 +25,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   });
 
   // Camera control variables (matching zen-viewer.html)
-  let moveSpeed = 50;
+  const moveSpeedRef = useRef(50);
   const mouseSensitivity = 0.002;
   let pitch = 0, yaw = 0;
   const velocity = new THREE.Vector3();
@@ -105,11 +105,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
     };
 
     // Mouse wheel for movement speed (matching zen-viewer)
-    gl.domElement.addEventListener('wheel', (event: WheelEvent) => {
-      moveSpeed += event.deltaY * 0.1;
-      moveSpeed = Math.max(1, Math.min(500, moveSpeed));
+    const handleWheel = (event: WheelEvent) => {
+      moveSpeedRef.current += event.deltaY * 0.1;
+      moveSpeedRef.current = Math.max(1, Math.min(500, moveSpeedRef.current));
       event.preventDefault();
-    });
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
@@ -120,6 +122,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('wheel', handleWheel);
       gl.domElement.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -159,7 +162,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
 
     // Normalize and apply speed (matching zen-viewer)
     if (velocity.length() > 0) {
-      velocity.normalize().multiplyScalar(moveSpeed);
+      velocity.normalize().multiplyScalar(moveSpeedRef.current);
       camera.position.add(velocity);
     }
   };

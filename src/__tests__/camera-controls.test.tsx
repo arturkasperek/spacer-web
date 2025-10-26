@@ -84,12 +84,12 @@ describe('CameraControls', () => {
   it('sets up event listeners on mount', () => {
     render(<CameraControls ref={mockRef} />);
 
-    expect(window.addEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
-    expect(window.addEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
-    expect(document.addEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
-    expect(document.addEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), { passive: false });
+    expect(mockAddEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
     expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith('mousedown', expect.any(Function));
-    expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function));
   });
 
   it('cleans up event listeners on unmount', () => {
