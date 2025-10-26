@@ -90,10 +90,10 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
         for (let mi = 0; mi < matCount; mi++) {
           const mat = processed.materials.get(mi);
           const material = new THREE.MeshBasicMaterial({
-            color: 0x888888, // Gray fallback
+            color: 0xFFFFFF, // WHITE - don't tint the texture!
             side: THREE.DoubleSide,
-            transparent: false,
-            alphaTest: 0.5
+            transparent: false, // Disable transparency for alpha-tested materials
+            alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
           });
           materialArray.push(material);
 
@@ -103,7 +103,6 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
             loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
               if (tex && materialArray[mi]) {
                 materialArray[mi].map = tex;
-                materialArray[mi].color.setHex(0xFFFFFF);
                 materialArray[mi].needsUpdate = true;
                 console.log(`Loaded texture: ${mat.texture}`);
               }
@@ -186,8 +185,9 @@ async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Pr
 
     const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
     tex.needsUpdate = true;
-    tex.flipY = false;
+    tex.flipY = false;  // OpenGothic doesn't flip Y
     tex.colorSpace = THREE.SRGBColorSpace;
+    // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
     tex.minFilter = THREE.LinearMipmapLinearFilter;

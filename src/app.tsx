@@ -86,8 +86,9 @@ export function App() {
         gl={{
           alpha: false,
           antialias: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 0.5
+          logarithmicDepthBuffer: true,  // Better depth precision for large scenes
+          outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
+          sortObjects: true  // Ensure proper depth sorting
         }}
         camera={{
           position: [0, 0, 0],
