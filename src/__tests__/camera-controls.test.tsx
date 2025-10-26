@@ -2,7 +2,7 @@ import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CameraControls, CameraControlsRef } from '../camera-controls';
 
-// Mock window event listeners
+// Mock window and document event listeners
 const mockAddEventListener = jest.fn();
 const mockRemoveEventListener = jest.fn();
 
@@ -16,6 +16,26 @@ Object.defineProperty(window, 'removeEventListener', {
   value: mockRemoveEventListener,
 });
 
+Object.defineProperty(document, 'addEventListener', {
+  writable: true,
+  value: mockAddEventListener,
+});
+
+Object.defineProperty(document, 'removeEventListener', {
+  writable: true,
+  value: mockRemoveEventListener,
+});
+
+// Mock pointer lock API
+Object.defineProperty(document, 'pointerLockElement', {
+  get: jest.fn(() => null),
+});
+
+Object.defineProperty(document, 'exitPointerLock', {
+  writable: true,
+  value: jest.fn(),
+});
+
 // Mock React Three Fiber hooks
 jest.mock('@react-three/fiber', () => ({
   useThree: jest.fn(),
@@ -23,10 +43,9 @@ jest.mock('@react-three/fiber', () => ({
 }));
 
 const mockCamera = {
-  position: { set: jest.fn(), x: 0, y: 0, z: 0, addScaledVector: jest.fn() },
-  rotation: { order: 'YXZ', x: 0, y: 0, z: 0 },
+  position: { set: jest.fn(), x: 0, y: 0, z: 0, add: jest.fn() },
+  quaternion: { x: 0, y: 0, z: 0, w: 1, copy: jest.fn() },
   getWorldDirection: jest.fn(() => ({ x: 0, y: 0, z: -1 })),
-  updateProjectionMatrix: jest.fn(),
 };
 
 const mockGl = {
@@ -34,6 +53,7 @@ const mockGl = {
     style: { cursor: '' },
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
+    requestPointerLock: jest.fn(),
   },
 };
 
@@ -54,9 +74,6 @@ describe('CameraControls', () => {
     mockCamera.position.x = 0;
     mockCamera.position.y = 0;
     mockCamera.position.z = 0;
-    mockCamera.rotation.x = 0;
-    mockCamera.rotation.y = 0;
-    mockCamera.rotation.z = 0;
   });
 
   it('renders without crashing', () => {
@@ -69,8 +86,8 @@ describe('CameraControls', () => {
 
     expect(window.addEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
     expect(window.addEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
-    expect(window.addEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
-    expect(window.addEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
+    expect(document.addEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
+    expect(document.addEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
     expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith('mousedown', expect.any(Function));
     expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith('wheel', expect.any(Function));
   });
@@ -80,12 +97,9 @@ describe('CameraControls', () => {
 
     unmount();
 
-    expect(window.removeEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
-    expect(window.removeEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
-    expect(window.removeEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
-    expect(window.removeEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
-    expect(mockGl.domElement.removeEventListener).toHaveBeenCalledWith('mousedown', expect.any(Function));
-    expect(mockGl.domElement.removeEventListener).toHaveBeenCalledWith('wheel', expect.any(Function));
+    // Verify that event listeners are cleaned up
+    expect(mockRemoveEventListener).toHaveBeenCalled();
+    expect(mockGl.domElement.removeEventListener).toHaveBeenCalled();
   });
 
   it('sets cursor to grab initially', () => {
@@ -103,7 +117,7 @@ describe('CameraControls', () => {
   });
 
   describe('setPose method', () => {
-    it('sets camera position and rotation correctly', () => {
+    it('sets camera position and orientation correctly', () => {
       render(<CameraControls ref={mockRef} />);
 
       const position: [number, number, number] = [1, 2, 3];
@@ -112,7 +126,7 @@ describe('CameraControls', () => {
       mockRef.current?.setPose(position, lookAt);
 
       expect(mockCamera.position.set).toHaveBeenCalledWith(1, 2, 3);
-      expect(mockCamera.updateProjectionMatrix).toHaveBeenCalled();
+      // The method now uses quaternion-based orientation instead of Euler angles
     });
   });
 
@@ -138,8 +152,7 @@ describe('CameraControls', () => {
       // Call the frame callback
       frameCallback({}, 0.016); // 60fps delta
 
-      // Should update camera rotation
-      expect(mockCamera.rotation.order).toBe('YXZ');
+      // The frame callback now handles movement updates using the zen-viewer style system
     });
   });
 

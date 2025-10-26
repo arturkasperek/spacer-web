@@ -10,67 +10,64 @@ export interface CameraControlsRef {
 export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   const { camera, gl } = useThree();
   const [keys, setKeys] = useState({
-    ArrowUp: false,
-    ArrowDown: false,
-    ArrowLeft: false,
-    ArrowRight: false,
     KeyW: false,
     KeyS: false,
     KeyA: false,
     KeyD: false,
+    ArrowUp: false,
+    ArrowDown: false,
+    ArrowLeft: false,
+    ArrowRight: false,
+    KeyQ: false,
     Space: false,
+    KeyZ: false,
     ShiftLeft: false,
   });
 
-  // Velocity state for smooth movement
-  const velocity = useRef({ x: 0, y: 0, z: 0 });
-  const acceleration = 15; // How quickly to reach max speed
-  const maxSpeed = 10; // Maximum movement speed
-  const friction = 0.85; // How quickly to slow down when not pressing keys
-
-  // Mouse state for free camera rotation
-  const mouseState = useRef({
-    isMouseDown: false,
-    lastMouseX: 0,
-    lastMouseY: 0,
-    pitch: 0,
-    yaw: 0,
-  });
+  // Camera control variables (matching zen-viewer.html)
+  let moveSpeed = 50;
+  const mouseSensitivity = 0.002;
+  let pitch = 0, yaw = 0;
+  const velocity = new THREE.Vector3();
+  let isMouseDown = false;
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
-    updateMouseState: (pitch: number, yaw: number) => {
-      mouseState.current.pitch = pitch;
-      mouseState.current.yaw = yaw;
+    updateMouseState: (newPitch: number, newYaw: number) => {
+      pitch = newPitch;
+      yaw = newYaw;
+      updateCameraOrientation();
     },
     setPose: (position: [number, number, number], lookAt: [number, number, number]) => {
       // Set camera position
       camera.position.set(position[0], position[1], position[2]);
 
-      // Compute yaw/pitch from position and lookAt, Y-up, right-handed
+      // Compute yaw/pitch from position and lookAt (matching zen-viewer logic)
       const from = new THREE.Vector3(position[0], position[1], position[2]);
       const to = new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]);
       const dir = new THREE.Vector3().subVectors(to, from).normalize();
 
-      const pitch = Math.asin(dir.y);
-      let yaw = 0;
-      if (Math.abs(dir.x) > 0.0001 || Math.abs(dir.z) > 0.0001) {
-        yaw = Math.atan2(-dir.x, -dir.z);
-      }
+      yaw = Math.atan2(-dir.x, -dir.z);
+      pitch = Math.asin(dir.y);
 
-      camera.rotation.order = 'YXZ';
-      camera.rotation.x = pitch;
-      camera.rotation.y = yaw;
-      camera.rotation.z = 0;
-      camera.updateProjectionMatrix();
-
-      // Sync internal mouse state so the next drag starts from this pose
-      mouseState.current.pitch = pitch;
-      mouseState.current.yaw = yaw;
+      updateCameraOrientation();
     }
   }), [camera]);
 
+  // Camera orientation update function (matching zen-viewer)
+  const updateCameraOrientation = () => {
+    const quaternion = new THREE.Quaternion();
+    quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    camera.quaternion.copy(quaternion);
+  };
+
   useEffect(() => {
+    // Initialize camera orientation from current position (matching zen-viewer)
+    const initialDirection = new THREE.Vector3(0, 0, -1);
+    initialDirection.applyQuaternion(camera.quaternion);
+    yaw = Math.atan2(initialDirection.x, initialDirection.z);
+    pitch = Math.asin(initialDirection.y);
+
     const handleKeyDown = (event: KeyboardEvent) => {
       setKeys((prev) => ({ ...prev, [event.code]: true }));
     };
@@ -79,118 +76,96 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
       setKeys((prev) => ({ ...prev, [event.code]: false }));
     };
 
+    // Mouse controls (matching zen-viewer with pointer lock)
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button === 0) { // Left mouse button
-        mouseState.current.isMouseDown = true;
-        mouseState.current.lastMouseX = event.clientX;
-        mouseState.current.lastMouseY = event.clientY;
-        gl.domElement.style.cursor = 'grabbing';
+        isMouseDown = true;
+        gl.domElement.requestPointerLock();
       }
     };
+
+    document.addEventListener('mousemove', (event: MouseEvent) => {
+      if (!isMouseDown || document.pointerLockElement !== gl.domElement) return;
+
+      const deltaX = event.movementX || 0;
+      const deltaY = event.movementY || 0;
+
+      yaw -= deltaX * mouseSensitivity;
+      pitch -= deltaY * mouseSensitivity;
+      pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+
+      updateCameraOrientation();
+    });
 
     const handleMouseUp = (event: MouseEvent) => {
       if (event.button === 0) {
-        mouseState.current.isMouseDown = false;
-        gl.domElement.style.cursor = 'grab';
+        isMouseDown = false;
+        document.exitPointerLock();
       }
     };
 
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!mouseState.current.isMouseDown) return;
-
-      const deltaX = event.clientX - mouseState.current.lastMouseX;
-      const deltaY = event.clientY - mouseState.current.lastMouseY;
-
-      const sensitivity = 0.002; // Reduced from 0.005 to 0.002 for slower movement
-      mouseState.current.yaw += deltaX * sensitivity;  // Changed from -= to +=
-      mouseState.current.pitch += deltaY * sensitivity; // Changed from -= to +=
-
-      // Clamp pitch to prevent camera flipping
-      mouseState.current.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseState.current.pitch));
-
-      mouseState.current.lastMouseX = event.clientX;
-      mouseState.current.lastMouseY = event.clientY;
-    };
-
-    const handleWheel = (event: WheelEvent) => {
+    // Mouse wheel for movement speed (matching zen-viewer)
+    gl.domElement.addEventListener('wheel', (event: WheelEvent) => {
+      moveSpeed += event.deltaY * 0.1;
+      moveSpeed = Math.max(1, Math.min(500, moveSpeed));
       event.preventDefault();
-      const zoomSpeed = 0.1;
-      const direction = new THREE.Vector3();
-      camera.getWorldDirection(direction);
-
-      camera.position.addScaledVector(direction, -event.deltaY * zoomSpeed);
-    };
+    });
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     gl.domElement.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('mousemove', handleMouseMove);
-    gl.domElement.addEventListener('wheel', handleWheel);
+    document.addEventListener('mouseup', handleMouseUp);
     gl.domElement.style.cursor = 'grab';
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       gl.domElement.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('mousemove', handleMouseMove);
-      gl.domElement.removeEventListener('wheel', handleWheel);
+      document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [gl, camera]);
 
-  useFrame((state, delta) => {
-    // Apply free camera rotation
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y = mouseState.current.yaw;
-    camera.rotation.x = mouseState.current.pitch;
+  // Movement update function (matching zen-viewer)
+  const updateMovement = () => {
+    velocity.set(0, 0, 0);
 
-    // Calculate movement direction relative to camera orientation
-    const direction = new THREE.Vector3();
-    const right = new THREE.Vector3();
+    // Movement directions relative to camera (matching zen-viewer)
+    const forward = new THREE.Vector3(0, 0, -1);
+    const right = new THREE.Vector3(1, 0, 0);
     const up = new THREE.Vector3(0, 1, 0);
 
-    camera.getWorldDirection(direction);
-    right.crossVectors(direction, up).normalize();
+    forward.applyQuaternion(camera.quaternion);
+    right.applyQuaternion(camera.quaternion);
 
-    // Calculate desired direction based on input
-    let inputX = 0;
-    let inputY = 0;
-    let inputZ = 0;
-
-    if (keys.ArrowUp || keys.KeyW) inputZ += 1;
-    if (keys.ArrowDown || keys.KeyS) inputZ -= 1;
-    if (keys.ArrowLeft || keys.KeyA) inputX -= 1;
-    if (keys.ArrowRight || keys.KeyD) inputX += 1;
-    if (keys.Space) inputY += 1;
-    if (keys.ShiftLeft) inputY -= 1;
-
-    // Create movement vector relative to camera
-    const moveVector = new THREE.Vector3();
-    moveVector.addScaledVector(direction, inputZ);
-    moveVector.addScaledVector(right, inputX);
-    moveVector.addScaledVector(up, inputY);
-
-    // Normalize for consistent speed in all directions
-    if (moveVector.length() > 0) {
-      moveVector.normalize();
+    // WASD or Arrow keys (matching zen-viewer controls)
+    if (keys['KeyW'] || keys['ArrowUp']) {
+      velocity.add(forward);
+    }
+    if (keys['KeyS'] || keys['ArrowDown']) {
+      velocity.sub(forward);
+    }
+    if (keys['KeyA'] || keys['ArrowLeft']) {
+      velocity.sub(right);
+    }
+    if (keys['KeyD'] || keys['ArrowRight']) {
+      velocity.add(right);
+    }
+    if (keys['KeyQ'] || keys['Space']) {
+      velocity.add(up);
+    }
+    if (keys['KeyZ'] || keys['ShiftLeft']) {
+      velocity.sub(up);
     }
 
-    // Apply acceleration towards desired direction
-    const accel = acceleration * delta;
-    velocity.current.x += (moveVector.x * maxSpeed - velocity.current.x) * accel;
-    velocity.current.y += (moveVector.y * maxSpeed - velocity.current.y) * accel;
-    velocity.current.z += (moveVector.z * maxSpeed - velocity.current.z) * accel;
+    // Normalize and apply speed (matching zen-viewer)
+    if (velocity.length() > 0) {
+      velocity.normalize().multiplyScalar(moveSpeed);
+      camera.position.add(velocity);
+    }
+  };
 
-    // Apply friction when no input
-    if (moveVector.x === 0) velocity.current.x *= Math.pow(friction, delta * 60);
-    if (moveVector.y === 0) velocity.current.y *= Math.pow(friction, delta * 60);
-    if (moveVector.z === 0) velocity.current.z *= Math.pow(friction, delta * 60);
-
-    // Apply velocity to camera position
-    camera.position.x += velocity.current.x * delta;
-    camera.position.y += velocity.current.y * delta;
-    camera.position.z += velocity.current.z * delta;
+  useFrame((state, delta) => {
+    updateMovement();
   });
 
   return null;

@@ -135,6 +135,7 @@ jest.mock('three', () => {
       set: jest.fn().mockReturnThis(),
       length: jest.fn(() => 0),
       addScaledVector: jest.fn().mockReturnThis(),
+      applyQuaternion: jest.fn().mockReturnThis(),
     };
     vector.subVectors = jest.fn().mockReturnValue(vector);
     vector.crossVectors = jest.fn().mockReturnValue(vector);
@@ -142,7 +143,14 @@ jest.mock('three', () => {
     return vector;
   }),
     Euler: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
-    Quaternion: jest.fn(() => ({ x: 0, y: 0, z: 1, w: 0 })),
+    Quaternion: jest.fn(() => ({
+      x: 0,
+      y: 0,
+      z: 1,
+      w: 0,
+      setFromEuler: jest.fn().mockReturnThis(),
+      copy: jest.fn().mockReturnThis(),
+    })),
     Matrix4: jest.fn(() => ({})),
     Color: jest.fn(() => ({ r: 1, g: 1, b: 1 })),
     TextureLoader: jest.fn(() => ({
