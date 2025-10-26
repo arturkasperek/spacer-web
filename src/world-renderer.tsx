@@ -2,9 +2,10 @@ import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 
 // World Renderer Component - loads ZenKit and renders world mesh
-function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
+function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
+  onWorldLoaded?: (world: any, zenKit: any) => void;
 }>) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [worldMesh, setWorldMesh] = useState<THREE.Mesh | null>(null);
@@ -44,6 +45,11 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
 
         if (!success || !world.isLoaded) {
           throw new Error(world.getLastError() || 'Unknown loading error');
+        }
+
+        // Notify parent component that world is loaded
+        if (onWorldLoaded) {
+          onWorldLoaded(world, zenKit);
         }
 
         onLoadingStatus('Processing mesh data...');
@@ -151,7 +157,7 @@ function WorldRenderer({ worldPath, onLoadingStatus }: Readonly<{
     };
 
     loadWorld();
-  }, [worldPath, onLoadingStatus]);
+  }, [worldPath, onLoadingStatus, onWorldLoaded]);
 
   return worldMesh ? <primitive object={worldMesh} ref={meshRef} /> : null;
 }

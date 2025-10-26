@@ -6,16 +6,20 @@ import { SkyComponent } from "./sky.js";
 import { createRef, RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
+import { VOBRenderer } from "./vob-renderer.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
+  world: any;
+  zenKit: any;
+  onWorldLoaded: (world: any, zenKit: any) => void;
 }>) {
   const { camera } = useThree();
 
@@ -41,7 +45,12 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus }: Readonly<{
       <SkyComponent />
 
       {/* World Renderer */}
-      <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} />
+      <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} onWorldLoaded={onWorldLoaded} />
+
+      {/* VOB Renderer */}
+      {world && zenKit && (
+        <VOBRenderer world={world} zenKit={zenKit} onLoadingStatus={onLoadingStatus} />
+      )}
     </>
   );
 }
@@ -49,6 +58,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus }: Readonly<{
 export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
   const [loadingStatus, setLoadingStatus] = useState<string>('');
+  const [world, setWorld] = useState<any>(null);
+  const [zenKit, setZenKit] = useState<any>(null);
 
   const handleCameraChange = useCallback((position: [number, number, number], lookAt: [number, number, number]) => {
     if (cameraControlsRef.current) {
@@ -58,6 +69,11 @@ export function App() {
 
   const handleLoadingStatus = useCallback((status: string) => {
     setLoadingStatus(status);
+  }, []);
+
+  const handleWorldLoaded = useCallback((loadedWorld: any, loadedZenKit: any) => {
+    setWorld(loadedWorld);
+    setZenKit(loadedZenKit);
   }, []);
 
   // Default world path - can be made configurable later
@@ -88,6 +104,7 @@ export function App() {
         gl={{
           alpha: false,
           antialias: true,
+          logarithmicDepthBuffer: true,  // Better depth precision for large scenes
           outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
           sortObjects: true,  // Ensure proper depth sorting
           pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
@@ -105,6 +122,9 @@ export function App() {
           cameraControlsRef={cameraControlsRef}
           worldPath={worldPath}
           onLoadingStatus={handleLoadingStatus}
+          world={world}
+          zenKit={zenKit}
+          onWorldLoaded={handleWorldLoaded}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
