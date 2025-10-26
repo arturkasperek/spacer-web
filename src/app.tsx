@@ -108,7 +108,8 @@ export function App() {
           outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
           sortObjects: true,  // Ensure proper depth sorting
           pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
-          powerPreference: 'default'  // Match zen-viewer default
+          powerPreference: 'default',  // Match zen-viewer default
+          toneMapping: THREE.NoToneMapping  // Disable tone mapping for more faded appearance
         }}
         camera={{
           position: [0, 0, 0],
