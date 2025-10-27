@@ -5,6 +5,7 @@ import * as THREE from "three";
 export interface CameraControlsRef {
   updateMouseState: (pitch: number, yaw: number) => void;
   setPose: (position: [number, number, number], lookAt: [number, number, number]) => void;
+  getPosition: () => THREE.Vector3;
 }
 
 export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
@@ -51,6 +52,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
       pitch = Math.asin(dir.y);
 
       updateCameraOrientation();
+    },
+    getPosition: () => {
+      return camera.position.clone();
     }
   }), [camera]);
 

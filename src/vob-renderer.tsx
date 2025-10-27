@@ -1,15 +1,18 @@
 import { useRef, useEffect, useState } from "react";
+import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl } from "./vob-utils";
 
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
-function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
+function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats }: Readonly<{
   world: any;
   zenKit: any;
+  cameraPosition?: THREE.Vector3;
   onLoadingStatus: (status: string) => void;
+  onVobStats?: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
 }>) {
-  const [vobObjects, setVobObjects] = useState<THREE.Object3D[]>([]);
+  const { scene } = useThree();
   const hasLoadedRef = useRef(false);
 
   // VOB management state
@@ -28,8 +31,10 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
 
   // Streaming loader state
   const vobLoadQueueRef = useRef<any[]>([]);
-  const isLoadingVOBRef = useRef(false);
+  const loadingVOBsRef = useRef(new Set()); // Track currently loading VOBs
   const isFirstVOBUpdateRef = useRef(true);
+  const updateCounterRef = useRef(0);
+  const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
 
   useEffect(() => {
     // Only load once
@@ -46,7 +51,7 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
 
         // Start the streaming loader
         onLoadingStatus(`🎬 Starting streaming VOB loader (${allVOBsRef.current.length} VOBs)...`);
-        requestAnimationFrame(updateVOBStreaming);
+        // Streaming will now be handled by useFrame hook
 
       } catch (error) {
         console.error('❌ Failed to load VOBs:', error);
@@ -115,9 +120,10 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
 
   // Streaming VOB loader - loads/unloads based on camera distance
   const updateVOBStreaming = () => {
-    // Get current camera position (we'll need to pass this from parent)
-    // For now, we'll use a default camera position
-    const camPos = new THREE.Vector3(0, 0, 0); // This should be passed from camera controls
+    const counter = updateCounterRef.current;
+
+    // Use the camera position passed from parent component (fallback to origin if not provided)
+    const camPos = cameraPosition || new THREE.Vector3(0, 0, 0);
 
     // Check if camera moved significantly OR if this is the first update
     const distance = lastCameraPositionRef.current.distanceTo(camPos);
@@ -130,6 +136,18 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       // Find VOBs to load/unload
       vobLoadQueueRef.current = [];
       const toUnload = [];
+
+      // Force load first few VOBs on initial load
+      const wasFirstUpdate = isFirstVOBUpdateRef.current;
+      if (wasFirstUpdate) {
+        const forceLoadCount = Math.min(3, allVOBsRef.current.length);
+        for (let i = 0; i < forceLoadCount; i++) {
+          const vobData = allVOBsRef.current[i];
+          if (!loadedVOBsRef.current.has(vobData.id)) {
+            vobLoadQueueRef.current.push(vobData);
+          }
+        }
+      }
 
       for (const vobData of allVOBsRef.current) {
         const distance = camPos.distanceTo(vobData.position);
@@ -146,7 +164,8 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       for (const id of toUnload) {
         const mesh = loadedVOBsRef.current.get(id);
         if (mesh) {
-          // Remove from scene (handled by React state)
+          scene.remove(mesh);
+          disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
         }
       }
@@ -157,27 +176,75 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       });
     }
 
-    // Load one VOB per frame to avoid lag
-    if (!isLoadingVOBRef.current && vobLoadQueueRef.current.length > 0) {
-      isLoadingVOBRef.current = true;
-      const vobData = vobLoadQueueRef.current.shift();
+    // Load multiple VOBs concurrently (up to MAX_CONCURRENT_LOADS) to speed up loading
+    const currentlyLoading = loadingVOBsRef.current.size;
+    const availableSlots = MAX_CONCURRENT_LOADS - currentlyLoading;
 
-      renderVOB(vobData.vob, vobData.id).then(success => {
-        isLoadingVOBRef.current = false;
-        if (success) {
-          console.log(`✅ Loaded VOB: ${vobData.visualName}`);
-        }
-      });
+    // Start loading new VOBs if we have available slots and items in queue
+    for (let i = 0; i < Math.min(availableSlots, vobLoadQueueRef.current.length); i++) {
+      const vobData = vobLoadQueueRef.current.shift();
+      if (vobData) {
+        loadingVOBsRef.current.add(vobData.id);
+
+        renderVOB(vobData.vob, vobData.id).then(success => {
+          loadingVOBsRef.current.delete(vobData.id);
+          if (!success) {
+            console.warn(`❌ Failed to render VOB: ${vobData.visualName}`);
+          }
+        });
+      }
     }
 
-    // Update debug info
+    // Update debug info and stats
     const loadedCount = loadedVOBsRef.current.size;
     const totalCount = allVOBsRef.current.length;
     const queueCount = vobLoadQueueRef.current.length;
 
-    // Continue streaming
-    requestAnimationFrame(updateVOBStreaming);
+    // Report stats to parent component
+    if (onVobStats) {
+      onVobStats({
+        loaded: loadedCount,
+        total: totalCount,
+        queue: queueCount, // Items waiting in queue
+        loading: currentlyLoading, // Items currently being loaded
+        meshCache: meshCacheRef.current.size,
+        morphCache: morphMeshCacheRef.current.size,
+        textureCache: textureCacheRef.current.size
+      });
+    }
+
+    // Streaming continues via useFrame hook
   };
+
+  // Helper function to properly dispose of Three.js objects
+  const disposeObject3D = (object: THREE.Object3D) => {
+    if (!object) return;
+
+    // If it's a Mesh, dispose its geometry
+    if ((object as THREE.Mesh).geometry) {
+      (object as THREE.Mesh).geometry.dispose();
+    }
+
+    // If it's a Group or has children, recursively dispose children
+    if (object.children && object.children.length > 0) {
+      for (const child of object.children) {
+        disposeObject3D(child);
+      }
+    }
+
+    // Note: materials are cached and shared, don't dispose them
+  };
+
+  // Alternative approach: use useFrame for continuous streaming updates
+  useFrame(() => {
+    if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
+      // Only run streaming update every few frames to reduce overhead
+      if (updateCounterRef.current % 10 === 0) {  // Every 10 frames
+        updateVOBStreaming();
+      }
+      updateCounterRef.current++;
+    }
+  });
 
   // Main VOB rendering dispatcher
   const renderVOB = async (vob: any, vobId = null): Promise<boolean> => {
@@ -239,10 +306,10 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       // Apply VOB transform
       applyVobTransform(vobMeshObj, vob);
 
-      // Register loaded VOB
+      // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
-        setVobObjects(prev => [...prev, vobMeshObj]);
+        scene.add(vobMeshObj);
       }
 
       return true;
@@ -355,10 +422,10 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       // Apply VOB transform using the same approach as regular VOBs
       applyVobTransform(modelGroup, vob);
 
-      // Register loaded VOB
+      // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
-        setVobObjects(prev => [...prev, modelGroup]);
+        scene.add(modelGroup);
       }
 
       return true;
@@ -399,13 +466,11 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);
 
-      // Register loaded VOB
+      // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
-        setVobObjects(prev => [...prev, morphMesh]);
+        scene.add(morphMesh);
       }
-
-      console.log(`✅ Rendered morph mesh VOB ${visualName} (${morphData.animationCount} animations available)`);
 
       return true;
 
@@ -733,13 +798,8 @@ function VOBRenderer({ world, zenKit, onLoadingStatus }: Readonly<{
 
 
 
-  return (
-    <>
-      {vobObjects.map((vobObject, index) => (
-        <primitive key={index} object={vobObject} />
-      ))}
-    </>
-  );
+  // Objects are added directly to the scene, no JSX needed
+  return null;
 }
 
 export { VOBRenderer };

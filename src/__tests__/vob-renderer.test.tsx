@@ -1,5 +1,6 @@
 import { render } from '@testing-library/react';
 import { VOBRenderer } from '../vob-renderer';
+import * as THREE from 'three';
 
 // Mock fetch
 const mockFetch = jest.fn();
@@ -12,6 +13,7 @@ global.requestAnimationFrame = jest.fn((cb) => setTimeout(cb, 0));
 const mockConsoleLog = jest.fn();
 const mockConsoleWarn = jest.fn();
 const mockConsoleError = jest.fn();
+const mockOnVobStats = jest.fn();
 
 beforeAll(() => {
   console.log = mockConsoleLog;
@@ -88,17 +90,19 @@ describe('VOBRenderer', () => {
   it('renders without crashing', () => {
     const mockWorld = createMockWorld();
     const mockZenKit = createMockZenKit();
-    render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
+    const cameraPosition = new THREE.Vector3(0, 0, 0);
+    render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} cameraPosition={cameraPosition} onLoadingStatus={mockOnLoadingStatus} onVobStats={mockOnVobStats} />);
     expect(mockOnLoadingStatus).toHaveBeenCalledWith('🔧 Collecting VOBs...');
   });
 
-  it('accepts world, zenKit, and onLoadingStatus props', () => {
+  it('accepts world, zenKit, cameraPosition, and onLoadingStatus props', () => {
     const mockWorld = createMockWorld();
     const mockZenKit = createMockZenKit();
-    const { rerender } = render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
+    const cameraPosition = new THREE.Vector3(0, 0, 0);
+    const { rerender } = render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} cameraPosition={cameraPosition} onLoadingStatus={mockOnLoadingStatus} onVobStats={mockOnVobStats} />);
 
     // Can rerender with different props
-    rerender(<VOBRenderer world={mockWorld} zenKit={mockZenKit} onLoadingStatus={jest.fn()} />);
+    rerender(<VOBRenderer world={mockWorld} zenKit={mockZenKit} cameraPosition={cameraPosition} onLoadingStatus={jest.fn()} onVobStats={mockOnVobStats} />);
   });
 
   it('collects VOBs from world', () => {

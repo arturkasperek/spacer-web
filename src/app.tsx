@@ -1,4 +1,4 @@
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { NavigationOverlay } from "./navigation.js";
 import { AxesHelper } from "./axes.js";
@@ -11,15 +11,38 @@ import { VOBRenderer } from "./vob-renderer.js";
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
 
+// Component to track camera position changes
+function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
+  cameraControlsRef: React.RefObject<CameraControlsRef | null>;
+  onPositionChange: (position: THREE.Vector3) => void;
+}) {
+  const lastPositionRef = useRef(new THREE.Vector3());
+
+  useFrame(() => {
+    if (cameraControlsRef.current) {
+      const position = cameraControlsRef.current.getPosition();
+      // Only update if position actually changed (to avoid unnecessary re-renders)
+      if (!position.equals(lastPositionRef.current)) {
+        lastPositionRef.current.copy(position);
+        onPositionChange(position);
+      }
+    }
+  });
+  return null;
+}
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded }: Readonly<{
+
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
   world: any;
   zenKit: any;
   onWorldLoaded: (world: any, zenKit: any) => void;
+  cameraPosition: THREE.Vector3;
+  onCameraPositionChange: (position: THREE.Vector3) => void;
+  onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
 }>) {
   const { camera } = useThree();
 
@@ -47,9 +70,21 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       {/* World Renderer */}
       <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} onWorldLoaded={onWorldLoaded} />
 
+      {/* Camera position tracker */}
+      <CameraPositionTracker
+        cameraControlsRef={cameraControlsRef}
+        onPositionChange={onCameraPositionChange}
+      />
+
       {/* VOB Renderer */}
       {world && zenKit && (
-        <VOBRenderer world={world} zenKit={zenKit} onLoadingStatus={onLoadingStatus} />
+        <VOBRenderer
+          world={world}
+          zenKit={zenKit}
+          cameraPosition={cameraPosition}
+          onLoadingStatus={onLoadingStatus}
+          onVobStats={onVobStats}
+        />
       )}
     </>
   );
@@ -60,6 +95,16 @@ export function App() {
   const [loadingStatus, setLoadingStatus] = useState<string>('');
   const [world, setWorld] = useState<any>(null);
   const [zenKit, setZenKit] = useState<any>(null);
+  const [cameraPosition, setCameraPosition] = useState(new THREE.Vector3(0, 0, 0));
+  const [vobStats, setVobStats] = useState<{
+    loaded: number;
+    total: number;
+    queue: number;
+    loading: number;
+    meshCache: number;
+    morphCache: number;
+    textureCache: number;
+  } | null>(null);
 
   const handleCameraChange = useCallback((position: [number, number, number], lookAt: [number, number, number]) => {
     if (cameraControlsRef.current) {
@@ -74,6 +119,22 @@ export function App() {
   const handleWorldLoaded = useCallback((loadedWorld: any, loadedZenKit: any) => {
     setWorld(loadedWorld);
     setZenKit(loadedZenKit);
+  }, []);
+
+  const handleCameraPositionChange = useCallback((position: THREE.Vector3) => {
+    setCameraPosition(position);
+  }, []);
+
+  const handleVobStats = useCallback((stats: {
+    loaded: number;
+    total: number;
+    queue: number;
+    loading: number;
+    meshCache: number;
+    morphCache: number;
+    textureCache: number;
+  }) => {
+    setVobStats(stats);
   }, []);
 
   // Default world path - can be made configurable later
@@ -97,6 +158,11 @@ export function App() {
           zIndex: 1000
         }}>
           <div>Loading Status: {loadingStatus}</div>
+          {vobStats && (
+            <div style={{ marginTop: '8px', fontSize: '11px', borderTop: '1px solid rgba(255,255,255,0.3)', paddingTop: '8px' }}>
+              📦 VOBs: {vobStats.loaded}/{vobStats.total} loaded | Queue: {vobStats.queue} | Loading: {vobStats.loading} | Cache: {vobStats.meshCache} meshes, {vobStats.morphCache} morphs, {vobStats.textureCache} textures
+            </div>
+          )}
         </div>
       )}
 
@@ -126,6 +192,9 @@ export function App() {
           world={world}
           zenKit={zenKit}
           onWorldLoaded={handleWorldLoaded}
+          cameraPosition={cameraPosition}
+          onCameraPositionChange={handleCameraPositionChange}
+          onVobStats={handleVobStats}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
