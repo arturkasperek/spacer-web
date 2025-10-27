@@ -137,18 +137,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       vobLoadQueueRef.current = [];
       const toUnload = [];
 
-      // Force load first few VOBs on initial load
-      const wasFirstUpdate = isFirstVOBUpdateRef.current;
-      if (wasFirstUpdate) {
-        const forceLoadCount = Math.min(3, allVOBsRef.current.length);
-        for (let i = 0; i < forceLoadCount; i++) {
-          const vobData = allVOBsRef.current[i];
-          if (!loadedVOBsRef.current.has(vobData.id)) {
-            vobLoadQueueRef.current.push(vobData);
-          }
-        }
-      }
-
       for (const vobData of allVOBsRef.current) {
         const distance = camPos.distanceTo(vobData.position);
         const isLoaded = loadedVOBsRef.current.has(vobData.id);
