@@ -20,6 +20,7 @@ interface FlattenedNode {
 
 interface VOBTreeProps {
   world: any;
+  onVobClick?: (position: { x: number; y: number; z: number }) => void;
 }
 
 function buildVOBTree(world: any): VOBNode[] {
@@ -104,7 +105,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -206,14 +207,25 @@ export function VOBTree({ world }: VOBTreeProps) {
             display: 'flex',
             alignItems: 'center',
             padding: '4px 8px',
-            cursor: hasChildren ? 'pointer' : 'default',
+            cursor: hasChildren ? 'pointer' : 'pointer', // All items are clickable now
             borderRadius: '4px',
             height: '100%',
             boxSizing: 'border-box'
           }}
-          onClick={() => hasChildren && toggleExpanded(node.id)}
+          onClick={() => {
+            if (hasChildren) {
+              toggleExpanded(node.id);
+            } else {
+              // If no children, teleport to VOB position
+              onVobClick?.(node.position);
+            }
+          }}
+          onDoubleClick={() => {
+            // Double-click always teleports, even for parent nodes
+            onVobClick?.(node.position);
+          }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.backgroundColor = 'rgba(100, 150, 255, 0.2)'; // Slightly blue highlight
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent';
@@ -262,7 +274,7 @@ export function VOBTree({ world }: VOBTreeProps) {
         </div>
       </div>
     );
-  }, [flattenedItems, toggleExpanded]);
+  }, [flattenedItems, toggleExpanded, onVobClick]);
 
   if (!world) {
     return (
@@ -324,6 +336,14 @@ export function VOBTree({ world }: VOBTreeProps) {
         </h3>
         <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.6)' }}>
           Total VOBs: {totalCount}
+        </div>
+        <div style={{ 
+          fontSize: '10px', 
+          color: 'rgba(150, 200, 255, 0.8)',
+          marginTop: '4px',
+          fontStyle: 'italic'
+        }}>
+          Click: expand | Double-click: teleport
         </div>
       </div>
 

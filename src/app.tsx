@@ -138,13 +138,34 @@ export function App() {
     setVobStats(stats);
   }, []);
 
+  const handleVobClick = useCallback((position: { x: number; y: number; z: number }) => {
+    if (cameraControlsRef.current) {
+      // Convert VOB position to camera position (remember x is negated in Gothic coordinate system)
+      // Place camera slightly above and away from the VOB
+      const cameraPos: [number, number, number] = [
+        -position.x,
+        position.y + 200, // 200 units above
+        position.z + 200  // 200 units away
+      ];
+      
+      // Look at the VOB position
+      const lookAtPos: [number, number, number] = [
+        -position.x,
+        position.y,
+        position.z
+      ];
+      
+      cameraControlsRef.current.setPose(cameraPos, lookAtPos);
+    }
+  }, []);
+
   // Default world path - can be made configurable later
   const worldPath = "/WORLDS/NEWWORLD/NEWWORLD.ZEN";
 
   return (
     <>
       {/* VOB Tree - left side panel */}
-      <VOBTree world={world} />
+      <VOBTree world={world} onVobClick={handleVobClick} />
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
