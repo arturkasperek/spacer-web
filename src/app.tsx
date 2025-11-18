@@ -7,6 +7,7 @@ import { createRef, RefObject, useCallback, useEffect, useRef, useState } from "
 import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
+import { VOBTree } from "./vob-tree.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -142,12 +143,15 @@ export function App() {
 
   return (
     <>
+      {/* VOB Tree - left side panel */}
+      <VOBTree world={world} />
+
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
         <div style={{
           position: 'absolute',
           top: '10px',
-          left: '10px',
+          left: '330px', // Adjusted to be after the VOB tree
           background: 'rgba(0, 0, 0, 0.8)',
           color: 'white',
           padding: '10px',

@@ -22,7 +22,8 @@ export default defineConfig({
   },
   // Ensure WASM files are served with correct headers
   optimizeDeps: {
-    exclude: ['@kolarz3/zenkit']
+    exclude: ['@kolarz3/zenkit'],
+    include: ['react-window']
   },
   // Configure assets handling for WASM
   assetsInclude: ['**/*.wasm'],
