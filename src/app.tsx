@@ -35,7 +35,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -46,6 +46,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onCameraPositionChange: (position: THREE.Vector3) => void;
   onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
   selectedVob: Vob | null;
+  onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
 }>) {
   const { camera } = useThree();
 
@@ -88,6 +89,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           onLoadingStatus={onLoadingStatus}
           onVobStats={onVobStats}
           selectedVob={selectedVob}
+          onSelectedVobBoundingBox={onSelectedVobBoundingBox}
         />
       )}
     </>
@@ -142,37 +144,35 @@ export function App() {
   }, []);
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
+  const shouldUpdateCameraRef = useRef(false);
 
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
-    
-    const position = {
-      x: vob.position?.x || 0,
-      y: vob.position?.y || 0,
-      z: vob.position?.z || 0,
-    };
-    
-    if (cameraControlsRef.current) {
-      // Convert VOB position to camera position (remember x is negated in Gothic coordinate system)
-      // Place camera slightly above and away from the VOB
-      const cameraPos: [number, number, number] = [
-        -position.x,
-        position.y + 200, // 200 units above
-        position.z + 200  // 200 units away
-      ];
-      
-      // Look at the VOB position
-      const lookAtPos: [number, number, number] = [
-        -position.x,
-        position.y,
-        position.z
-      ];
-      
-      cameraControlsRef.current.setPose(cameraPos, lookAtPos);
-    }
-    
-    // Set selected VOB for bounding box rendering
+    shouldUpdateCameraRef.current = true;
     setSelectedVob(vob);
+  }, []);
+
+  const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {
+    if (size.length() === 0 || !shouldUpdateCameraRef.current || !cameraControlsRef.current) {
+      return;
+    }
+
+    shouldUpdateCameraRef.current = false;
+
+    const maxDimension = Math.max(size.x, size.y, size.z);
+    const distance = maxDimension * 1.5 + 100;
+    const offsetDirection = new THREE.Vector3(1, 0.5, 1).normalize();
+    const cameraOffset = offsetDirection.clone().multiplyScalar(distance);
+    
+    const cameraPos: [number, number, number] = [
+      center.x + cameraOffset.x,
+      center.y + cameraOffset.y,
+      center.z + cameraOffset.z
+    ];
+    
+    const lookAtPos: [number, number, number] = [center.x, center.y, center.z];
+    
+    cameraControlsRef.current.setPose(cameraPos, lookAtPos);
   }, []);
 
   // Default world path - can be made configurable later
@@ -237,6 +237,7 @@ export function App() {
           onCameraPositionChange={handleCameraPositionChange}
           onVobStats={handleVobStats}
           selectedVob={selectedVob}
+          onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />

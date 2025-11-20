@@ -13,13 +13,14 @@ interface VobData {
 }
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
-function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats, selectedVob }: Readonly<{
+function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats, selectedVob, onSelectedVobBoundingBox }: Readonly<{
   world: World | null;
   zenKit: ZenKit | null;
   cameraPosition?: THREE.Vector3;
   onLoadingStatus: (status: string) => void;
   onVobStats?: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
   selectedVob?: Vob | null;
+  onSelectedVobBoundingBox?: (center: THREE.Vector3, size: THREE.Vector3) => void;
 }>) {
   const { scene } = useThree();
   const hasLoadedRef = useRef(false);
@@ -851,32 +852,26 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
 
 
-  // Track selected VOB object - use state to force updates when VOBs load
   const [selectedVobObject, setSelectedVobObject] = useState<THREE.Object3D | null>(null);
 
-  // Update selected VOB object when selectedVob changes or when VOBs are loaded
   useEffect(() => {
     if (!selectedVob) {
       setSelectedVobObject(null);
       return;
     }
 
-    // Find the VOB in allVOBsRef by comparing VOB object references
     const vobData = allVOBsRef.current.find(vd => vd.vob.id === selectedVob.id);
-
     if (!vobData) {
       setSelectedVobObject(null);
       return;
     }
 
-    // Find the rendered object in loadedVOBsRef
     const renderedObject = loadedVOBsRef.current.get(vobData.id);
     if (renderedObject) {
       setSelectedVobObject(renderedObject);
     } else {
       setSelectedVobObject(null);
       
-      // Force load the selected VOB even if it's outside normal distance
       if (!loadingVOBsRef.current.has(vobData.id)) {
         loadingVOBsRef.current.add(vobData.id);
         renderVOB(vobData.vob, vobData.id).then(success => {
@@ -891,6 +886,32 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
     }
   }, [selectedVob]);
+
+  useEffect(() => {
+    if (!selectedVobObject || !onSelectedVobBoundingBox) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      selectedVobObject.updateMatrixWorld(true);
+
+      const box = new THREE.Box3();
+      box.setFromObject(selectedVobObject);
+
+      if (box.isEmpty()) {
+        return;
+      }
+
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+
+      if (size.x > 0 && size.y > 0 && size.z > 0) {
+        onSelectedVobBoundingBox(center, size);
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [selectedVobObject, onSelectedVobBoundingBox]);
 
   // Objects are added directly to the scene, but we can return JSX for the bounding box
   return (
