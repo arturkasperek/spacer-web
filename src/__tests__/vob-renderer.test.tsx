@@ -32,6 +32,7 @@ const createMockWorld = (): World => ({
   getVobs: jest.fn(() => ({
     size: jest.fn(() => 2),
     get: jest.fn((_index) => ({
+      id: _index,
       showVisual: true,
       visual: {
         type: 1, // MESH
@@ -153,6 +154,7 @@ describe('VOBRenderer', () => {
           const vobs = [
             // Valid mesh VOB
             {
+              id: 0,
               showVisual: true,
               visual: { type: 1, name: 'mesh.MSH' },
               position: { x: 0, y: 0, z: 0 },
@@ -164,6 +166,7 @@ describe('VOBRenderer', () => {
             },
             // Invalid - no visual
             {
+              id: 1,
               showVisual: false,
               visual: { type: 1, name: 'hidden.MSH' },
               position: { x: 0, y: 0, z: 0 },
@@ -175,6 +178,7 @@ describe('VOBRenderer', () => {
             },
             // Invalid - texture extension
             {
+              id: 2,
               showVisual: true,
               visual: { type: 1, name: 'texture.TGA' },
               position: { x: 0, y: 0, z: 0 },
@@ -186,6 +190,7 @@ describe('VOBRenderer', () => {
             },
             // Invalid - unsupported type
             {
+              id: 3,
               showVisual: true,
               visual: { type: 3, name: 'particle.EFF' }, // PARTICLE_EFFECT
               position: { x: 0, y: 0, z: 0 },
@@ -213,6 +218,7 @@ describe('VOBRenderer', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 100,
           showVisual: true,
           visual: { type: 1, name: 'parent.MSH' },
           position: { x: 0, y: 0, z: 0 },
@@ -223,6 +229,7 @@ describe('VOBRenderer', () => {
           children: {
             size: jest.fn(() => 1),
             get: jest.fn(() => ({
+              id: 101,
               showVisual: true,
               visual: { type: 1, name: 'child.MSH' },
               position: { x: 1, y: 1, z: 1 },
@@ -252,6 +259,7 @@ describe('VOBRenderer', () => {
         get: (index: number) => {
           const vobs = [
             {
+              id: 200,
               showVisual: true,
               visual: { type: 1, name: 'mesh.MSH' },
               position: { x: 0, y: 0, z: 0 },
@@ -262,6 +270,7 @@ describe('VOBRenderer', () => {
               children: { size: jest.fn(() => 0), get: () => null as any }
             },
             {
+              id: 201,
               showVisual: true,
               visual: { type: 5, name: 'model.MDL' },
               position: { x: 0, y: 0, z: 0 },
@@ -272,6 +281,7 @@ describe('VOBRenderer', () => {
               children: { size: jest.fn(() => 0), get: () => null as any }
             },
             {
+              id: 202,
               showVisual: true,
               visual: { type: 6, name: 'morph.MMB' },
               position: { x: 0, y: 0, z: 0 },
@@ -380,6 +390,7 @@ describe('VOB Rendering Logic', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 300,
           showVisual: true,
           visual: { type: 1, name: 'test.MSH' },
           position: { x: 10, y: 20, z: 30 },
@@ -411,6 +422,7 @@ describe('VOB Rendering Logic', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 400,
           showVisual: true,
           visual: { type: 5, name: 'test.MDL' },
           position: { x: 0, y: 0, z: 0 },
@@ -441,6 +453,7 @@ describe('VOB Rendering Logic', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 500,
           showVisual: true,
           visual: { type: 6, name: 'test.MMB' },
           position: { x: 0, y: 0, z: 0 },
@@ -471,6 +484,7 @@ describe('VOB Rendering Logic', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 600,
           showVisual: true,
           visual: { type: 3, name: 'particle.EFF' }, // PARTICLE_EFFECT - unsupported
           position: { x: 0, y: 0, z: 0 },
@@ -494,6 +508,7 @@ describe('VOB Rendering Logic', () => {
       getVobs: () => ({
         size: () => 1,
         get: () => ({
+          id: 700,
           showVisual: true,
           visual: { type: 1, name: '' }, // Invalid visual name (empty string instead of null)
           position: { x: 0, y: 0, z: 0 },

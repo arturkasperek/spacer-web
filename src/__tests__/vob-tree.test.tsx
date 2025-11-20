@@ -28,6 +28,7 @@ const createMockWorld = (vobCount = 3): World => {
   
   for (let i = 0; i < vobCount; i++) {
     mockVobs.push({
+      id: i,
       objectName: `VOB_${i}`,
       position: { x: i * 100, y: i * 50, z: i * 25 },
       visual: {
@@ -37,6 +38,7 @@ const createMockWorld = (vobCount = 3): World => {
       children: {
         size: () => i === 0 ? 2 : 0, // First VOB has 2 children
         get: (childIndex: number) => ({
+          id: 1000 + i * 10 + childIndex,
           objectName: `Child_${i}_${childIndex}`,
           position: { x: 0, y: 0, z: 0 },
           visual: {
@@ -259,6 +261,7 @@ describe('VOBTree Component', () => {
         getVobs: () => ({
           size: () => 1,
           get: () => ({
+            id: 999,
             objectName: 'TestVOB',
             position: { x: 0, y: 0, z: 0 },
             visual: {
@@ -300,6 +303,7 @@ describe('VOBTree Component', () => {
       // Override the first VOB to have unknown type
       const vobs = world.getVobs();
       vobs.get = () => ({
+        id: 888,
         objectName: 'TestVOB',
         position: { x: 0, y: 0, z: 0 },
         visual: {

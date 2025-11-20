@@ -8,7 +8,7 @@ import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { VOBTree } from "./vob-tree.js";
-import type { World, ZenKit } from '@kolarz3/zenkit';
+import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -35,7 +35,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -45,6 +45,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   cameraPosition: THREE.Vector3;
   onCameraPositionChange: (position: THREE.Vector3) => void;
   onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
+  selectedVob: Vob | null;
 }>) {
   const { camera } = useThree();
 
@@ -86,6 +87,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           cameraPosition={cameraPosition}
           onLoadingStatus={onLoadingStatus}
           onVobStats={onVobStats}
+          selectedVob={selectedVob}
         />
       )}
     </>
@@ -139,7 +141,17 @@ export function App() {
     setVobStats(stats);
   }, []);
 
-  const handleVobClick = useCallback((position: { x: number; y: number; z: number }) => {
+  const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
+
+  const handleVobClick = useCallback((vob: Vob) => {
+    if (!vob) return;
+    
+    const position = {
+      x: vob.position?.x || 0,
+      y: vob.position?.y || 0,
+      z: vob.position?.z || 0,
+    };
+    
     if (cameraControlsRef.current) {
       // Convert VOB position to camera position (remember x is negated in Gothic coordinate system)
       // Place camera slightly above and away from the VOB
@@ -158,6 +170,9 @@ export function App() {
       
       cameraControlsRef.current.setPose(cameraPos, lookAtPos);
     }
+    
+    // Set selected VOB for bounding box rendering
+    setSelectedVob(vob);
   }, []);
 
   // Default world path - can be made configurable later
@@ -221,6 +236,7 @@ export function App() {
           cameraPosition={cameraPosition}
           onCameraPositionChange={handleCameraPositionChange}
           onVobStats={handleVobStats}
+          selectedVob={selectedVob}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />

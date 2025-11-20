@@ -1,7 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl } from "./vob-utils";
+import { VOBBoundingBox } from "./vob-bounding-box";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
 interface VobData {
@@ -12,12 +13,13 @@ interface VobData {
 }
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
-function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats }: Readonly<{
+function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats, selectedVob }: Readonly<{
   world: World | null;
   zenKit: ZenKit | null;
   cameraPosition?: THREE.Vector3;
   onLoadingStatus: (status: string) => void;
   onVobStats?: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
+  selectedVob?: Vob | null;
 }>) {
   const { scene } = useThree();
   const hasLoadedRef = useRef(false);
@@ -849,8 +851,59 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
 
 
-  // Objects are added directly to the scene, no JSX needed
-  return null;
+  // Track selected VOB object - use state to force updates when VOBs load
+  const [selectedVobObject, setSelectedVobObject] = useState<THREE.Object3D | null>(null);
+
+  // Update selected VOB object when selectedVob changes or when VOBs are loaded
+  useEffect(() => {
+    if (!selectedVob) {
+      setSelectedVobObject(null);
+      return;
+    }
+
+    // Find the VOB in allVOBsRef by comparing VOB object references
+    const vobData = allVOBsRef.current.find(vd => vd.vob.id === selectedVob.id);
+
+    if (!vobData) {
+      setSelectedVobObject(null);
+      return;
+    }
+
+    // Find the rendered object in loadedVOBsRef
+    const renderedObject = loadedVOBsRef.current.get(vobData.id);
+    if (renderedObject) {
+      setSelectedVobObject(renderedObject);
+    } else {
+      setSelectedVobObject(null);
+      
+      // Force load the selected VOB even if it's outside normal distance
+      if (!loadingVOBsRef.current.has(vobData.id)) {
+        loadingVOBsRef.current.add(vobData.id);
+        renderVOB(vobData.vob, vobData.id).then(success => {
+          loadingVOBsRef.current.delete(vobData.id);
+          if (success) {
+            const loadedObj = loadedVOBsRef.current.get(vobData.id);
+            if (loadedObj) {
+              setSelectedVobObject(loadedObj);
+            }
+          }
+        });
+      }
+    }
+  }, [selectedVob]);
+
+  // Objects are added directly to the scene, but we can return JSX for the bounding box
+  return (
+    <>
+      {selectedVobObject && (
+        <VOBBoundingBox
+          vobObject={selectedVobObject}
+          visible={true}
+          color="#ffff00"
+        />
+      )}
+    </>
+  );
 }
 
 export { VOBRenderer };

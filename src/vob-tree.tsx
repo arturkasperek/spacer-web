@@ -21,7 +21,7 @@ interface FlattenedNode {
 
 interface VOBTreeProps {
   world: World | null;
-  onVobClick?: (position: { x: number; y: number; z: number }) => void;
+  onVobClick?: (vob: Vob) => void;
 }
 
 function buildVOBTree(world: World): VOBNode[] {
@@ -218,12 +218,12 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
               toggleExpanded(node.id);
             } else {
               // If no children, teleport to VOB position
-              onVobClick?.(node.position);
+              onVobClick?.(node.vob);
             }
           }}
           onDoubleClick={() => {
             // Double-click always teleports, even for parent nodes
-            onVobClick?.(node.position);
+            onVobClick?.(node.vob);
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = 'rgba(100, 150, 255, 0.2)'; // Slightly blue highlight
