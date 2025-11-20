@@ -73,10 +73,28 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     pitch = Math.asin(initialDirection.y);
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Ignore keyboard events when user is typing in an input field
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+      )) {
+        return;
+      }
       setKeys((prev) => ({ ...prev, [event.code]: true }));
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      // Ignore keyboard events when user is typing in an input field
+      const activeElement = document.activeElement;
+      if (activeElement && (
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+      )) {
+        return;
+      }
       setKeys((prev) => ({ ...prev, [event.code]: false }));
     };
 
