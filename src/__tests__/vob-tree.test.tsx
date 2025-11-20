@@ -299,22 +299,42 @@ describe('VOBTree Component', () => {
     });
 
     it('should handle unknown visual types', () => {
-      const world = createMockWorld(1);
-      // Override the first VOB to have unknown type
-      const vobs = world.getVobs();
-      vobs.get = () => ({
-        id: 888,
-        objectName: 'TestVOB',
-        position: { x: 0, y: 0, z: 0 },
-        visual: {
-          type: 999, // Unknown type
-          name: 'test.unknown'
-        },
-        children: {
-          size: () => 0,
-          get: () => null
+      const world: World = {
+        getVobs: () => ({
+          size: () => 1,
+          get: () => ({
+            id: 888,
+            objectName: 'TestVOB',
+            position: { x: 0, y: 0, z: 0 },
+            visual: {
+              type: 999, // Unknown type
+              name: 'test.unknown'
+            },
+            rotation: {
+              toArray: () => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })
+            },
+            showVisual: true,
+            children: {
+              size: () => 0,
+              get: () => null as any
+            }
+          })
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 }
+          })
         }
-      }) as any;
+      } as unknown as World;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText(/UNKNOWN\(999\): test\.unknown/)).toBeInTheDocument();
