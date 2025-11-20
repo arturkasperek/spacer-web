@@ -1,1 +1,24 @@
-{"compilerOptions":{"target":"ESNext","module":"ESNext","moduleResolution":"bundler","esModuleInterop":true,"jsx":"react-jsx","strict":true,"skipLibCheck":true,"outDir":"dist"},"include":["src/**/*"]}
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "outDir": "dist"
+  },
+  "include": ["src/**/*"]
+}

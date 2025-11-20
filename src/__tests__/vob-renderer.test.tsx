@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react';
 import { VOBRenderer } from '../vob-renderer';
 import * as THREE from 'three';
+import type { World, ZenKit } from '@kolarz3/zenkit';
 
 // Mock fetch
 const mockFetch = jest.fn();
@@ -27,10 +28,10 @@ beforeEach(() => {
 });
 
 // Helper functions for creating mocks
-const createMockWorld = () => ({
+const createMockWorld = (): World => ({
   getVobs: jest.fn(() => ({
     size: jest.fn(() => 2),
-    get: jest.fn((index) => ({
+    get: jest.fn((_index) => ({
       showVisual: true,
       visual: {
         type: 1, // MESH
@@ -38,16 +39,31 @@ const createMockWorld = () => ({
       },
       position: { x: 0, y: 0, z: 0 },
       rotation: {
-        toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1])
+        toArray: jest.fn(() => ({
+          size: () => 9,
+          get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+        }))
       },
       children: {
         size: jest.fn(() => 0)
       }
     }))
-  }))
-});
+  })),
+  loadFromArray: jest.fn(() => true),
+  isLoaded: true,
+  getLastError: jest.fn(() => null),
+  mesh: {
+    getProcessedMeshData: jest.fn(() => ({
+      vertices: { size: () => 0, get: () => 0 },
+      indices: { size: () => 0, get: () => 0 },
+      materials: { size: () => 0, get: () => ({ texture: '' }) },
+      materialIds: { size: () => 0, get: () => 0 }
+    }))
+  }
+} as unknown as World);
 
-const createMockZenKit = () => ({
+const createMockZenKit = (): ZenKit => ({
+  createWorld: jest.fn(() => createMockWorld()),
   createMesh: jest.fn(() => ({
     loadFromArray: jest.fn(() => ({ success: true })),
     getMeshData: jest.fn(() => ({
@@ -82,7 +98,23 @@ const createMockZenKit = () => ({
     height: 64,
     asRgba8: jest.fn(() => new Uint8Array(64 * 64 * 4))
   }))
-});
+} as unknown as ZenKit);
+
+// Helper to add World properties to partial mocks
+const addWorldProperties = (partial: Partial<World>): World => ({
+  loadFromArray: jest.fn(() => true),
+  isLoaded: true,
+  getLastError: jest.fn(() => null),
+  mesh: {
+    getProcessedMeshData: jest.fn(() => ({
+      vertices: { size: () => 0, get: () => 0 },
+      indices: { size: () => 0, get: () => 0 },
+      materials: { size: () => 0, get: () => ({ texture: '' }) },
+      materialIds: { size: () => 0, get: () => 0 }
+    }))
+  },
+  ...partial
+} as unknown as World);
 
 describe('VOBRenderer', () => {
   const mockOnLoadingStatus = jest.fn();
@@ -114,48 +146,60 @@ describe('VOBRenderer', () => {
   });
 
   it('filters VOBs by visual type and showVisual flag', () => {
-    const mockWorldWithMixedVOBs = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 4),
-        get: jest.fn((index) => {
+    const mockWorldWithMixedVOBs = addWorldProperties({
+      getVobs: () => ({
+        size: () => 4,
+        get: (index: number) => {
           const vobs = [
             // Valid mesh VOB
             {
               showVisual: true,
               visual: { type: 1, name: 'mesh.MSH' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             },
             // Invalid - no visual
             {
               showVisual: false,
               visual: { type: 1, name: 'hidden.MSH' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             },
             // Invalid - texture extension
             {
               showVisual: true,
               visual: { type: 1, name: 'texture.TGA' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             },
             // Invalid - unsupported type
             {
               showVisual: true,
               visual: { type: 3, name: 'particle.EFF' }, // PARTICLE_EFFECT
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             }
           ];
           return vobs[index];
-        })
-      }))
-    };
+        }
+      })
+    }) as unknown as World;
     const mockZenKit = createMockZenKit();
 
     render(<VOBRenderer world={mockWorldWithMixedVOBs} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
@@ -165,27 +209,33 @@ describe('VOBRenderer', () => {
   });
 
   it('handles VOB children recursively', () => {
-    const mockWorldWithChildren = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorldWithChildren = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
           visual: { type: 1, name: 'parent.MSH' },
           position: { x: 0, y: 0, z: 0 },
-          rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+          }) },
           children: {
             size: jest.fn(() => 1),
             get: jest.fn(() => ({
               showVisual: true,
               visual: { type: 1, name: 'child.MSH' },
               position: { x: 1, y: 1, z: 1 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
-            }))
+              rotation: { toArray: () => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              }) },
+              children: { size: () => 0, get: () => null as any }
+            })),
           }
-        }))
-      }))
-    };
+        })
+      })
+    }) as unknown as World;
     const mockZenKit = createMockZenKit();
 
     render(<VOBRenderer world={mockWorldWithChildren} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
@@ -196,37 +246,46 @@ describe('VOBRenderer', () => {
   });
 
   it('logs VOB type statistics', () => {
-    const mockWorldWithStats = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 3),
-        get: jest.fn((index) => {
+    const mockWorldWithStats = addWorldProperties({
+      getVobs: () => ({
+        size: () => 3,
+        get: (index: number) => {
           const vobs = [
             {
               showVisual: true,
               visual: { type: 1, name: 'mesh.MSH' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             },
             {
               showVisual: true,
               visual: { type: 5, name: 'model.MDL' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             },
             {
               showVisual: true,
               visual: { type: 6, name: 'morph.MMB' },
               position: { x: 0, y: 0, z: 0 },
-              rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-              children: { size: jest.fn(() => 0) }
+              rotation: { toArray: jest.fn(() => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })) },
+              children: { size: jest.fn(() => 0), get: () => null as any }
             }
           ];
           return vobs[index];
-        })
-      }))
-    };
+        }
+      })
+    }) as unknown as World;
     const mockZenKit = createMockZenKit();
 
     render(<VOBRenderer world={mockWorldWithStats} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
@@ -238,11 +297,11 @@ describe('VOBRenderer', () => {
   });
 
   it('handles VOB loading errors gracefully', () => {
-    const mockWorldError = {
+    const mockWorldError = addWorldProperties({
       getVobs: jest.fn(() => {
         throw new Error('Failed to get VOBs');
       })
-    };
+    });
     const mockZenKit = createMockZenKit();
 
     render(<VOBRenderer world={mockWorldError} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
@@ -317,18 +376,21 @@ describe('Path Resolution Functions', () => {
 
 describe('VOB Rendering Logic', () => {
   it('can create mesh VOBs without errors', () => {
-    const mockWorld = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
           visual: { type: 1, name: 'test.MSH' },
           position: { x: 10, y: 20, z: 30 },
-          rotation: { toArray: jest.fn(() => [0, 0, 1, 0, 1, 0, -1, 0, 0]) }, // 90 degree Y rotation
-          children: { size: jest.fn(() => 0) }
-        }))
-      }))
-    };
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [0, 0, 1, 0, 1, 0, -1, 0, 0][i] || 0
+          }) },
+          children: { size: () => 0, get: () => null as any }
+        })
+      })
+    }) as unknown as World;
 
     const mockZenKit = createMockZenKit();
 
@@ -345,18 +407,21 @@ describe('VOB Rendering Logic', () => {
   });
 
   it('can create model VOBs without errors', () => {
-    const mockWorld = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
           visual: { type: 5, name: 'test.MDL' },
           position: { x: 0, y: 0, z: 0 },
-          rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-          children: { size: jest.fn(() => 0) }
-        }))
-      }))
-    };
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+          }) },
+          children: { size: () => 0, get: () => null as any }
+        })
+      })
+    }) as unknown as World;
 
     const mockZenKit = createMockZenKit();
 
@@ -372,18 +437,21 @@ describe('VOB Rendering Logic', () => {
   });
 
   it('can create morph mesh VOBs without errors', () => {
-    const mockWorld = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
           visual: { type: 6, name: 'test.MMB' },
           position: { x: 0, y: 0, z: 0 },
-          rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-          children: { size: jest.fn(() => 0) }
-        }))
-      }))
-    };
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+          }) },
+          children: { size: () => 0, get: () => null as any }
+        })
+      })
+    }) as unknown as World;
 
     const mockZenKit = createMockZenKit();
 
@@ -399,18 +467,21 @@ describe('VOB Rendering Logic', () => {
   });
 
   it('skips unsupported VOB types', () => {
-    const mockWorld = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
           visual: { type: 3, name: 'particle.EFF' }, // PARTICLE_EFFECT - unsupported
           position: { x: 0, y: 0, z: 0 },
-          rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-          children: { size: jest.fn(() => 0) }
-        }))
-      }))
-    };
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+          }) },
+          children: { size: () => 0, get: () => null as any }
+        })
+      })
+    }) as unknown as World;
     const mockZenKit = createMockZenKit();
 
     render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} onLoadingStatus={jest.fn()} />);
@@ -419,18 +490,21 @@ describe('VOB Rendering Logic', () => {
   });
 
   it('handles invalid VOB data gracefully', () => {
-    const mockWorld = {
-      getVobs: jest.fn(() => ({
-        size: jest.fn(() => 1),
-        get: jest.fn(() => ({
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
           showVisual: true,
-          visual: { type: 1, name: null }, // Invalid visual name
+          visual: { type: 1, name: '' }, // Invalid visual name (empty string instead of null)
           position: { x: 0, y: 0, z: 0 },
-          rotation: { toArray: jest.fn(() => [1, 0, 0, 0, 1, 0, 0, 0, 1]) },
-          children: { size: jest.fn(() => 0) }
-        }))
-      }))
-    };
+          rotation: { toArray: () => ({
+            size: () => 9,
+            get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+          }) },
+          children: { size: () => 0, get: () => null as any }
+        })
+      })
+    }) as unknown as World;
 
     const mockZenKit = createMockZenKit();
 

@@ -8,6 +8,7 @@ import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { VOBTree } from "./vob-tree.js";
+import type { World, ZenKit } from '@kolarz3/zenkit';
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -94,8 +95,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
   const [loadingStatus, setLoadingStatus] = useState<string>('');
-  const [world, setWorld] = useState<any>(null);
-  const [zenKit, setZenKit] = useState<any>(null);
+  const [world, setWorld] = useState<World | null>(null);
+  const [zenKit, setZenKit] = useState<ZenKit | null>(null);
   const [cameraPosition, setCameraPosition] = useState(new THREE.Vector3(0, 0, 0));
   const [vobStats, setVobStats] = useState<{
     loaded: number;
@@ -117,7 +118,7 @@ export function App() {
     setLoadingStatus(status);
   }, []);
 
-  const handleWorldLoaded = useCallback((loadedWorld: any, loadedZenKit: any) => {
+  const handleWorldLoaded = useCallback((loadedWorld: World, loadedZenKit: ZenKit) => {
     setWorld(loadedWorld);
     setZenKit(loadedZenKit);
   }, []);

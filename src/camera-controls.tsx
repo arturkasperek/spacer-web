@@ -8,7 +8,7 @@ export interface CameraControlsRef {
   getPosition: () => THREE.Vector3;
 }
 
-export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
+export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { camera, gl } = useThree();
   const [keys, setKeys] = useState({
     KeyW: false,
@@ -133,7 +133,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
   }, [gl, camera]);
 
   // Movement update function (matching zen-viewer)
-  const updateMovement = (delta?: number) => {
+  const updateMovement = (_delta?: number) => {
     velocity.set(0, 0, 0);
 
     // Movement directions relative to camera (matching zen-viewer)
@@ -171,7 +171,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((props, ref) => {
     }
   };
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     updateMovement(delta);
   });
 

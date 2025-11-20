@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VOBTree } from '../vob-tree';
+import type { World } from '@kolarz3/zenkit';
 
 // Mock react-window List component
 jest.mock('react-window', () => ({
@@ -22,7 +23,7 @@ jest.mock('react-window', () => ({
 }));
 
 // Mock world object
-const createMockWorld = (vobCount = 3) => {
+const createMockWorld = (vobCount = 3): World => {
   const mockVobs: any[] = [];
   
   for (let i = 0; i < vobCount; i++) {
@@ -55,8 +56,19 @@ const createMockWorld = (vobCount = 3) => {
     getVobs: () => ({
       size: () => mockVobs.length,
       get: (index: number) => mockVobs[index]
-    })
-  };
+    }),
+    loadFromArray: () => true,
+    isLoaded: true,
+    getLastError: () => null,
+    mesh: {
+      getProcessedMeshData: () => ({
+        vertices: { size: () => 0, get: () => 0 },
+        indices: { size: () => 0, get: () => 0 },
+        materials: { size: () => 0, get: () => ({ texture: '' }) },
+        materialIds: { size: () => 0, get: () => 0 }
+      })
+    }
+  } as World;
 };
 
 describe('VOBTree Component', () => {
@@ -134,7 +146,7 @@ describe('VOBTree Component', () => {
 
     it('should toggle expand state when clicked', () => {
       const world = createMockWorld(3);
-      const { container } = render(<VOBTree world={world} />);
+      render(<VOBTree world={world} />);
       
       // Find VOB_0 which has children
       const vob0Text = screen.getByText('VOB_0');
@@ -253,36 +265,52 @@ describe('VOBTree Component', () => {
               type: 5, // MODEL
               name: 'test.mdl'
             },
+            rotation: {
+              toArray: () => ({
+                size: () => 9,
+                get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0
+              })
+            },
+            showVisual: true,
             children: {
               size: () => 0,
-              get: () => null
+              get: () => null as any
             }
           })
-        })
-      };
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 }
+          })
+        }
+      } as World;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText(/MODEL: test\.mdl/)).toBeInTheDocument();
     });
 
     it('should handle unknown visual types', () => {
-      const world = {
-        getVobs: () => ({
-          size: () => 1,
-          get: () => ({
-            objectName: 'TestVOB',
-            position: { x: 0, y: 0, z: 0 },
-            visual: {
-              type: 999, // Unknown type
-              name: 'test.unknown'
-            },
-            children: {
-              size: () => 0,
-              get: () => null
-            }
-          })
-        })
-      };
+      const world = createMockWorld(1);
+      // Override the first VOB to have unknown type
+      const vobs = world.getVobs();
+      vobs.get = () => ({
+        objectName: 'TestVOB',
+        position: { x: 0, y: 0, z: 0 },
+        visual: {
+          type: 999, // Unknown type
+          name: 'test.unknown'
+        },
+        children: {
+          size: () => 0,
+          get: () => null
+        }
+      }) as any;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText(/UNKNOWN\(999\): test\.unknown/)).toBeInTheDocument();
@@ -291,12 +319,23 @@ describe('VOBTree Component', () => {
 
   describe('Empty States', () => {
     it('should show "No VOBs found" when world has no VOBs', () => {
-      const world = {
+      const world: World = {
         getVobs: () => ({
           size: () => 0,
           get: () => null
-        })
-      };
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 }
+          })
+        }
+      } as unknown as World;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText('No VOBs found')).toBeInTheDocument();

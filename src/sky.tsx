@@ -215,7 +215,7 @@ export function SkyComponent({
           // Cleanup temp scene
           tempScene.remove(tempSky);
 
-        } catch (error) {
+        } catch (error: unknown) {
           console.warn('PMREM generation failed:', error);
         }
       }, 100);
@@ -224,6 +224,7 @@ export function SkyComponent({
         clearTimeout(timer);
       };
     }
+    return undefined;
   }, [skyMaterial, pmremGenerator, scene, scale, currentSkyGeometry]);
 
   if (!skyMaterial) return null;

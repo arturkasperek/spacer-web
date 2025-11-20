@@ -1,9 +1,10 @@
-import { useState, useMemo, useRef, useCallback, CSSProperties } from "react";
+import React, { useState, useMemo, useRef, useCallback, CSSProperties } from "react";
 import { List } from 'react-window';
+import type { World, Vob } from '@kolarz3/zenkit';
 
 interface VOBNode {
   id: string;
-  vob: any;
+  vob: Vob;
   name: string;
   visualName: string;
   visualType: string;
@@ -19,18 +20,18 @@ interface FlattenedNode {
 }
 
 interface VOBTreeProps {
-  world: any;
+  world: World | null;
   onVobClick?: (position: { x: number; y: number; z: number }) => void;
 }
 
-function buildVOBTree(world: any): VOBNode[] {
+function buildVOBTree(world: World): VOBNode[] {
   if (!world) return [];
 
   const vobs = world.getVobs();
   const vobCount = vobs.size();
   const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
 
-  const buildNode = (vob: any, index: number, depth: number): VOBNode => {
+  const buildNode = (vob: Vob, index: number, depth: number): VOBNode => {
     const visualType = vob.visual?.type !== undefined ? vob.visual.type : -1;
     const visualTypeName = visualType >= 0 && visualType < typeNames.length 
       ? typeNames[visualType] 
@@ -386,7 +387,7 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
         {flattenedItems.length > 0 ? (
           <List<Record<string, never>>
             listRef={listRef}
-            rowComponent={RowComponent as any}
+            rowComponent={RowComponent as (props: { index: number; style: CSSProperties } & Record<string, never>) => React.ReactElement}
             rowCount={flattenedItems.length}
             rowHeight={getItemSize}
             rowProps={{} as Record<string, never>}

@@ -1,9 +1,19 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
+import checker from 'vite-plugin-checker'
 
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [
+    react(),
+    basicSsl(),
+    checker({
+      typescript: {
+        tsconfigPath: './tsconfig.json',
+        buildMode: false, // Only check in dev mode
+      },
+    }),
+  ],
   resolve: {
     dedupe: ["three"]
   },

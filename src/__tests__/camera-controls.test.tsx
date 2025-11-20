@@ -1,5 +1,4 @@
 import { render } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { CameraControls, CameraControlsRef } from '../camera-controls';
 
 // Mock window and document event listeners

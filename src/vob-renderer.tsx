@@ -1,13 +1,20 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl } from "./vob-utils";
+import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
+interface VobData {
+  id: string;
+  vob: Vob;
+  position: THREE.Vector3;
+  visualName: string;
+}
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
 function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats }: Readonly<{
-  world: any;
-  zenKit: any;
+  world: World | null;
+  zenKit: ZenKit | null;
   cameraPosition?: THREE.Vector3;
   onLoadingStatus: (status: string) => void;
   onVobStats?: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
@@ -16,22 +23,22 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   const hasLoadedRef = useRef(false);
 
   // VOB management state
-  const loadedVOBsRef = useRef(new Map()); // vob id -> THREE.Mesh/Object3D
-  const allVOBsRef = useRef<any[]>([]); // All VOB data from world
+  const loadedVOBsRef = useRef(new Map<string, THREE.Object3D>()); // vob id -> THREE.Mesh/Object3D
+  const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
   const lastCameraPositionRef = useRef(new THREE.Vector3());
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
 
   // Asset caches to avoid reloading
-  const meshCacheRef = useRef(new Map()); // path -> processed mesh data
-  const textureCacheRef = useRef(new Map()); // path -> THREE.DataTexture
-  const materialCacheRef = useRef(new Map()); // texture path -> THREE.Material
-  const modelCacheRef = useRef(new Map()); // path -> ZenKit Model instance
-  const morphMeshCacheRef = useRef(new Map()); // path -> { morphMesh, processed, animations }
+  const meshCacheRef = useRef(new Map<string, ProcessedMeshData>()); // path -> processed mesh data
+  const textureCacheRef = useRef(new Map<string, THREE.DataTexture>()); // path -> THREE.DataTexture
+  const materialCacheRef = useRef(new Map<string, THREE.Material>()); // texture path -> THREE.Material
+  const modelCacheRef = useRef(new Map<string, Model>()); // path -> ZenKit Model instance
+  const morphMeshCacheRef = useRef(new Map<string, { morphMesh: MorphMesh; processed: ProcessedMeshData; animations: string[] }>()); // path -> { morphMesh, processed, animations }
 
   // Streaming loader state
-  const vobLoadQueueRef = useRef<any[]>([]);
-  const loadingVOBsRef = useRef(new Set()); // Track currently loading VOBs
+  const vobLoadQueueRef = useRef<VobData[]>([]);
+  const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const isFirstVOBUpdateRef = useRef(true);
   const updateCounterRef = useRef(0);
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
@@ -63,7 +70,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   }, [world, zenKit, onLoadingStatus]);
 
   // Collect VOB data from world
-  const collectVOBs = async (world: any) => {
+  const collectVOBs = async (world: World) => {
     const vobs = world.getVobs();
     const vobCount = vobs.size();
     console.log(`Found ${vobCount} root VOBs`);
@@ -72,7 +79,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     const visualTypeCounts: { [key: string]: number } = {};
 
     // Recursive function to collect VOB data
-    function collectVobTree(vob: any, vobId = 0) {
+    function collectVobTree(vob: Vob, vobId = 0) {
       totalCount++;
 
       // Track visual type statistics
@@ -120,7 +127,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
   // Streaming VOB loader - loads/unloads based on camera distance
   const updateVOBStreaming = () => {
-    const counter = updateCounterRef.current;
 
     // Use the camera position passed from parent component (fallback to origin if not provided)
     const camPos = cameraPosition || new THREE.Vector3(0, 0, 0);
@@ -178,6 +184,8 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           loadingVOBsRef.current.delete(vobData.id);
           if (!success) {
             console.warn(`❌ Failed to render VOB: ${vobData.visualName}`);
+          } else {
+            console.log(`✅ Successfully rendered VOB: ${vobData.visualName} (id: ${vobData.id})`);
           }
         });
       }
@@ -235,7 +243,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   });
 
   // Main VOB rendering dispatcher
-  const renderVOB = async (vob: any, vobId = null): Promise<boolean> => {
+  const renderVOB = async (vob: Vob, vobId: string | null = null): Promise<boolean> => {
     // Skip if no visual or visual disabled
     if (!vob.showVisual || !vob.visual.name) {
       return false;
@@ -277,7 +285,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Render mesh VOB
-  const renderMeshVOB = async (vob: any, vobId: string | null, meshPath: string): Promise<boolean> => {
+  const renderMeshVOB = async (vob: Vob, vobId: string | null, meshPath: string): Promise<boolean> => {
+    if (!zenKit) return false;
+    
     try {
       // Load mesh with caching
       const processed = await loadMeshCached(meshPath, zenKit);
@@ -288,8 +298,21 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       // Build Three.js geometry and materials
       const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
 
+      // Verify geometry has data
+      if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
+        console.warn(`⚠️ Empty geometry for VOB: ${vob.visual.name}`);
+        return false;
+      }
+
       // Create mesh
       const vobMeshObj = new THREE.Mesh(geometry, materials);
+      
+      // Verify materials
+      if (!materials || (Array.isArray(materials) && materials.length === 0)) {
+        console.warn(`⚠️ No materials for VOB: ${vob.visual.name}`);
+      }
+      
+      console.log(`🔧 Created mesh for VOB: ${vob.visual.name}, vertices: ${geometry.attributes.position.count}, materials: ${Array.isArray(materials) ? materials.length : 1}`);
 
       // Apply VOB transform
       applyVobTransform(vobMeshObj, vob);
@@ -298,6 +321,14 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
         scene.add(vobMeshObj);
+        console.log(`✅ Added mesh VOB to scene: ${vob.visual.name} at (${vobMeshObj.position.x.toFixed(1)}, ${vobMeshObj.position.y.toFixed(1)}, ${vobMeshObj.position.z.toFixed(1)}), scene children: ${scene.children.length}`);
+        
+        // Verify it's actually in the scene
+        if (!scene.children.includes(vobMeshObj)) {
+          console.error(`❌ ERROR: VOB was not added to scene! ${vob.visual.name}`);
+        }
+      } else {
+        console.warn(`⚠️ Skipping VOB add to scene - no vobId: ${vob.visual.name}`);
       }
 
       return true;
@@ -309,7 +340,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Render model VOB
-  const renderModelVOB = async (vob: any, vobId: string | null): Promise<boolean> => {
+  const renderModelVOB = async (vob: Vob, vobId: string | null): Promise<boolean> => {
+    if (!zenKit) return false;
+    
     try {
       const visualName = vob.visual.name;
 
@@ -320,6 +353,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Load model with caching
+      if (!zenKit) return false;
       const model = await loadModelCached(modelPath, zenKit);
       if (!model) {
         return false;
@@ -375,7 +409,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
         // Find the corresponding hierarchy node for this attachment
         let hierarchyNodeIndex = -1;
-        const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : hierarchy.nodes.length;
+        const nodeCount = hierarchy.nodes.size ? hierarchy.nodes.size() : (hierarchy.nodes.length ?? 0);
         for (let j = 0; j < nodeCount; j++) {
           const node = hierarchy.nodes.get ? hierarchy.nodes.get(j) : hierarchy.nodes[j];
           if (node && node.name === attachmentName) {
@@ -414,6 +448,14 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
         scene.add(modelGroup);
+        console.log(`✅ Added model VOB to scene: ${vob.visual.name} at (${modelGroup.position.x.toFixed(1)}, ${modelGroup.position.y.toFixed(1)}, ${modelGroup.position.z.toFixed(1)}), children: ${modelGroup.children.length}`);
+        
+        // Verify it's actually in the scene
+        if (!scene.children.includes(modelGroup)) {
+          console.error(`❌ ERROR: Model VOB was not added to scene! ${vob.visual.name}`);
+        }
+      } else {
+        console.warn(`⚠️ Skipping model VOB add to scene - no vobId: ${vob.visual.name}`);
       }
 
       return true;
@@ -425,7 +467,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Render morph mesh VOB
-  const renderMorphMeshVOB = async (vob: any, vobId: string | null): Promise<boolean> => {
+  const renderMorphMeshVOB = async (vob: Vob, vobId: string | null): Promise<boolean> => {
+    if (!zenKit) return false;
+    
     try {
       const visualName = vob.visual.name;
 
@@ -458,6 +502,14 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
         scene.add(morphMesh);
+        console.log(`✅ Added morph mesh VOB to scene: ${vob.visual.name} at (${morphMesh.position.x.toFixed(1)}, ${morphMesh.position.y.toFixed(1)}, ${morphMesh.position.z.toFixed(1)})`);
+        
+        // Verify it's actually in the scene
+        if (!scene.children.includes(morphMesh)) {
+          console.error(`❌ ERROR: Morph mesh VOB was not added to scene! ${vob.visual.name}`);
+        }
+      } else {
+        console.warn(`⚠️ Skipping morph mesh VOB add to scene - no vobId: ${vob.visual.name}`);
       }
 
       return true;
@@ -469,8 +521,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Shared function to build Three.js geometry and materials from processed mesh data
-  const buildThreeJSGeometryAndMaterials = async (processed: any, zenKit: any) => {
-    const vertCount = processed.vertices.size();
+  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit) => {
     const idxCount = processed.indices.size();
     const matCount = processed.materials.size();
 
@@ -532,10 +583,11 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Cached mesh loader
-  const loadMeshCached = async (meshPath: string, zenKit: any) => {
+  const loadMeshCached = async (meshPath: string, zenKit: ZenKit): Promise<ProcessedMeshData | null> => {
     // Check cache first
-    if (meshCacheRef.current.has(meshPath)) {
-      return meshCacheRef.current.get(meshPath);
+    const cached = meshCacheRef.current.get(meshPath);
+    if (cached) {
+      return cached;
     }
 
     try {
@@ -568,17 +620,18 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       // Cache and return
       meshCacheRef.current.set(meshPath, processed);
       return processed;
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn(`Failed to load mesh ${meshPath}:`, error);
       return null;
     }
   };
 
   // Cached model loader for .MDL files
-  const loadModelCached = async (modelPath: string, zenKit: any) => {
+  const loadModelCached = async (modelPath: string, zenKit: ZenKit): Promise<Model | null> => {
     // Check cache first
-    if (modelCacheRef.current.has(modelPath)) {
-      return modelCacheRef.current.get(modelPath);
+    const cached = modelCacheRef.current.get(modelPath);
+    if (cached) {
+      return cached;
     }
 
     try {
@@ -608,17 +661,18 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       modelCacheRef.current.set(modelPath, model);
       console.log(`✅ Loaded model ${modelPath}`);
       return model;
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn(`Failed to load model ${modelPath}:`, error);
       return null;
     }
   };
 
   // Cached morph mesh loader for .MMB files
-  const loadMorphMeshCached = async (morphPath: string, zenKit: any) => {
+  const loadMorphMeshCached = async (morphPath: string, zenKit: ZenKit): Promise<{ morphMesh: MorphMesh; processed: ProcessedMeshData; animations: string[] } | null> => {
     // Check cache first
-    if (morphMeshCacheRef.current.has(morphPath)) {
-      return morphMeshCacheRef.current.get(morphPath);
+    const cached = morphMeshCacheRef.current.get(morphPath);
+    if (cached) {
+      return cached;
     }
 
     try {
@@ -648,28 +702,33 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       const processed = morphMesh.convertToProcessedMesh();
       const animationNames = morphMesh.getAnimationNames();
       const animationCount = animationNames.size();
+      const animations: string[] = [];
+      for (let i = 0; i < animationCount; i++) {
+        animations.push(animationNames.get(i));
+      }
 
       const result = {
         morphMesh: morphMesh,
         processed: processed,
-        animationCount: animationCount
+        animations: animations
       };
 
       // Cache and return
       morphMeshCacheRef.current.set(morphPath, result);
       console.log(`✅ Loaded morph mesh ${morphPath} (${animationCount} animations available)`);
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       console.warn(`Failed to load morph mesh ${morphPath}:`, error);
       return null;
     }
   };
 
   // Cached texture loader
-  const loadTextureCached = async (texturePath: string, zenKit: any): Promise<THREE.DataTexture | null> => {
+  const loadTextureCached = async (texturePath: string, zenKit: ZenKit): Promise<THREE.DataTexture | null> => {
     // Check cache first
-    if (textureCacheRef.current.has(texturePath)) {
-      return textureCacheRef.current.get(texturePath);
+    const cached = textureCacheRef.current.get(texturePath);
+    if (cached) {
+      return cached;
     }
 
     try {
@@ -684,12 +743,13 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Cached material creator
-  const getMaterialCached = async (materialData: any, zenKit: any): Promise<THREE.MeshBasicMaterial> => {
+  const getMaterialCached = async (materialData: { texture: string }, zenKit: ZenKit): Promise<THREE.MeshBasicMaterial> => {
     const textureName = materialData.texture || '';
 
     // Check cache first
-    if (materialCacheRef.current.has(textureName)) {
-      return materialCacheRef.current.get(textureName);
+    const cached = materialCacheRef.current.get(textureName);
+    if (cached && cached instanceof THREE.MeshBasicMaterial) {
+      return cached;
     }
 
     // Create material
@@ -718,10 +778,13 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Helper function to apply VOB transform to an object
-  const applyVobTransform = (object: THREE.Object3D, vob: any) => {
+  const applyVobTransform = (object: THREE.Object3D, vob: Vob) => {
     // Apply VOB transform using OpenGothic's approach
+    // rotation.toArray() returns an Emscripten FloatArrayLike object
     const rotArray = vob.rotation.toArray();
-    const m = [];
+    
+    // Extract rotation matrix values from Emscripten TypedArrayLike
+    const m: number[] = [];
     for (let i = 0; i < rotArray.size(); i++) {
       m.push(rotArray.get(i));
     }
@@ -747,7 +810,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Helper function to load compiled TEX file as DataTexture
-  const loadCompiledTexAsDataTexture = async (url: string | null, zenKit: any): Promise<THREE.DataTexture | null> => {
+  const loadCompiledTexAsDataTexture = async (url: string | null, zenKit: ZenKit): Promise<THREE.DataTexture | null> => {
     if (!url) return null;
 
     try {

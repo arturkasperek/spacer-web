@@ -1,11 +1,12 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
+import type { World, ZenKit } from '@kolarz3/zenkit';
 
 // World Renderer Component - loads ZenKit and renders world mesh
 function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
-  onWorldLoaded?: (world: any, zenKit: any) => void;
+  onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
 }>) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [worldMesh, setWorldMesh] = useState<THREE.Mesh | null>(null);
@@ -22,8 +23,8 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
         onLoadingStatus('Loading ZenKit...');
 
         // Import ZenKit WebAssembly module
-        const zenkitModule = await import('@kolarz3/zenkit' as any);
-        const ZenKitModule = zenkitModule.default;
+        const zenkitModule = await import('@kolarz3/zenkit');
+        const ZenKitModule = zenkitModule.default as unknown as () => Promise<ZenKit>;
         const zenKit = await ZenKitModule();
 
         onLoadingStatus(`Loading ${worldPath}...`);
@@ -54,9 +55,8 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
 
         onLoadingStatus('Processing mesh data...');
 
-        // Get the world mesh
-        const zenMesh = world.mesh;
-        const processed = zenMesh.getProcessedMeshData();
+        // Get the world mesh - world.mesh directly exposes getProcessedMeshData()
+        const processed = world.mesh.getProcessedMeshData();
 
         const vertCount = processed.vertices.size();
         const idxCount = processed.indices.size();
@@ -104,7 +104,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
           materialArray.push(material);
 
           // Load texture asynchronously
-          if (mat && mat.texture && mat.texture.length) {
+          if (mat?.texture && mat.texture.length) {
             const textureUrl = tgaNameToCompiledUrl(mat.texture);
             loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
               if (tex && materialArray[mi]) {
@@ -159,7 +159,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
     loadWorld();
   }, [worldPath, onLoadingStatus, onWorldLoaded]);
 
-  return worldMesh ? <primitive object={worldMesh} ref={meshRef} /> : null;
+  return worldMesh ? <primitive object={worldMesh as THREE.Object3D} ref={meshRef} /> : null;
 }
 
 // Helper function to convert TGA texture name to compiled TEX URL
@@ -170,7 +170,7 @@ function tgaNameToCompiledUrl(name: string): string | null {
 }
 
 // Helper function to load compiled TEX file as DataTexture
-async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Promise<THREE.DataTexture | null> {
+async function loadCompiledTexAsDataTexture(url: string | null, zenKit: ZenKit): Promise<THREE.DataTexture | null> {
   if (!url) return null;
 
   try {
@@ -182,7 +182,9 @@ async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Pr
 
     const zkTex = new zenKit.Texture();
     const ok = zkTex.loadFromArray(arr);
-    if (!ok || !ok.success) return null;
+    if (!ok || !ok.success) {
+      return null;
+    }
 
     const w = zkTex.width;
     const h = zkTex.height;
@@ -202,7 +204,8 @@ async function loadCompiledTexAsDataTexture(url: string | null, zenKit: any): Pr
     tex.generateMipmaps = true;
 
     return tex;
-  } catch (error) {
+  } catch (error: unknown) {
+    console.warn('Failed to load texture:', error);
     return null;
   }
 }

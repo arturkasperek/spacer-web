@@ -50,7 +50,7 @@ void main() {
 
 export function BoxShaders(props: ThreeElements['mesh']) {
   const meshRef = useRef<Mesh>(null!)
-  const [hovered, setHover] = useState(false)
+  const [, setHover] = useState(false)
   const [active, setActive] = useState(false)
   const uniforms = useMemo(
     () => ({
@@ -71,9 +71,9 @@ export function BoxShaders(props: ThreeElements['mesh']) {
       {...props}
       ref={meshRef}
       scale={active ? 1.5 : 1}
-      onClick={(event) => setActive(!active)}
-      onPointerOver={(event) => setHover(true)}
-      onPointerOut={(event) => setHover(false)}>
+      onClick={() => setActive(!active)}
+      onPointerOver={() => setHover(true)}
+      onPointerOut={() => setHover(false)}>
       <boxGeometry args={[1, 1, 1, 20, 20, 20]} />
       <shaderMaterial
         fragmentShader={fragmentShader}

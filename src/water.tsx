@@ -1,5 +1,5 @@
-import { useRef, useMemo, useEffect } from 'react';
-import { useFrame, useLoader, useThree } from '@react-three/fiber';
+import { useRef, useMemo } from 'react';
+import { useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Water } from 'three/addons/objects/Water.js';
 
@@ -20,7 +20,7 @@ interface WaterProps {
 export function WaterComponent({
   position = [0, 0, 0],
   rotation = [-Math.PI / 2, 0, 0],
-  scale = [1, 1, 1],
+  scale: _scale = [1, 1, 1],
   size = 10000,
   waterNormals = '/assets/water/water.jpg',
   sunDirection = new THREE.Vector3(0.70707, 0.70707, 0.0),
@@ -28,7 +28,7 @@ export function WaterComponent({
   waterColor = 0x001e0f,
   distortionScale = 3.7,
   alpha = 1.0,
-  resolution = 0.5,
+  resolution: _resolution = 0.5,
 }: WaterProps) {
   const waterRef = useRef<Water>(null);
 

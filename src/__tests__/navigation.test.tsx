@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { NavigationOverlay, NavigationBox } from '../navigation';
 
 // Mock React Three Fiber Canvas
@@ -41,12 +41,6 @@ describe('NavigationBox', () => {
 
     // Since the mesh components are mocked, we can't easily test clicks
     // But we can test the handleFaceClick function directly by creating a test instance
-    const mockMeshProps = {
-      onClick: jest.fn(),
-      position: [0, 0, 0.5],
-      children: [],
-    };
-
     // Simulate what would happen if front face was clicked
     const frontFaceHandler = () => mockOnCameraChange([0, 0, 6], [0, 0, 0]);
     frontFaceHandler();
