@@ -31,6 +31,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   let pitch = 0, yaw = 0;
   const velocity = new THREE.Vector3();
   let isMouseDown = false;
+  
+  // Track mouse down for quick click detection
+  const mouseDownTimeRef = useRef<number>(0);
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const isQuickClickRef = useRef(false);
+  const pointerLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -102,7 +108,22 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     const handleMouseDown = (event: MouseEvent) => {
       if (event.button === 0) { // Left mouse button
         isMouseDown = true;
-        gl.domElement.requestPointerLock();
+        mouseDownTimeRef.current = Date.now();
+        mouseDownPosRef.current = { x: event.clientX, y: event.clientY };
+        isQuickClickRef.current = false;
+        
+        // Clear any existing timeout
+        if (pointerLockTimeoutRef.current) {
+          clearTimeout(pointerLockTimeoutRef.current);
+        }
+        
+        // Delay pointer lock to allow quick clicks
+        pointerLockTimeoutRef.current = setTimeout(() => {
+          if (isMouseDown && !isQuickClickRef.current) {
+            gl.domElement.requestPointerLock();
+          }
+          pointerLockTimeoutRef.current = null;
+        }, 200);
       }
     };
 
@@ -121,8 +142,45 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
     const handleMouseUp = (event: MouseEvent) => {
       if (event.button === 0) {
+        const clickDuration = Date.now() - mouseDownTimeRef.current;
+        const mouseDownPos = mouseDownPosRef.current;
+        
+        // Clear pointer lock timeout if it exists
+        if (pointerLockTimeoutRef.current) {
+          clearTimeout(pointerLockTimeoutRef.current);
+          pointerLockTimeoutRef.current = null;
+        }
+        
+        // Check if it was a quick click (< 120ms and < 5px movement)
+        if (mouseDownPos && clickDuration < 120) {
+          const moveDistance = Math.sqrt(
+            Math.pow(event.clientX - mouseDownPos.x, 2) + 
+            Math.pow(event.clientY - mouseDownPos.y, 2)
+          );
+          
+          if (moveDistance < 5) {
+            isQuickClickRef.current = true;
+            // Don't request pointer lock for quick clicks
+            if (document.pointerLockElement === gl.domElement) {
+              document.exitPointerLock();
+            }
+            // Dispatch a click event for VOB selection
+            gl.domElement.dispatchEvent(new MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button
+            }));
+            isMouseDown = false;
+            return;
+          }
+        }
+        
         isMouseDown = false;
-        document.exitPointerLock();
+        if (document.pointerLockElement === gl.domElement) {
+          document.exitPointerLock();
+        }
       }
     };
 

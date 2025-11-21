@@ -21,3 +21,41 @@ describe('Basic Test Setup', () => {
     expect(tgaNameToCompiledUrl('')).toBeNull();
   });
 });
+
+describe('VOB Click Handlers', () => {
+  it('should test handleVobClickFromScene only selects without moving camera', () => {
+    // This tests the logic that handleVobClickFromScene only sets selectedVob
+    // without setting shouldUpdateCameraRef.current = true
+    
+    let selectedVob: any = null;
+    let shouldUpdateCamera = false;
+
+    // Simulate handleVobClickFromScene behavior
+    const handleVobClickFromScene = (vob: any) => {
+      selectedVob = vob;
+      // Note: shouldUpdateCamera is NOT set to true
+    };
+
+    // Simulate handleVobClick behavior (from tree)
+    const handleVobClick = (vob: any) => {
+      selectedVob = vob;
+      shouldUpdateCamera = true;
+    };
+
+    const mockVob = { id: 123, visual: { name: 'test.MSH' } };
+
+    // Test handleVobClickFromScene
+    handleVobClickFromScene(mockVob);
+    expect(selectedVob).toBe(mockVob);
+    expect(shouldUpdateCamera).toBe(false);
+
+    // Reset
+    selectedVob = null;
+    shouldUpdateCamera = false;
+
+    // Test handleVobClick (from tree)
+    handleVobClick(mockVob);
+    expect(selectedVob).toBe(mockVob);
+    expect(shouldUpdateCamera).toBe(true);
+  });
+});

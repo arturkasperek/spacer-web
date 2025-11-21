@@ -310,6 +310,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       // Create mesh
       const vobMeshObj = new THREE.Mesh(geometry, materials);
       
+      // Store VOB reference for click detection
+      vobMeshObj.userData.vob = vob;
+      
       // Verify materials
       if (!materials || (Array.isArray(materials) && materials.length === 0)) {
         console.warn(`⚠️ No materials for VOB: ${vob.visual.name}`);
@@ -375,6 +378,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Create a group to hold all attachment meshes
       const modelGroup = new THREE.Group();
+      
+      // Store VOB reference for click detection
+      modelGroup.userData.vob = vob;
 
       // Helper function to accumulate transforms up the hierarchy chain
       function getAccumulatedTransform(nodeIndex: number) {
@@ -497,6 +503,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Create mesh with materials
       const morphMesh = new THREE.Mesh(geometry, materials);
+      
+      // Store VOB reference for click detection
+      morphMesh.userData.vob = vob;
 
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);

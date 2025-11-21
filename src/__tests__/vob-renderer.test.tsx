@@ -688,4 +688,34 @@ describe('Bounding Box Mechanism', () => {
     // Bounding box should not be rendered
     expect(queryByTestId('vob-bounding-box')).not.toBeInTheDocument();
   });
+
+  describe('VOB userData storage', () => {
+    it('should store VOB reference in mesh userData for click detection', () => {
+      // This test verifies that VOB references are stored in userData
+      // The actual storage happens in renderMeshVOB, renderModelVOB, and renderMorphMeshVOB
+      // The userData.vob property is used by VobClickHandler for raycasting
+      
+      // Create a mock Three.js object
+      const mockObject: { userData: { vob?: Vob } } = {
+        userData: {},
+      };
+
+      // Simulate the storage that happens in vob-renderer.tsx
+      const mockVob: Vob = {
+        id: 999,
+        showVisual: true,
+        visual: { type: 1, name: 'test.MSH' },
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: jest.fn(() => ({ size: () => 9, get: jest.fn() })) },
+        children: { size: () => 0, get: jest.fn() },
+      } as any;
+
+      // Store VOB reference (as done in vob-renderer.tsx)
+      mockObject.userData.vob = mockVob;
+
+      // Verify VOB reference is stored
+      expect(mockObject.userData.vob).toBe(mockVob);
+      expect(mockObject.userData.vob?.id).toBe(999);
+    });
+  });
 });

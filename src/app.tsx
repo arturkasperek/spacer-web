@@ -8,6 +8,7 @@ import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { VOBTree } from "./vob-tree.js";
+import { VobClickHandler } from "./vob-click-handler.js";
 import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
 
 // Create a ref to hold the main camera
@@ -35,7 +36,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, onVobClickFromScene }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -47,6 +48,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
+  onVobClickFromScene?: (vob: Vob) => void;
 }>) {
   const { camera } = useThree();
 
@@ -79,6 +81,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
         cameraControlsRef={cameraControlsRef}
         onPositionChange={onCameraPositionChange}
       />
+
+      {/* VOB Click Handler */}
+      {onVobClickFromScene && <VobClickHandler onVobClick={onVobClickFromScene} />}
 
       {/* VOB Renderer */}
       {world && zenKit && (
@@ -149,6 +154,12 @@ export function App() {
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
     shouldUpdateCameraRef.current = true;
+    setSelectedVob(vob);
+  }, []);
+
+  const handleVobClickFromScene = useCallback((vob: Vob) => {
+    if (!vob) return;
+    // Only select, don't move camera
     setSelectedVob(vob);
   }, []);
 
@@ -238,6 +249,7 @@ export function App() {
           onVobStats={handleVobStats}
           selectedVob={selectedVob}
           onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+          onVobClickFromScene={handleVobClickFromScene}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
