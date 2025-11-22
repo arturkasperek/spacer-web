@@ -192,7 +192,7 @@ export function App() {
   return (
     <>
       {/* VOB Tree - left side panel */}
-      <VOBTree world={world} onVobClick={handleVobClick} />
+      <VOBTree world={world} onVobClick={handleVobClick} selectedVob={selectedVob} />
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (

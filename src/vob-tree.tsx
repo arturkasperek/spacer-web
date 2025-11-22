@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback, CSSProperties } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect, CSSProperties } from "react";
 import { List } from 'react-window';
 import type { World, Vob } from '@kolarz3/zenkit';
 
@@ -22,6 +22,7 @@ interface FlattenedNode {
 interface VOBTreeProps {
   world: World | null;
   onVobClick?: (vob: Vob) => void;
+  selectedVob?: Vob | null;
 }
 
 function buildVOBTree(world: World): VOBNode[] {
@@ -106,7 +107,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -182,6 +183,112 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
     });
   }, []);
 
+  // Find VOB node in tree recursively
+  const findVobInTree = useCallback((vob: Vob, nodes: VOBNode[]): VOBNode | null => {
+    for (const node of nodes) {
+      if (node.vob.id === vob.id) {
+        return node;
+      }
+      const found = findVobInTree(vob, node.children);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }, []);
+
+  // Track last selected VOB to avoid re-navigating
+  const lastSelectedVobRef = useRef<Vob | null>(null);
+  const expandedIdsRef = useRef<Set<string>>(new Set());
+
+  // Sync expandedIds to ref
+  useEffect(() => {
+    expandedIdsRef.current = expandedIds;
+  }, [expandedIds]);
+
+  // Navigate to selected VOB when it changes
+  useEffect(() => {
+    if (!selectedVob || !listRef.current || filteredTree.length === 0) {
+      return;
+    }
+
+    // Skip if this is the same VOB we already navigated to
+    if (lastSelectedVobRef.current?.id === selectedVob.id) {
+      return;
+    }
+
+    // Find the VOB in the tree
+    const foundNode = findVobInTree(selectedVob, filteredTree);
+    if (!foundNode) {
+      return;
+    }
+
+    // Mark as navigated
+    lastSelectedVobRef.current = selectedVob;
+
+    // Find all parent nodes that need to be expanded
+    const findParents = (targetNode: VOBNode, nodes: VOBNode[], path: VOBNode[] = []): VOBNode[] => {
+      for (const node of nodes) {
+        if (node.id === targetNode.id) {
+          return path;
+        }
+        const found = findVobInTree(targetNode.vob, [node]);
+        if (found) {
+          const newPath = [...path, node];
+          if (node.id !== targetNode.id && node.children.length > 0) {
+            return findParents(targetNode, node.children, newPath);
+          }
+          return newPath;
+        }
+      }
+      return path;
+    };
+
+    const parentsToExpand = findParents(foundNode, filteredTree);
+
+    // Expand parent nodes
+    if (parentsToExpand.length > 0) {
+      setExpandedIds(prev => {
+        const next = new Set(prev);
+        let hasChanges = false;
+        for (const parent of parentsToExpand) {
+          if (!next.has(parent.id)) {
+            next.add(parent.id);
+            hasChanges = true;
+          }
+        }
+        return hasChanges ? next : prev;
+      });
+    }
+
+    // Wait for expansion to complete, then scroll to item
+    const scrollTimeout = setTimeout(() => {
+      // Use ref to get current expanded state without triggering re-render
+      const currentExpanded = expandedIdsRef.current;
+      const updatedExpanded = new Set(currentExpanded);
+      for (const parent of parentsToExpand) {
+        updatedExpanded.add(parent.id);
+      }
+      const updatedFlattened = flattenTree(filteredTree, updatedExpanded);
+      const index = updatedFlattened.findIndex(item => item.node.id === foundNode.id);
+      
+      // Check if listRef is set and has scrollToRow method (react-window v2 API)
+      if (index >= 0 && listRef.current) {
+        const listInstance = listRef.current as any;
+        // react-window v2 uses scrollToRow instead of scrollToItem
+        if (listInstance && typeof listInstance.scrollToRow === 'function') {
+          listInstance.scrollToRow({
+            index: index,
+            align: 'smart',
+            behavior: 'auto'
+          });
+        }
+      }
+    }, 200);
+
+    return () => clearTimeout(scrollTimeout);
+  }, [selectedVob?.id, filteredTree, findVobInTree]);
+
   // Calculate item height - larger if it has visual name
   const getItemSize = useCallback((index: number) => {
     const item = flattenedItems[index];
@@ -194,6 +301,7 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
     if (!item) return <div style={style} />;
     
     const { node, depth, hasChildren, isExpanded } = item;
+    const isSelected = selectedVob && node.vob.id === selectedVob.id;
     
     return (
       <div
@@ -208,10 +316,12 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
             display: 'flex',
             alignItems: 'center',
             padding: '4px 8px',
-            cursor: hasChildren ? 'pointer' : 'pointer', // All items are clickable now
+            cursor: 'pointer', // All items are clickable
             borderRadius: '4px',
             height: '100%',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            backgroundColor: isSelected ? 'rgba(255, 255, 0, 0.3)' : 'transparent',
+            borderLeft: isSelected ? '3px solid #ffff00' : '3px solid transparent'
           }}
           onClick={() => {
             if (hasChildren) {
@@ -226,10 +336,16 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
             onVobClick?.(node.vob);
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(100, 150, 255, 0.2)'; // Slightly blue highlight
+            if (!isSelected) {
+              e.currentTarget.style.backgroundColor = 'rgba(100, 150, 255, 0.2)'; // Slightly blue highlight
+            }
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'transparent';
+            if (!isSelected) {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            } else {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.3)'; // Keep yellow highlight
+            }
           }}
         >
           <span style={{ 
@@ -275,7 +391,7 @@ export function VOBTree({ world, onVobClick }: VOBTreeProps) {
         </div>
       </div>
     );
-  }, [flattenedItems, toggleExpanded, onVobClick]);
+  }, [flattenedItems, toggleExpanded, onVobClick, selectedVob]);
 
   if (!world) {
     return (
