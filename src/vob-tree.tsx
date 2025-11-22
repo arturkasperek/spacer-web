@@ -245,44 +245,44 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     };
 
     const parentsToExpand = findParents(foundNode, filteredTree);
-
-    // Expand parent nodes
-    if (parentsToExpand.length > 0) {
-      setExpandedIds(prev => {
-        const next = new Set(prev);
-        let hasChanges = false;
-        for (const parent of parentsToExpand) {
-          if (!next.has(parent.id)) {
-            next.add(parent.id);
-            hasChanges = true;
-          }
-        }
-        return hasChanges ? next : prev;
-      });
+    
+    // Create set of IDs that should be expanded (only the path to target)
+    const idsToKeepExpanded = new Set<string>();
+    for (const parent of parentsToExpand) {
+      idsToKeepExpanded.add(parent.id);
     }
 
-    // Wait for expansion to complete, then scroll to item
-    const scrollTimeout = setTimeout(() => {
-      // Use ref to get current expanded state without triggering re-render
-      const currentExpanded = expandedIdsRef.current;
-      const updatedExpanded = new Set(currentExpanded);
-      for (const parent of parentsToExpand) {
-        updatedExpanded.add(parent.id);
+    // First, collapse all other groups (keep only the path to target)
+    setExpandedIds(prev => {
+      const next = new Set<string>();
+      // Only keep the IDs that are in the path to the target
+      for (const id of prev) {
+        if (idsToKeepExpanded.has(id)) {
+          next.add(id);
+        }
       }
-      const updatedFlattened = flattenTree(filteredTree, updatedExpanded);
+      // Add any parents that weren't already expanded
+      for (const parent of parentsToExpand) {
+        next.add(parent.id);
+      }
+      return next;
+    });
+
+    // Wait for collapse/expansion to complete, then scroll to item
+    const scrollTimeout = setTimeout(() => {
+      // Calculate the flattened list with only the path expanded
+      const updatedFlattened = flattenTree(filteredTree, idsToKeepExpanded);
       const index = updatedFlattened.findIndex(item => item.node.id === foundNode.id);
       
       // Check if listRef is set and has scrollToRow method (react-window v2 API)
       if (index >= 0 && listRef.current) {
         const listInstance = listRef.current as any;
         // react-window v2 uses scrollToRow instead of scrollToItem
-        if (listInstance && typeof listInstance.scrollToRow === 'function') {
-          listInstance.scrollToRow({
-            index: index,
-            align: 'smart',
-            behavior: 'auto'
-          });
-        }
+        listInstance.scrollToRow({
+          index: index,
+          align: 'smart',
+          behavior: 'auto'
+        });
       }
     }, 200);
 
