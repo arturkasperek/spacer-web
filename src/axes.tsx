@@ -29,20 +29,20 @@ export function AxesHelper() {
           <bufferGeometry>
             <bufferAttribute
               attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, 2, 0, 0]), 3]}
+              args={[new Float32Array([0, 0, 0, 60, 0, 0]), 3]}
             />
           </bufferGeometry>
           <lineBasicMaterial color="#ff0000" />
         </line>
         {/* X-axis arrow head */}
-        <mesh position={[2.2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
+        <mesh position={[66, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+          <coneGeometry args={[3, 9, 8]} />
           <meshBasicMaterial color="#ff0000" />
         </mesh>
         {/* X-axis label */}
         <BillboardText
-          position={[2.5, 0.1, 0]}
-          fontSize={0.3}
+          position={[75, 3, 0]}
+          fontSize={9}
           color="#ff0000"
           anchorX="center"
           anchorY="middle"
@@ -57,20 +57,20 @@ export function AxesHelper() {
           <bufferGeometry>
             <bufferAttribute
               attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, 0, 2, 0]), 3]}
+              args={[new Float32Array([0, 0, 0, 0, 60, 0]), 3]}
             />
           </bufferGeometry>
           <lineBasicMaterial color="#00ff00" />
         </line>
         {/* Y-axis arrow head */}
-        <mesh position={[0, 2.2, 0]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
+        <mesh position={[0, 66, 0]}>
+          <coneGeometry args={[3, 9, 8]} />
           <meshBasicMaterial color="#00ff00" />
         </mesh>
         {/* Y-axis label */}
         <BillboardText
-          position={[0.1, 2.5, 0]}
-          fontSize={0.3}
+          position={[3, 75, 0]}
+          fontSize={9}
           color="#00ff00"
           anchorX="center"
           anchorY="middle"
@@ -85,20 +85,20 @@ export function AxesHelper() {
           <bufferGeometry>
             <bufferAttribute
               attach="attributes-position"
-              args={[new Float32Array([0, 0, 0, 0, 0, 2]), 3]}
+              args={[new Float32Array([0, 0, 0, 0, 0, 60]), 3]}
             />
           </bufferGeometry>
           <lineBasicMaterial color="#0000ff" />
         </line>
         {/* Z-axis arrow head */}
-        <mesh position={[0, 0, 2.2]} rotation={[Math.PI / 2, 0, 0]}>
-          <coneGeometry args={[0.1, 0.3, 8]} />
+        <mesh position={[0, 0, 66]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[3, 9, 8]} />
           <meshBasicMaterial color="#0000ff" />
         </mesh>
         {/* Z-axis label */}
         <BillboardText
-          position={[0, 0.1, 2.5]}
-          fontSize={0.3}
+          position={[0, 3, 75]}
+          fontSize={9}
           color="#0000ff"
           anchorX="center"
           anchorY="middle"
