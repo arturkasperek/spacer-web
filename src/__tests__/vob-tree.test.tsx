@@ -1,26 +1,41 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VOBTree } from '../vob-tree';
-import type { World } from '@kolarz3/zenkit';
+import type { World, Vob } from '@kolarz3/zenkit';
 
-// Mock react-window List component
-jest.mock('react-window', () => ({
-  List: ({ rowComponent, rowCount, rowProps }: any) => {
-    // Render a simplified version for testing
-    return (
-      <div data-testid="virtual-list">
-        {Array.from({ length: Math.min(rowCount, 10) }, (_, index) => {
-          const Row = rowComponent;
-          return (
-            <div key={index} data-testid={`row-${index}`}>
-              <Row index={index} style={{}} {...rowProps} />
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-}));
+// Mock scrollToRow function
+const mockScrollToRow = jest.fn();
+
+// Mock react-window List component with ref support
+jest.mock('react-window', () => {
+  const React = require('react');
+  return {
+    List: ({ rowComponent, rowCount, rowProps, listRef }: any) => {
+      // Support listRef prop (react-window v2 API)
+      React.useEffect(() => {
+        if (listRef) {
+          listRef.current = {
+            scrollToRow: mockScrollToRow,
+          };
+        }
+      }, [listRef]);
+
+      // Render a simplified version for testing
+      return (
+        <div data-testid="virtual-list">
+          {Array.from({ length: Math.min(rowCount, 10) }, (_, index) => {
+            const Row = rowComponent;
+            return (
+              <div key={index} data-testid={`row-${index}`}>
+                <Row index={index} style={{}} {...rowProps} />
+              </div>
+            );
+          })}
+        </div>
+      );
+    },
+  };
+});
 
 // Mock world object
 const createMockWorld = (vobCount = 3): World => {
@@ -425,6 +440,300 @@ describe('VOBTree Component', () => {
       waitFor(() => {
         const rows = screen.getAllByTestId(/^row-/);
         expect(rows.length).toBeGreaterThan(3);
+      });
+    });
+  });
+
+  describe('Selected VOB Jump Logic', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    // Helper to create a world with nested structure for testing
+    const createNestedMockWorld = (): World => {
+      const grandchildVob: any = {
+        id: 2000,
+        objectName: 'Grandchild_0_0',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'grandchild.3ds' },
+        children: { size: () => 0, get: () => null },
+      };
+
+      const childVob: any = {
+        id: 1000,
+        objectName: 'Child_0',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'child.3ds' },
+        children: {
+          size: () => 1,
+          get: () => grandchildVob,
+        },
+      };
+
+      const rootVob: any = {
+        id: 0,
+        objectName: 'Root_0',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'root.3ds' },
+        children: {
+          size: () => 1,
+          get: () => childVob,
+        },
+      };
+
+      const otherRootVob: any = {
+        id: 1,
+        objectName: 'Root_1',
+        position: { x: 100, y: 0, z: 0 },
+        visual: { type: 1, name: 'root1.3ds' },
+        children: { size: () => 0, get: () => null },
+      };
+
+      return {
+        getVobs: () => ({
+          size: () => 2,
+          get: (index: number) => (index === 0 ? rootVob : otherRootVob),
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 },
+          }),
+        },
+      } as World;
+    };
+
+    it('should scroll to root VOB when selectedVob changes', async () => {
+      const world = createMockWorld(3);
+      const rootVob = world.getVobs().get(0) as Vob;
+
+      render(<VOBTree world={world} selectedVob={rootVob} />);
+
+      // Wait for the scroll timeout
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        expect(mockScrollToRow).toHaveBeenCalledWith({
+          index: 0,
+          align: 'smart',
+          behavior: 'auto',
+        });
+      });
+    });
+
+    it('should expand parent nodes and scroll to nested VOB', async () => {
+      const world = createNestedMockWorld();
+      const rootVob = world.getVobs().get(0) as Vob;
+      const childVob = rootVob.children.get(0) as Vob;
+      const grandchildVob = childVob.children.get(0) as Vob;
+
+      render(<VOBTree world={world} selectedVob={grandchildVob} />);
+
+      // Wait for the scroll timeout
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        // Should have expanded parents and scrolled to grandchild
+        expect(mockScrollToRow).toHaveBeenCalled();
+        const call = mockScrollToRow.mock.calls[0][0];
+        expect(call.index).toBeGreaterThan(0); // Should be after root and child
+        expect(call.align).toBe('smart');
+        expect(call.behavior).toBe('auto');
+      });
+    });
+
+    it('should collapse other groups when jumping to a VOB', async () => {
+      const world = createNestedMockWorld();
+      const rootVob = world.getVobs().get(0) as Vob;
+
+      const { rerender } = render(<VOBTree world={world} />);
+
+      // First expand the other root manually
+      const otherRootText = screen.getByText('Root_1');
+      fireEvent.click(otherRootText.closest('div')!);
+
+      // Now select the first root's child
+      const childVob = rootVob.children.get(0) as Vob;
+      rerender(<VOBTree world={world} selectedVob={childVob} />);
+
+      // Wait for the scroll timeout
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        // Should have collapsed Root_1 and expanded only Root_0 path
+        expect(mockScrollToRow).toHaveBeenCalled();
+      });
+
+      // Verify Root_1 is collapsed (its children should not be visible)
+      expect(screen.queryByText('Root_1')).toBeInTheDocument();
+    });
+
+    it('should skip navigation if same VOB is selected again', async () => {
+      const world = createMockWorld(3);
+      const rootVob = world.getVobs().get(0) as Vob;
+
+      const { rerender } = render(<VOBTree world={world} selectedVob={rootVob} />);
+
+      // First navigation
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        expect(mockScrollToRow).toHaveBeenCalledTimes(1);
+      });
+
+      mockScrollToRow.mockClear();
+
+      // Select the same VOB again
+      rerender(<VOBTree world={world} selectedVob={rootVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      // Should not scroll again
+      expect(mockScrollToRow).not.toHaveBeenCalled();
+    });
+
+    it('should handle VOB not found in tree gracefully', async () => {
+      const world = createMockWorld(3);
+      const nonExistentVob: Vob = {
+        id: 99999,
+        objectName: 'NonExistent',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'nonexistent.3ds' },
+        children: { size: () => 0, get: () => null },
+      } as any;
+
+      render(<VOBTree world={world} selectedVob={nonExistentVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      // Should not scroll if VOB is not found
+      expect(mockScrollToRow).not.toHaveBeenCalled();
+    });
+
+    it('should not scroll when filteredTree is empty', async () => {
+      const world = createMockWorld(3);
+      const rootVob = world.getVobs().get(0) as Vob;
+
+      const { rerender } = render(<VOBTree world={world} selectedVob={rootVob} />);
+
+      // Set a search term that filters everything out
+      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      fireEvent.change(searchInput, { target: { value: 'nonexistent' } });
+
+      // Wait for filter to apply
+      await waitFor(() => {
+        expect(screen.getByText('No VOBs match your search')).toBeInTheDocument();
+      });
+
+      mockScrollToRow.mockClear();
+
+      // Try to select VOB when filtered tree is empty
+      rerender(<VOBTree world={world} selectedVob={rootVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      // Should not scroll when filteredTree is empty
+      expect(mockScrollToRow).not.toHaveBeenCalled();
+    });
+
+    it('should expand multiple levels of parents correctly', async () => {
+      const world = createNestedMockWorld();
+      const rootVob = world.getVobs().get(0) as Vob;
+      const childVob = rootVob.children.get(0) as Vob;
+      const grandchildVob = childVob.children.get(0) as Vob;
+
+      render(<VOBTree world={world} selectedVob={grandchildVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        // Should have scrolled to grandchild
+        expect(mockScrollToRow).toHaveBeenCalled();
+        const call = mockScrollToRow.mock.calls[0][0];
+        // Index should be 2 (root=0, child=1, grandchild=2)
+        expect(call.index).toBe(2);
+      });
+
+      // Verify that both root and child are expanded (grandchild should be visible)
+      const grandchildText = screen.getByText('Grandchild_0_0');
+      expect(grandchildText).toBeInTheDocument();
+    });
+
+    it('should handle rapid VOB selection changes', async () => {
+      const world = createNestedMockWorld();
+      const rootVob = world.getVobs().get(0) as Vob;
+      const childVob = rootVob.children.get(0) as Vob;
+      const grandchildVob = childVob.children.get(0) as Vob;
+      const otherRootVob = world.getVobs().get(1) as Vob;
+
+      const { rerender } = render(<VOBTree world={world} selectedVob={rootVob} />);
+
+      // Rapidly change selections
+      rerender(<VOBTree world={world} selectedVob={childVob} />);
+      rerender(<VOBTree world={world} selectedVob={grandchildVob} />);
+      rerender(<VOBTree world={world} selectedVob={otherRootVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        // Should have scrolled at least once
+        expect(mockScrollToRow).toHaveBeenCalled();
+      });
+    });
+
+    it('should calculate correct index after collapsing other groups', async () => {
+      const world = createNestedMockWorld();
+      const rootVob = world.getVobs().get(0) as Vob;
+      const childVob = rootVob.children.get(0) as Vob;
+
+      const { rerender } = render(<VOBTree world={world} />);
+
+      // Expand both root nodes first
+      const root0Text = screen.getByText('Root_0');
+      fireEvent.click(root0Text.closest('div')!);
+      const root1Text = screen.getByText('Root_1');
+      fireEvent.click(root1Text.closest('div')!);
+
+      // Now select child of Root_0
+      rerender(<VOBTree world={world} selectedVob={childVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        expect(mockScrollToRow).toHaveBeenCalled();
+        const call = mockScrollToRow.mock.calls[0][0];
+        // Index should be 1 (Root_0=0, Child_0=1) after Root_1 is collapsed
+        expect(call.index).toBe(1);
       });
     });
   });
