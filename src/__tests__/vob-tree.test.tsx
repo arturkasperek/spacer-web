@@ -736,6 +736,232 @@ describe('VOBTree Component', () => {
         expect(call.index).toBe(1);
       });
     });
+
+    it('should keep selected MULTI_RES_MESH node expanded when it has children', async () => {
+      // Create a MULTI_RES_MESH node with children
+      const multiResMeshVob: Vob = {
+        id: 5000,
+        objectName: 'MultiResMesh',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 2, name: 'multires.3ds' }, // type 2 = MULTI_RES_MESH
+        children: {
+          size: () => 1,
+          get: () => ({
+            id: 5001,
+            objectName: 'ChildOfMultiRes',
+            position: { x: 0, y: 0, z: 0 },
+            visual: { type: 1, name: 'child.3ds' },
+            children: { size: () => 0, get: () => null },
+          }),
+        },
+      } as any;
+
+      const worldWithMultiRes: World = {
+        getVobs: () => ({
+          size: () => 1,
+          get: () => multiResMeshVob,
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 },
+          }),
+        },
+      } as World;
+
+      const { rerender } = render(<VOBTree world={worldWithMultiRes} />);
+
+      // Click to expand the MULTI_RES_MESH node
+      const multiResText = screen.getByText('MultiResMesh');
+      fireEvent.click(multiResText.closest('div')!);
+
+      // Wait for expansion
+      await waitFor(() => {
+        expect(screen.getByText('ChildOfMultiRes')).toBeInTheDocument();
+      });
+
+      // Now select the MULTI_RES_MESH node via selectedVob
+      rerender(<VOBTree world={worldWithMultiRes} selectedVob={multiResMeshVob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      // The MULTI_RES_MESH node should still be expanded (child visible)
+      await waitFor(() => {
+        expect(screen.getByText('ChildOfMultiRes')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('MULTI_RES_MESH Click Behavior', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should call onVobClick when clicking MULTI_RES_MESH node with children', () => {
+      const mockOnVobClick = jest.fn();
+      
+      // Create a world with a MULTI_RES_MESH node that has children
+      const multiResMeshVob: Vob = {
+        id: 6000,
+        objectName: 'MultiResMesh',
+        position: { x: 10, y: 20, z: 30 },
+        visual: { type: 2, name: 'multires.3ds' }, // type 2 = MULTI_RES_MESH
+        children: {
+          size: () => 1,
+          get: () => ({
+            id: 6001,
+            objectName: 'Child',
+            position: { x: 0, y: 0, z: 0 },
+            visual: { type: 1, name: 'child.3ds' },
+            children: { size: () => 0, get: () => null },
+          }),
+        },
+      } as any;
+
+      const world: World = {
+        getVobs: () => ({
+          size: () => 1,
+          get: () => multiResMeshVob,
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 },
+          }),
+        },
+      } as World;
+
+      render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
+
+      // Click on the MULTI_RES_MESH node
+      const multiResText = screen.getByText('MultiResMesh');
+      fireEvent.click(multiResText.closest('div')!);
+
+      // Should have called onVobClick
+      expect(mockOnVobClick).toHaveBeenCalledWith(multiResMeshVob);
+      expect(mockOnVobClick).toHaveBeenCalledTimes(1);
+
+      // Should also have expanded the node
+      expect(screen.getByText('Child')).toBeInTheDocument();
+    });
+
+    it('should expand MULTI_RES_MESH node when clicked even if onVobClick is called', () => {
+      const mockOnVobClick = jest.fn();
+      
+      const multiResMeshVob: Vob = {
+        id: 7000,
+        objectName: 'MultiResMesh',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 2, name: 'multires.3ds' },
+        children: {
+          size: () => 2,
+          get: (index: number) => ({
+            id: 7001 + index,
+            objectName: `Child_${index}`,
+            position: { x: 0, y: 0, z: 0 },
+            visual: { type: 1, name: `child_${index}.3ds` },
+            children: { size: () => 0, get: () => null },
+          }),
+        },
+      } as any;
+
+      const world: World = {
+        getVobs: () => ({
+          size: () => 1,
+          get: () => multiResMeshVob,
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 },
+          }),
+        },
+      } as World;
+
+      render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
+
+      // Initially collapsed
+      expect(screen.queryByText('Child_0')).not.toBeInTheDocument();
+
+      // Click on MULTI_RES_MESH node
+      const multiResText = screen.getByText('MultiResMesh');
+      fireEvent.click(multiResText.closest('div')!);
+
+      // Should expand (children visible)
+      expect(screen.getByText('Child_0')).toBeInTheDocument();
+      expect(screen.getByText('Child_1')).toBeInTheDocument();
+
+      // Should have called onVobClick
+      expect(mockOnVobClick).toHaveBeenCalledWith(multiResMeshVob);
+    });
+
+    it('should not call onVobClick for non-MULTI_RES_MESH nodes with children', () => {
+      const mockOnVobClick = jest.fn();
+      
+      const regularMeshVob: Vob = {
+        id: 8000,
+        objectName: 'RegularMesh',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'regular.3ds' }, // type 1 = MESH (not MULTI_RES_MESH)
+        children: {
+          size: () => 1,
+          get: () => ({
+            id: 8001,
+            objectName: 'Child',
+            position: { x: 0, y: 0, z: 0 },
+            visual: { type: 1, name: 'child.3ds' },
+            children: { size: () => 0, get: () => null },
+          }),
+        },
+      } as any;
+
+      const world: World = {
+        getVobs: () => ({
+          size: () => 1,
+          get: () => regularMeshVob,
+        }),
+        loadFromArray: () => true,
+        isLoaded: true,
+        getLastError: () => null,
+        mesh: {
+          getProcessedMeshData: () => ({
+            vertices: { size: () => 0, get: () => 0 },
+            indices: { size: () => 0, get: () => 0 },
+            materials: { size: () => 0, get: () => ({ texture: '' }) },
+            materialIds: { size: () => 0, get: () => 0 },
+          }),
+        },
+      } as World;
+
+      render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
+
+      // Click on regular MESH node with children
+      const meshText = screen.getByText('RegularMesh');
+      fireEvent.click(meshText.closest('div')!);
+
+      // Should expand (children visible)
+      expect(screen.getByText('Child')).toBeInTheDocument();
+
+      // Should NOT have called onVobClick (only MULTI_RES_MESH triggers it)
+      expect(mockOnVobClick).not.toHaveBeenCalled();
+    });
   });
 });
 
