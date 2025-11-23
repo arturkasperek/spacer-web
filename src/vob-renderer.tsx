@@ -359,17 +359,80 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Load model with caching
-      if (!zenKit) return false;
       const model = await loadModelCached(modelPath, zenKit);
       if (!model) {
         return false;
       }
 
-      // For now, render all attachments as a group
+      // Check for attachments first
       const attachmentNames = model.getAttachmentNames();
+      const attachmentCount = attachmentNames.size();
 
-      if (attachmentNames.size() === 0) {
-        return false;
+      // Check for soft-skin meshes if no attachments
+      if (attachmentCount === 0) {
+        // TypeScript may not recognize these methods, but they exist at runtime
+        const softSkinMeshes = (model as any).getSoftSkinMeshes?.();
+        const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
+        
+        if (softSkinCount === 0) {
+          return false;
+        }
+        
+        // Render soft-skin meshes
+        // In OpenGothic, soft-skin meshes use skeleton transforms, but for static models
+        // they're positioned relative to the root node translation
+        const hierarchy = model.getHierarchy();
+        const modelGroup = new THREE.Group();
+        
+        // Store VOB reference for click detection
+        modelGroup.userData.vob = vob;
+        
+        // Get root translation from hierarchy (similar to OpenGothic's mkBaseTranslation)
+        // OpenGothic's mkBaseTranslation() extracts from processed root node transform and negates it
+        // We use the hierarchy's root_translation directly, negated
+        let rootNodeTranslation = new THREE.Vector3(0, 0, 0);
+        if (hierarchy.rootTranslation) {
+          rootNodeTranslation.set(
+            -hierarchy.rootTranslation.x,
+            -hierarchy.rootTranslation.y,
+            -hierarchy.rootTranslation.z
+          );
+        }
+        
+        for (let i = 0; i < softSkinCount; i++) {
+          const softSkinMesh = softSkinMeshes.get(i);
+          if (!softSkinMesh) continue;
+
+          // Convert soft-skin mesh to processed mesh data
+          const processed = (model as any).convertSoftSkinMeshToProcessedMesh(softSkinMesh);
+          if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
+            continue;
+          }
+
+          // Build Three.js geometry and materials
+          const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
+
+          // Create mesh - soft-skin meshes are positioned relative to root node
+          // Apply root node translation offset (similar to OpenGothic's mkBaseTranslation logic)
+          const softSkinMeshObj = new THREE.Mesh(geometry, materials);
+          softSkinMeshObj.position.copy(rootNodeTranslation);
+
+          modelGroup.add(softSkinMeshObj);
+        }
+        
+        if (modelGroup.children.length === 0) {
+          return false;
+        }
+        
+        // Apply VOB transform
+        applyVobTransform(modelGroup, vob);
+        scene.add(modelGroup);
+        
+        if (vobId) {
+          loadedVOBsRef.current.set(vobId, modelGroup);
+        }
+        
+        return true;
       }
 
       // Get the model hierarchy to position attachments correctly
@@ -410,7 +473,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Render each attachment with proper positioning from hierarchy
-      for (let i = 0; i < attachmentNames.size(); i++) {
+      for (let i = 0; i < attachmentCount; i++) {
         const attachmentName = attachmentNames.get(i);
         const attachment = model.getAttachment(attachmentName);
         if (!attachment) continue;
@@ -442,11 +505,13 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         if (hierarchyNodeIndex >= 0) {
           const accumulatedMatrix = getAccumulatedTransform(hierarchyNodeIndex);
           attachmentMesh.applyMatrix4(accumulatedMatrix);
-        } else {
-          console.warn(`No hierarchy node found for attachment: ${attachmentName}`);
         }
 
         modelGroup.add(attachmentMesh);
+      }
+
+      if (modelGroup.children.length === 0) {
+        return false;
       }
 
       // Apply VOB transform using the same approach as regular VOBs
