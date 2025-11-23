@@ -114,10 +114,7 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
 
   const vobTree = useMemo(() => {
     if (!world) return [];
-    console.log('Building VOB tree...');
-    const tree = buildVOBTree(world);
-    console.log(`VOB tree built: ${tree.length} root nodes`);
-    return tree;
+    return buildVOBTree(world);
   }, [world]);
 
   const filterTree = (nodes: VOBNode[], searchTerm: string): VOBNode[] => {
@@ -251,6 +248,10 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     for (const parent of parentsToExpand) {
       idsToKeepExpanded.add(parent.id);
     }
+    // Also include the target node itself if it has children (to keep it expanded)
+    if (foundNode.children.length > 0) {
+      idsToKeepExpanded.add(foundNode.id);
+    }
 
     // First, collapse all other groups (keep only the path to target)
     setExpandedIds(prev => {
@@ -264,6 +265,10 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
       // Add any parents that weren't already expanded
       for (const parent of parentsToExpand) {
         next.add(parent.id);
+      }
+      // Add the target node itself if it has children
+      if (foundNode.children.length > 0) {
+        next.add(foundNode.id);
       }
       return next;
     });
@@ -323,9 +328,15 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
             backgroundColor: isSelected ? 'rgba(255, 255, 0, 0.3)' : 'transparent',
             borderLeft: isSelected ? '3px solid #ffff00' : '3px solid transparent'
           }}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
+            
             if (hasChildren) {
               toggleExpanded(node.id);
+              // If MULTI_RES_MESH, also teleport to VOB position
+              if (node.visualType === 'MULTI_RES_MESH') {
+                onVobClick?.(node.vob);
+              }
             } else {
               // If no children, teleport to VOB position
               onVobClick?.(node.vob);
