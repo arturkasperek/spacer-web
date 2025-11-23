@@ -369,7 +369,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       const attachmentNames = model.getAttachmentNames();
 
       if (attachmentNames.size() === 0) {
-        console.log(`Model ${modelPath} has no attachments to render`);
         return false;
       }
 
@@ -648,10 +647,65 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
     try {
       const response = await fetch(modelPath);
-      if (!response.ok) {
-        return null;
+      
+      // Check if .MDL doesn't exist (404 or returns HTML)
+      const contentType = response.headers.get('content-type') || '';
+      const is404 = !response.ok || contentType.includes('text/html');
+      
+      if (is404) {
+        // Try loading .MDH and .MDM separately
+        const basePath = modelPath.replace(/\.MDL$/i, '');
+        const mdhPath = `${basePath}.MDH`;
+        const mdmPath = `${basePath}.MDM`;
+        
+        try {
+          // Load hierarchy (.MDH)
+          const mdhResponse = await fetch(mdhPath);
+          if (!mdhResponse.ok) {
+            return null;
+          }
+          
+          const mdhArrayBuffer = await mdhResponse.arrayBuffer();
+          const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
+          
+          const hierarchyLoader = zenKit.createModelHierarchyLoader();
+          const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
+          
+          if (!mdhLoadResult || !mdhLoadResult.success) {
+            return null;
+          }
+          
+          // Load mesh (.MDM)
+          const mdmResponse = await fetch(mdmPath);
+          if (!mdmResponse.ok) {
+            return null;
+          }
+          
+          const mdmArrayBuffer = await mdmResponse.arrayBuffer();
+          const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
+          
+          const meshLoader = zenKit.createModelMeshLoader();
+          const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
+          
+          if (!mdmLoadResult || !mdmLoadResult.success) {
+            return null;
+          }
+          
+          // Combine hierarchy and mesh into a Model
+          const model = zenKit.createModel();
+          model.setHierarchy(hierarchyLoader.getHierarchy());
+          model.setMesh(meshLoader.getMesh());
+          
+          // Cache and return
+          modelCacheRef.current.set(modelPath, model);
+          return model;
+          
+        } catch (error: unknown) {
+          return null;
+        }
       }
 
+      // Load .MDL file normally
       const arrayBuffer = await response.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
 
@@ -664,14 +718,17 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         return null;
       }
 
-      if (!model.isLoaded) {
-        console.warn(`Model ${modelPath} loaded but reports not loaded`);
+      // Check for attachments FIRST, before checking isLoaded
+      const attachmentNames = model.getAttachmentNames();
+      const hasAttachments = attachmentNames && attachmentNames.size && attachmentNames.size() > 0;
+
+      // Only reject if BOTH isLoaded is false AND there are no attachments
+      if (!model.isLoaded && !hasAttachments) {
         return null;
       }
 
       // Cache and return
       modelCacheRef.current.set(modelPath, model);
-      console.log(`✅ Loaded model ${modelPath}`);
       return model;
     } catch (error: unknown) {
       console.warn(`Failed to load model ${modelPath}:`, error);
