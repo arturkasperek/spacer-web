@@ -74,14 +74,14 @@ export function getVobType(vob: Vob): number | undefined {
 /**
  * VOB types that should use helper visuals when they don't have a normal visual
  * Based on Spacer's CB_ViewInvisibleVobs and CB_HandleVobsAfterLoad logic:
- * - Lights, spots, cameras, screen effects, particle effects use helper visuals
+ * - Lights, spots, cameras, screen effects use helper visuals
  * - Sound VOBs use helper visuals
+ * - zCPFXController (type 7) explicitly does NOT use helper visuals (SetVisual(0) in Spacer)
  * - Triggers, zones, touch damage, lens flares do NOT use helper visuals
  * - Base zCVob, items, NPCs, stairs do NOT use helper visuals (they have their own visuals)
  */
 const HELPER_VOB_TYPES = new Set([
   5,  // zCVobScreenFX
-  7,  // zCPFXController
   10, // zCVobLight
   11, // zCVobSpot
   12, // zCVobStartpoint
