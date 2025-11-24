@@ -1,7 +1,7 @@
 // VOB utility functions for path resolution and helpers
 import type { Vob } from '@kolarz3/zenkit';
 
-// VOB type name mapping
+// VOB type name mapping (based on ZenKit VirtualObjectType enum)
 const VOB_TYPE_NAMES: { [key: number]: string } = {
   0: 'zCVob',
   1: 'zCVobLevelCompo',
@@ -16,6 +16,37 @@ const VOB_TYPE_NAMES: { [key: number]: string } = {
   10: 'zCVobLight',
   11: 'zCVobSpot',
   12: 'zCVobStartpoint',
+  13: 'zCMessageFilter',
+  14: 'zCCodeMaster',
+  15: 'zCTriggerWorldStart',
+  16: 'zCCSCamera',
+  17: 'zCCamTrj_KeyFrame',
+  18: 'oCTouchDamage',
+  19: 'zCTriggerUntouch',
+  20: 'zCEarthquake',
+  21: 'oCMOB',
+  22: 'oCMobInter',
+  23: 'oCMobBed',
+  24: 'oCMobFire',
+  25: 'oCMobLadder',
+  26: 'oCMobSwitch',
+  27: 'oCMobWheel',
+  28: 'oCMobContainer',
+  29: 'oCMobDoor',
+  30: 'zCTrigger',
+  31: 'zCTriggerList',
+  32: 'oCTriggerScript',
+  33: 'oCTriggerChangeLevel',
+  34: 'oCCSTrigger',
+  35: 'zCMover',
+  36: 'zCVobSound',
+  37: 'zCVobSoundDaytime',
+  38: 'oCZoneMusic',
+  39: 'oCZoneMusicDefault',
+  40: 'zCZoneZFog',
+  41: 'zCZoneZFogDefault',
+  42: 'zCZoneVobFarPlane',
+  43: 'zCZoneVobFarPlaneDefault',
 };
 
 /**
