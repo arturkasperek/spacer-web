@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect, CSSProperties } from "react";
 import { List } from 'react-window';
 import type { World, Vob } from '@kolarz3/zenkit';
+import { getVobTypeName, getVobType } from './vob-utils';
 
 interface VOBNode {
   id: string;
@@ -45,20 +46,17 @@ function buildVOBTree(world: World): VOBNode[] {
       children.push(buildNode(childVob, i, depth + 1));
     }
 
-    // Try to get VOB name from different possible properties
-    let vobName = 'Unnamed';
-    if (vob.objectName) {
-      vobName = vob.objectName;
-    } else if (vob.name) {
-      vobName = vob.name;
-    } else if (vob.vobName) {
-      vobName = vob.vobName;
-    }
+    // Get VOB type name
+    const vobType = getVobType(vob);
+    const vobTypeName = getVobTypeName(vobType);
+
+    // Use VOB type name as the display name, with fallback to vobName
+    const displayName = vob.name || vobTypeName || 'Unnamed';
 
     return {
       id: `vob_${depth}_${index}`,
       vob,
-      name: vobName,
+      name: displayName,
       visualName: vob.visual?.name || '',
       visualType: visualTypeName,
       children,
