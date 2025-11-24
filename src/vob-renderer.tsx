@@ -264,9 +264,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
   // Main VOB rendering dispatcher
   const renderVOB = async (vob: Vob, vobId: string | null = null, vobData?: VobData): Promise<boolean> => {
-    // Get VOB type from vobData if available, otherwise from vob directly
-    const vobType = vobData?.vobType ?? getVobType(vob);
-    
     // Get visual name from vobData if available, otherwise from vob
     const visualName = vobData?.visualName ?? vob.visual.name;
     
@@ -275,10 +272,8 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       return false;
     }
 
-    // Check if this is a helper visual (VOB has no visual or empty visual name)
-    // But exclude certain VOB types that shouldn't use helper visuals
-    const isHelperVisual = (!vob.visual.name || vob.visual.name.trim() === '') &&
-                           shouldUseHelperVisual(vobType);
+    // Check if this is a helper visual (visual name starts with INVISIBLE_)
+    const isHelperVisual = shouldUseHelperVisual(vobData?.vobType);
 
     // Skip if visual disabled (unless it's a helper visual)
     if (!isHelperVisual && !vob.showVisual) {
@@ -296,7 +291,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (!meshPath) {
         return false;
       }
-      return await renderMeshVOB(vob, vobId, meshPath, vobType);
+      return await renderMeshVOB(vob, vobId, meshPath);
     }
 
     // Only render mesh visuals
@@ -322,12 +317,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         return false;
       }
 
-      return await renderMeshVOB(vob, vobId, meshPath, vobType);
+      return await renderMeshVOB(vob, vobId, meshPath);
     }
   };
 
   // Render mesh VOB
-  const renderMeshVOB = async (vob: Vob, vobId: string | null, meshPath: string, vobType?: number): Promise<boolean> => {
+  const renderMeshVOB = async (vob: Vob, vobId: string | null, meshPath: string): Promise<boolean> => {
     if (!zenKit) return false;
     
     try {
@@ -338,7 +333,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Build Three.js geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit, vobType);
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
 
       // Verify geometry has data
       if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
@@ -631,7 +626,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Shared function to build Three.js geometry and materials from processed mesh data
-  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit, vobType?: number) => {
+  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit) => {
     const idxCount = processed.indices.size();
     const matCount = processed.materials.size();
 
@@ -685,7 +680,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     const materialArray: THREE.MeshBasicMaterial[] = [];
     for (let mi = 0; mi < matCount; mi++) {
       const mat = processed.materials.get(mi);
-      const material = await getMaterialCached(mat, zenKit, vobType);
+      const material = await getMaterialCached(mat, zenKit);
       materialArray.push(material);
     }
 
@@ -909,7 +904,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     }
   };
 
-  // Color name to hex mapping for spot VOBs (matching original Spacer editor)
+  // Color name to hex mapping for helper visuals (matching original Spacer editor)
   const colorNameToHex: { [key: string]: number } = {
     'RED': 0xFF0000,
     'GREEN': 0x00FF00,
@@ -923,18 +918,35 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     'BLACK': 0x000000,
     'GRAY': 0x808080,
     'GREY': 0x808080,
+    // Camera-related materials (zCCamTrj_KeyFrame - type 17)
+    'KAMERA': 0x00FFFF,      // CYAN - cameras are typically cyan
+    'FILM': 0xFF00FF,        // MAGENTA - film/cinematic
+    'DIRECTION': 0xFFFF00,   // YELLOW - direction indicators
+    // Light materials (zCVobLight - type 10)
+    'LIGHTMESH': 0xFFFF00,   // YELLOW - lights are yellow
+    // Numbered materials (zCVobSound - type 36, zCCamTrj_KeyFrame - type 17)
+    'ZCVOBMAT1': 0xFF6B6B,   // CORAL/RED - lighter red
+    'ZCVOBMAT2': 0x4ECDC4,   // TURQUOISE - cyan-green
+    'ZCVOBMAT3': 0x45B7D1,   // SKY BLUE - light blue
+    'ZCVOBMAT4': 0xFFA07A,   // LIGHT SALMON - orange-pink
+    'ZCVOBMAT5': 0x98D8C8,   // MINT GREEN - light green
+    'ZCVOBMAT6': 0xC0C0C0,   // SILVER - lighter gray
+    'ZCVOBMAT7': 0xA0A0A0,   // GRAY - medium gray
+    'ZCVOBMAT8': 0x808080,   // DARKGRAY - darker gray
   };
 
   // Cached material creator
-  const getMaterialCached = async (materialData: { texture: string; name?: string }, zenKit: ZenKit, vobType?: number): Promise<THREE.MeshBasicMaterial> => {
+  const getMaterialCached = async (materialData: { texture: string; name?: string }, zenKit: ZenKit): Promise<THREE.MeshBasicMaterial> => {
     const textureName = materialData.texture || '';
     const materialName = materialData.name || '';
-    const isSpotVob = vobType === 11;
 
-    // For spot VOBs: check if material name is a color name (no texture)
-    if (isSpotVob && !textureName && materialName) {
-      const colorHex = colorNameToHex[materialName.toUpperCase()];
-      const cacheKey = `SPOT_COLOR_${materialName}`;
+    // For helper visuals: check if material name is a color name (no texture)
+    // Helper visuals have no texture but have a material name (like "ORANGE", "RED", etc.)
+    if (!textureName && materialName) {
+      const materialNameUpper = materialName.toUpperCase();
+      const colorHex = colorNameToHex[materialNameUpper];
+      const cacheKey = `HELPER_COLOR_${materialNameUpper}`;
+      const finalColor = colorHex !== undefined ? colorHex : 0xFFFFFF;
       
       // Check cache first
       const cached = materialCacheRef.current.get(cacheKey);
@@ -942,9 +954,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         return cached;
       }
 
-      // Create solid color material for spot VOB
+      // Create solid color material for helper visual
       const material = new THREE.MeshBasicMaterial({
-        color: colorHex !== undefined ? colorHex : 0xFFFFFF, // Default to white if color not found
+        color: finalColor,
         side: THREE.DoubleSide,
         transparent: false,
         alphaTest: 0.5

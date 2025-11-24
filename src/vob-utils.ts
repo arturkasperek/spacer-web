@@ -72,10 +72,24 @@ export function getVobType(vob: Vob): number | undefined {
 }
 
 /**
- * VOB types that should NOT use helper visuals when they don't have a normal visual
- * These types should be skipped entirely if they don't have a visual
+ * VOB types that should use helper visuals when they don't have a normal visual
+ * Based on Spacer's CB_ViewInvisibleVobs and CB_HandleVobsAfterLoad logic:
+ * - Lights, spots, cameras, screen effects, particle effects use helper visuals
+ * - Sound VOBs use helper visuals
+ * - Triggers, zones, touch damage, lens flares do NOT use helper visuals
+ * - Base zCVob, items, NPCs, stairs do NOT use helper visuals (they have their own visuals)
  */
-const NON_HELPER_VOB_TYPES = new Set([0, 2, 3, 6]); // zCVob, oCItem, oCNpc, zCVobStair
+const HELPER_VOB_TYPES = new Set([
+  5,  // zCVobScreenFX
+  7,  // zCPFXController
+  10, // zCVobLight
+  11, // zCVobSpot
+  12, // zCVobStartpoint
+  16, // zCCSCamera
+  17, // zCCamTrj_KeyFrame
+  36, // zCVobSound
+  37, // zCVobSoundDaytime
+]);
 
 /**
  * Checks if a VOB type should use helper visuals
@@ -86,7 +100,7 @@ export function shouldUseHelperVisual(vobType: number | undefined | null): boole
   if (vobType === undefined || vobType === null) {
     return false;
   }
-  return !NON_HELPER_VOB_TYPES.has(vobType);
+  return HELPER_VOB_TYPES.has(vobType);
 }
 
 /**
