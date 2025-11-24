@@ -9,6 +9,7 @@ import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
+import { logVobDetails } from "./vob-utils.js";
 import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
 
 // Create a ref to hold the main camera
@@ -155,12 +156,14 @@ export function App() {
     if (!vob) return;
     shouldUpdateCameraRef.current = true;
     setSelectedVob(vob);
+    logVobDetails(vob);
   }, []);
 
   const handleVobClickFromScene = useCallback((vob: Vob) => {
     if (!vob) return;
     // Only select, don't move camera
     setSelectedVob(vob);
+    logVobDetails(vob);
   }, []);
 
   const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {

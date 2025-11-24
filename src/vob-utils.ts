@@ -1,4 +1,44 @@
 // VOB utility functions for path resolution and helpers
+import type { Vob } from '@kolarz3/zenkit';
+
+/**
+ * Logs all details about a selected VOB to the console
+ */
+export function logVobDetails(vob: Vob): void {
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('📦 SELECTED VOB DETAILS');
+  console.log('═══════════════════════════════════════════════════════════');
+  
+  // Basic info
+  console.log(`ID: ${vob.id}`);
+  console.log(`Show Visual: ${vob.showVisual}`);
+  
+  // Visual properties
+  if (vob.visual) {
+    const visualTypeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE_EFFECT', 'AI_CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
+    const visualTypeName = visualTypeNames[vob.visual.type] || `UNKNOWN(${vob.visual.type})`;
+    console.log(`Visual Type: ${visualTypeName} (${vob.visual.type})`);
+    console.log(`Visual Name: ${vob.visual.name || '(none)'}`);
+  }
+  
+  // Name properties
+  const nameProps: string[] = [];
+  if (vob.objectName) nameProps.push(`objectName: "${vob.objectName}"`);
+  if (vob.name) nameProps.push(`name: "${vob.name}"`);
+  if (vob.vobName) nameProps.push(`vobName: "${vob.vobName}"`);
+  if (nameProps.length > 0) {
+    console.log(`Names: ${nameProps.join(', ')}`);
+  }
+  
+  // Children count
+  const childCount = vob.children ? vob.children.size() : 0;
+  console.log(`Children: ${childCount}`);
+  
+  // Full VOB object (for inspection)
+  console.log('Full VOB Object:', vob);
+  
+  console.log('═══════════════════════════════════════════════════════════');
+}
 
 // Path resolution functions
 export const getMeshPath = (visualName: string): string | null => {
