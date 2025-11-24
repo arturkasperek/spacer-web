@@ -1,6 +1,45 @@
 // VOB utility functions for path resolution and helpers
 import type { Vob } from '@kolarz3/zenkit';
 
+// VOB type name mapping
+const VOB_TYPE_NAMES: { [key: number]: string } = {
+  0: 'zCVob',
+  1: 'zCVobLevelCompo',
+  2: 'oCItem',
+  3: 'oCNpc',
+  4: 'zCMoverController',
+  5: 'zCVobScreenFX',
+  6: 'zCVobStair',
+  7: 'zCPFXController',
+  8: 'zCVobAnimate',
+  9: 'zCVobLensFlare',
+  10: 'zCVobLight',
+  11: 'zCVobSpot',
+  12: 'zCVobStartpoint',
+};
+
+/**
+ * Gets the VOB type name from a type number
+ * @param vobType The VOB type number
+ * @returns The uppercase type name (e.g., "ZCVOBSPOT") or null if unknown
+ */
+export function getVobTypeName(vobType: number | undefined | null): string | null {
+  if (vobType === undefined || vobType === null) {
+    return null;
+  }
+  const typeName = VOB_TYPE_NAMES[vobType];
+  return typeName ? typeName.toUpperCase() : null;
+}
+
+/**
+ * Gets the VOB type number from a VOB object
+ * @param vob The VOB object
+ * @returns The VOB type number or undefined
+ */
+export function getVobType(vob: Vob): number | undefined {
+  return (vob as any).type;
+}
+
 /**
  * Logs all details about a selected VOB to the console
  */
@@ -14,24 +53,9 @@ export function logVobDetails(vob: Vob): void {
   console.log(`Show Visual: ${vob.showVisual}`);
   
   // VOB type (if available)
-  const vobType = (vob as any).type;
+  const vobType = getVobType(vob);
   if (vobType !== undefined) {
-    const vobTypeNames: { [key: number]: string } = {
-      0: 'zCVob',
-      1: 'zCVobLevelCompo',
-      2: 'oCItem',
-      3: 'oCNpc',
-      4: 'zCMoverController',
-      5: 'zCVobScreenFX',
-      6: 'zCVobStair',
-      7: 'zCPFXController',
-      8: 'zCVobAnimate',
-      9: 'zCVobLensFlare',
-      10: 'zCVobLight',
-      11: 'zCVobSpot',
-      12: 'zCVobStartpoint',
-    };
-    const vobTypeName = vobTypeNames[vobType] || `UNKNOWN(${vobType})`;
+    const vobTypeName = getVobTypeName(vobType) || `UNKNOWN(${vobType})`;
     console.log(`VOB Type: ${vobTypeName} (${vobType})`);
   }
   
@@ -68,8 +92,8 @@ export const getMeshPath = (visualName: string): string | null => {
 
   const upper = visualName.toUpperCase();
 
-  // Remove extension and get base name
-  const base = upper.replace(/\.(3DS|MMS|ASC|TGA)$/i, '');
+  // Remove extension and get base name (including .MRM and .MSH if present)
+  const base = upper.replace(/\.(3DS|MMS|ASC|TGA|MRM|MSH)$/i, '');
 
   // Meshes don't have -C suffix like textures do
   // Try .MRM (Multi-Resolution Mesh) first, then .MSH

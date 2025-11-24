@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl } from "./vob-utils";
+import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl, getVobType, getVobTypeName } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
@@ -91,20 +91,30 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
 
       // Get VOB type
-      const vobType = (vob as any).type;
-      const isSpotVob = vobType === 11;
-
-      // Only store VOBs that have visible meshes OR are spot VOBs
-      if (isSpotVob || (vob.showVisual && vob.visual.name &&
+      const vobType = getVobType(vob);
+      
+      // Determine if visual is available
+      const hasVisual = vob.showVisual && vob.visual.name &&
           (vob.visual.type === 1 || vob.visual.type === 2 || vob.visual.type === 5 || vob.visual.type === 6) &&
           !vob.visual.name.toUpperCase().endsWith('.TEX') &&
-          !vob.visual.name.toUpperCase().endsWith('.TGA'))) {
+          !vob.visual.name.toUpperCase().endsWith('.TGA');
+      
+      // Determine visual name: use actual visual if available, otherwise use INVISIBLE_{VOBTYPENAME}.MRM
+      let visualName: string;
+      if (hasVisual) {
+        visualName = vob.visual.name;
+      } else {
+        const vobTypeName = getVobTypeName(vobType);
+        visualName = vobTypeName ? `INVISIBLE_${vobTypeName}.MRM` : '';
+      }
 
+      // Only store VOBs that have visible meshes OR have a valid VOB type (for invisible helper visuals)
+      if (hasVisual || (visualName && vobType !== undefined && vobType !== null)) {
           allVOBsRef.current.push({
             id: `${vobId}_${totalCount}`,
             vob: vob,
             position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
-            visualName: isSpotVob ? 'INVISIBLE_ZCVOBSPOT.MRM' : vob.visual.name,
+            visualName: visualName!,
             vobType: vobType
           });
       }
@@ -254,21 +264,37 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   // Main VOB rendering dispatcher
   const renderVOB = async (vob: Vob, vobId: string | null = null, vobData?: VobData): Promise<boolean> => {
     // Get VOB type from vobData if available, otherwise from vob directly
-    const vobType = vobData?.vobType ?? (vob as any).type;
+    const vobType = vobData?.vobType ?? getVobType(vob);
     
-    // Check if this is a zCVobSpot (type 11) - render with helper visual
-    if (vobType === 11) {
-      // zCVobSpot - use INVISIBLE_ZCVOBSPOT.MRM helper visual
-      const spotMeshPath = '/MESHES/_COMPILED/INVISIBLE_ZCVOBSPOT.MRM';
-      return await renderMeshVOB(vob, vobId, spotMeshPath, vobType);
-    }
-
-    // Skip if no visual or visual disabled
-    if (!vob.showVisual || !vob.visual.name) {
+    // Get visual name from vobData if available, otherwise from vob
+    const visualName = vobData?.visualName ?? vob.visual.name;
+    
+    // Skip if no visual name
+    if (!visualName) {
       return false;
     }
 
-    const visualName = vob.visual.name;
+    // Check if this is a helper visual (VOB has no visual or empty visual name)
+    const isHelperVisual = !vob.visual.name || vob.visual.name.trim() === '';
+
+    // Skip if visual disabled (unless it's a helper visual)
+    if (!isHelperVisual && !vob.showVisual) {
+      return false;
+    }
+
+    // Skip if visual name has texture extension (indicates it's not a mesh)
+    if (visualName.toUpperCase().endsWith('.TEX') || visualName.toUpperCase().endsWith('.TGA')) {
+      return false;
+    }
+
+    // For helper visuals, treat as regular mesh
+    if (isHelperVisual) {
+      const meshPath = getMeshPath(visualName);
+      if (!meshPath) {
+        return false;
+      }
+      return await renderMeshVOB(vob, vobId, meshPath, vobType);
+    }
 
     // Only render mesh visuals
     // Type 0 = DECAL (sprite/texture, not 3D mesh)
@@ -277,11 +303,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     // Type 3 = PARTICLE_EFFECT, 4 = AI_CAMERA, 5 = MODEL, 6 = MORPH_MESH
     if (vob.visual.type !== 1 && vob.visual.type !== 2 && vob.visual.type !== 5 && vob.visual.type !== 6) {
       return false; // Skip non-mesh visuals (decals, particles, etc.)
-    }
-
-    // Skip if visual name has texture extension (indicates it's not a mesh)
-    if (visualName.toUpperCase().endsWith('.TEX') || visualName.toUpperCase().endsWith('.TGA')) {
-      return false;
     }
 
     // Handle different visual types
@@ -299,7 +320,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         return false;
       }
 
-      return await renderMeshVOB(vob, vobId, meshPath);
+      return await renderMeshVOB(vob, vobId, meshPath, vobType);
     }
   };
 
