@@ -13,6 +13,28 @@ export function logVobDetails(vob: Vob): void {
   console.log(`ID: ${vob.id}`);
   console.log(`Show Visual: ${vob.showVisual}`);
   
+  // VOB type (if available)
+  const vobType = (vob as any).type;
+  if (vobType !== undefined) {
+    const vobTypeNames: { [key: number]: string } = {
+      0: 'zCVob',
+      1: 'zCVobLevelCompo',
+      2: 'oCItem',
+      3: 'oCNpc',
+      4: 'zCMoverController',
+      5: 'zCVobScreenFX',
+      6: 'zCVobStair',
+      7: 'zCPFXController',
+      8: 'zCVobAnimate',
+      9: 'zCVobLensFlare',
+      10: 'zCVobLight',
+      11: 'zCVobSpot',
+      12: 'zCVobStartpoint',
+    };
+    const vobTypeName = vobTypeNames[vobType] || `UNKNOWN(${vobType})`;
+    console.log(`VOB Type: ${vobTypeName} (${vobType})`);
+  }
+  
   // Visual properties
   if (vob.visual) {
     const visualTypeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE_EFFECT', 'AI_CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];

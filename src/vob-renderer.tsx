@@ -10,6 +10,7 @@ interface VobData {
   vob: Vob;
   position: THREE.Vector3;
   visualName: string;
+  vobType?: number; // VOB type (e.g., 11 for zCVobSpot)
 }
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
@@ -89,17 +90,22 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       const typeKey = `Type_${vob.visual.type}`;
       visualTypeCounts[typeKey] = (visualTypeCounts[typeKey] || 0) + 1;
 
-      // Only store VOBs that have visible meshes
-      if (vob.showVisual && vob.visual.name &&
+      // Get VOB type
+      const vobType = (vob as any).type;
+      const isSpotVob = vobType === 11;
+
+      // Only store VOBs that have visible meshes OR are spot VOBs
+      if (isSpotVob || (vob.showVisual && vob.visual.name &&
           (vob.visual.type === 1 || vob.visual.type === 2 || vob.visual.type === 5 || vob.visual.type === 6) &&
           !vob.visual.name.toUpperCase().endsWith('.TEX') &&
-          !vob.visual.name.toUpperCase().endsWith('.TGA')) {
+          !vob.visual.name.toUpperCase().endsWith('.TGA'))) {
 
           allVOBsRef.current.push({
             id: `${vobId}_${totalCount}`,
             vob: vob,
             position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
-            visualName: vob.visual.name
+            visualName: isSpotVob ? 'INVISIBLE_ZCVOBSPOT.MRM' : vob.visual.name,
+            vobType: vobType
           });
       }
 
@@ -183,7 +189,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobData) {
         loadingVOBsRef.current.add(vobData.id);
 
-        renderVOB(vobData.vob, vobData.id).then(success => {
+        renderVOB(vobData.vob, vobData.id, vobData).then(success => {
           loadingVOBsRef.current.delete(vobData.id);
           if (!success) {
             console.warn(`❌ Failed to render VOB: ${vobData.visualName}`);
@@ -246,7 +252,17 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   });
 
   // Main VOB rendering dispatcher
-  const renderVOB = async (vob: Vob, vobId: string | null = null): Promise<boolean> => {
+  const renderVOB = async (vob: Vob, vobId: string | null = null, vobData?: VobData): Promise<boolean> => {
+    // Get VOB type from vobData if available, otherwise from vob directly
+    const vobType = vobData?.vobType ?? (vob as any).type;
+    
+    // Check if this is a zCVobSpot (type 11) - render with helper visual
+    if (vobType === 11) {
+      // zCVobSpot - use INVISIBLE_ZCVOBSPOT.MRM helper visual
+      const spotMeshPath = '/MESHES/_COMPILED/INVISIBLE_ZCVOBSPOT.MRM';
+      return await renderMeshVOB(vob, vobId, spotMeshPath, vobType);
+    }
+
     // Skip if no visual or visual disabled
     if (!vob.showVisual || !vob.visual.name) {
       return false;
@@ -288,7 +304,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Render mesh VOB
-  const renderMeshVOB = async (vob: Vob, vobId: string | null, meshPath: string): Promise<boolean> => {
+  const renderMeshVOB = async (vob: Vob, vobId: string | null, meshPath: string, vobType?: number): Promise<boolean> => {
     if (!zenKit) return false;
     
     try {
@@ -299,7 +315,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Build Three.js geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit, vobType);
 
       // Verify geometry has data
       if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
@@ -597,7 +613,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   };
 
   // Shared function to build Three.js geometry and materials from processed mesh data
-  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit) => {
+  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit, vobType?: number) => {
     const idxCount = processed.indices.size();
     const matCount = processed.materials.size();
 
@@ -651,7 +667,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     const materialArray: THREE.MeshBasicMaterial[] = [];
     for (let mi = 0; mi < matCount; mi++) {
       const mat = processed.materials.get(mi);
-      const material = await getMaterialCached(mat, zenKit);
+      const material = await getMaterialCached(mat, zenKit, vobType);
       materialArray.push(material);
     }
 
@@ -876,10 +892,53 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     }
   };
 
-  // Cached material creator
-  const getMaterialCached = async (materialData: { texture: string }, zenKit: ZenKit): Promise<THREE.MeshBasicMaterial> => {
-    const textureName = materialData.texture || '';
+  // Color name to hex mapping for spot VOBs (matching original Spacer editor)
+  const colorNameToHex: { [key: string]: number } = {
+    'RED': 0xFF0000,
+    'GREEN': 0x00FF00,
+    'BLUE': 0x0000FF,
+    'YELLOW': 0xFFFF00,
+    'ORANGE': 0xFFA500,
+    'PURPLE': 0x800080,
+    'CYAN': 0x00FFFF,
+    'MAGENTA': 0xFF00FF,
+    'WHITE': 0xFFFFFF,
+    'BLACK': 0x000000,
+    'GRAY': 0x808080,
+    'GREY': 0x808080,
+  };
 
+  // Cached material creator
+  const getMaterialCached = async (materialData: { texture: string; name?: string }, zenKit: ZenKit, vobType?: number): Promise<THREE.MeshBasicMaterial> => {
+    const textureName = materialData.texture || '';
+    const materialName = materialData.name || '';
+    const isSpotVob = vobType === 11;
+
+    // For spot VOBs: check if material name is a color name (no texture)
+    if (isSpotVob && !textureName && materialName) {
+      const colorHex = colorNameToHex[materialName.toUpperCase()];
+      const cacheKey = `SPOT_COLOR_${materialName}`;
+      
+      // Check cache first
+      const cached = materialCacheRef.current.get(cacheKey);
+      if (cached && cached instanceof THREE.MeshBasicMaterial) {
+        return cached;
+      }
+
+      // Create solid color material for spot VOB
+      const material = new THREE.MeshBasicMaterial({
+        color: colorHex !== undefined ? colorHex : 0xFFFFFF, // Default to white if color not found
+        side: THREE.DoubleSide,
+        transparent: false,
+        alphaTest: 0.5
+      });
+
+      // Cache and return
+      materialCacheRef.current.set(cacheKey, material);
+      return material;
+    }
+
+    // Regular texture-based material (for non-spot VOBs or spot VOBs with textures)
     // Check cache first
     const cached = materialCacheRef.current.get(textureName);
     if (cached && cached instanceof THREE.MeshBasicMaterial) {
@@ -1005,7 +1064,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       
       if (!loadingVOBsRef.current.has(vobData.id)) {
         loadingVOBsRef.current.add(vobData.id);
-        renderVOB(vobData.vob, vobData.id).then(success => {
+        renderVOB(vobData.vob, vobData.id, vobData).then(success => {
           loadingVOBsRef.current.delete(vobData.id);
           if (success) {
             const loadedObj = loadedVOBsRef.current.get(vobData.id);
