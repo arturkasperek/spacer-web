@@ -206,8 +206,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           loadingVOBsRef.current.delete(vobData.id);
           if (!success) {
             console.warn(`❌ Failed to render VOB: ${vobData.visualName}`);
-          } else {
-            console.log(`✅ Successfully rendered VOB: ${vobData.visualName} (id: ${vobData.id})`);
           }
         });
       }
@@ -316,7 +314,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       return await renderModelVOB(vob, vobId);
     } else if (vob.visual.type === 6) {
       // MORPH_MESH (6) - load .MMB file
-      console.log(`🐟 Detected morph mesh VOB: ${visualName} (type: ${vob.visual.type})`);
       return await renderMorphMeshVOB(vob, vobId);
     } else {
       // MESH (1) or MULTI_RES_MESH (2) - load mesh file
@@ -360,8 +357,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         console.warn(`⚠️ No materials for VOB: ${vob.visual.name}`);
       }
       
-      console.log(`🔧 Created mesh for VOB: ${vob.visual.name}, vertices: ${geometry.attributes.position.count}, materials: ${Array.isArray(materials) ? materials.length : 1}`);
-
       // Apply VOB transform
       applyVobTransform(vobMeshObj, vob);
 
@@ -369,7 +364,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
         scene.add(vobMeshObj);
-        console.log(`✅ Added mesh VOB to scene: ${vob.visual.name} at (${vobMeshObj.position.x.toFixed(1)}, ${vobMeshObj.position.y.toFixed(1)}, ${vobMeshObj.position.z.toFixed(1)}), scene children: ${scene.children.length}`);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(vobMeshObj)) {
@@ -563,7 +557,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
         scene.add(modelGroup);
-        console.log(`✅ Added model VOB to scene: ${vob.visual.name} at (${modelGroup.position.x.toFixed(1)}, ${modelGroup.position.y.toFixed(1)}, ${modelGroup.position.z.toFixed(1)}), children: ${modelGroup.children.length}`);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(modelGroup)) {
@@ -620,7 +613,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
         scene.add(morphMesh);
-        console.log(`✅ Added morph mesh VOB to scene: ${vob.visual.name} at (${morphMesh.position.x.toFixed(1)}, ${morphMesh.position.y.toFixed(1)}, ${morphMesh.position.z.toFixed(1)})`);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(morphMesh)) {
@@ -891,7 +883,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Cache and return
       morphMeshCacheRef.current.set(morphPath, result);
-      console.log(`✅ Loaded morph mesh ${morphPath} (${animationCount} animations available)`);
       return result;
     } catch (error: unknown) {
       console.warn(`Failed to load morph mesh ${morphPath}:`, error);

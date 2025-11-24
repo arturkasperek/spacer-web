@@ -110,7 +110,6 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
               if (tex && materialArray[mi]) {
                 materialArray[mi].map = tex;
                 materialArray[mi].needsUpdate = true;
-                console.log(`Loaded texture: ${mat.texture}`);
               }
             }).catch(() => {
               console.warn(`Failed to load texture: ${mat.texture}`);
