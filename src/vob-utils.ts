@@ -72,6 +72,24 @@ export function getVobType(vob: Vob): number | undefined {
 }
 
 /**
+ * VOB types that should NOT use helper visuals when they don't have a normal visual
+ * These types should be skipped entirely if they don't have a visual
+ */
+const NON_HELPER_VOB_TYPES = new Set([0, 2, 3, 6]); // zCVob, oCItem, oCNpc, zCVobStair
+
+/**
+ * Checks if a VOB type should use helper visuals
+ * @param vobType The VOB type number
+ * @returns True if this VOB type should use helper visuals, false otherwise
+ */
+export function shouldUseHelperVisual(vobType: number | undefined | null): boolean {
+  if (vobType === undefined || vobType === null) {
+    return false;
+  }
+  return !NON_HELPER_VOB_TYPES.has(vobType);
+}
+
+/**
  * Logs all details about a selected VOB to the console
  */
 export function logVobDetails(vob: Vob): void {

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl, getVobType, getVobTypeName } from "./vob-utils";
+import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
@@ -100,12 +100,15 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           !vob.visual.name.toUpperCase().endsWith('.TGA');
       
       // Determine visual name: use actual visual if available, otherwise use INVISIBLE_{VOBTYPENAME}.MRM
+      // But exclude certain VOB types from getting helper visuals (zCVob, oCItem, oCNpc, zCVobStair)
       let visualName: string;
       if (hasVisual) {
         visualName = vob.visual.name;
-      } else {
+      } else if (shouldUseHelperVisual(vobType)) {
         const vobTypeName = getVobTypeName(vobType);
         visualName = vobTypeName ? `INVISIBLE_${vobTypeName}.MRM` : '';
+      } else {
+        visualName = '';
       }
 
       // Only store VOBs that have visible meshes OR have a valid VOB type (for invisible helper visuals)
@@ -275,7 +278,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     }
 
     // Check if this is a helper visual (VOB has no visual or empty visual name)
-    const isHelperVisual = !vob.visual.name || vob.visual.name.trim() === '';
+    // But exclude certain VOB types that shouldn't use helper visuals
+    const isHelperVisual = (!vob.visual.name || vob.visual.name.trim() === '') &&
+                           shouldUseHelperVisual(vobType);
 
     // Skip if visual disabled (unless it's a helper visual)
     if (!isHelperVisual && !vob.showVisual) {
