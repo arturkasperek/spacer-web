@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
+import { loadVm } from './vm-manager';
 
 // World Renderer Component - loads ZenKit and renders world mesh
 function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
@@ -26,6 +27,19 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
         const zenkitModule = await import('@kolarz3/zenkit');
         const ZenKitModule = zenkitModule.default as unknown as () => Promise<ZenKit>;
         const zenKit = await ZenKitModule();
+
+        // Load VM script and call startup function
+        onLoadingStatus('Loading VM script...');
+        try {
+          const vmResult = await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld');
+          console.log(`VM loaded: ${vmResult.npcNames.length} NPCs found`);
+          console.log('NPC names:', vmResult.npcNames);
+          onLoadingStatus(`VM loaded: ${vmResult.npcNames.length} NPCs available`);
+        } catch (vmError) {
+          console.warn('Failed to load VM script:', vmError);
+          onLoadingStatus(`VM loading failed: ${(vmError as Error).message}`);
+          // Continue with world loading even if VM fails
+        }
 
         onLoadingStatus(`Loading ${worldPath}...`);
 
