@@ -115,8 +115,10 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
  * Register external functions with specific implementations
  */
 export function registerVmExternals(vm: DaedalusVm): void {
-  // Register WLD_INSERTNPC with detailed logging implementation
-  registerExternalSafe(vm, 'WLD_INSERTNPC', (npcInstanceIndex: number, spawnpoint: string) => {
+  // Register Wld_InsertNpc with detailed logging implementation
+  // Note: Also try uppercase version for compatibility
+  const registerWldInsertNpc = (name: string) => {
+    registerExternalSafe(vm, name, (npcInstanceIndex: number, spawnpoint: string) => {
     if (npcInstanceIndex <= 0) {
       console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
       return;
@@ -146,52 +148,403 @@ export function registerVmExternals(vm: DaedalusVm): void {
     }
     
     const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
-    console.log(`👤 WLD_INSERTNPC: ${nameStr} at "${spawnpoint}"${detailsStr}`);
-  });
+    console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+    });
+  };
+  
+  // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
+  registerWldInsertNpc('Wld_InsertNpc');
+  registerWldInsertNpc('WLD_INSERTNPC');
 }
 
 /**
  * Register empty/no-op external functions to prevent warnings
  * These functions don't have specific implementations yet
+ * 
+ * Functions are categorized by return type:
+ * - void: no-op functions
+ * - int: return 0
+ * - instance/C_NPC/C_ITEM: return null instance ({ symbol_index: -1 })
+ * - string: return empty string
+ * - float: return 0.0
  */
 export function registerEmptyExternals(vm: DaedalusVm): void {
   // Functions that return void - called during startup/initialization
   const voidExternals = [
-    'WLD_INSERTITEM',
-    'WLD_SETTIME',
-    'WLD_ASSIGNROOMTOGUILD',
-    'PLAYVIDEO',
-    'CREATEINVITEMS',
-    'CREATEINVITEM',
-    'MDL_SETVISUAL',
-    'MDL_SETVISUALBODY',
-    'MDL_SETMODELSCALE',
-    'MDL_SETMODELFATNESS',
-    'MDL_APPLYOVERLAYMDS',
-    'NPC_SETTALENTSKILL',
-    'NPC_SETTOFISTMODE',
-    'NPC_SETTOFIGHTMODE',
-    'EQUIPITEM',
+    // World functions
+    'Wld_InsertItem',
+    'Wld_SetTime',
+    'Wld_AssignRoomToGuild',
+    'Wld_AssignRoomToNpc',
+    'Wld_InsertNpc',
+    'Wld_InsertNpcAndRespawn',
+    'Wld_InsertObject',
+    'Wld_ExchangeGuildAttitudes',
+    'Wld_PlayEffect',
+    'Wld_RemoveNpc',
+    'Wld_SendTrigger',
+    'Wld_SendUntrigger',
+    'Wld_SetGuildAttitude',
+    'Wld_SetMobRoutine',
+    'Wld_SetObjectRoutine',
+    'Wld_SpawnNpcRange',
+    'Wld_StopEffect',
+    
+    // Video/Game functions
+    'PlayVideo',
+    'PlayVideoEx',
+    'ExitGame',
+    'ExitSession',
+    'IntroduceChapter',
+    'Perc_SetRange',
+    
+    // Item/NPC creation functions
+    'CreateInvItems',
+    'CreateInvItem',
+    'EquipItem',
+    
+    // Model/Visual functions
+    'Mdl_SetVisual',
+    'Mdl_SetVisualBody',
+    'Mdl_SetModelScale',
+    'Mdl_SetModelFatness',
+    'Mdl_ApplyOverlayMDS',
+    'Mdl_ApplyOverlayMDSTimed',
+    'Mdl_ApplyRandomAni',
+    'Mdl_ApplyRandomAniFreq',
+    'Mdl_ApplyRandomFaceAni',
+    'Mdl_RemoveOverlayMDS',
+    'Mdl_StartFaceAni',
+    
+    // NPC functions
+    'Npc_SetTalentSkill',
+    'Npc_SetTalentValue',
+    'Npc_SetToFistMode',
+    'Npc_SetToFightMode',
+    'Npc_ChangeAttribute',
+    'Npc_ClearAIQueue',
+    'Npc_ClearInventory',
+    'Npc_CreateSpell',
+    'Npc_ExchangeRoutine',
+    'Npc_GiveItem',
+    'Npc_LearnSpell',
+    'Npc_MemoryEntry',
+    'Npc_MemoryEntryGuild',
+    'Npc_PercDisable',
+    'Npc_PercEnable',
+    'Npc_PerceiveAll',
+    'Npc_PlayAni',
+    'Npc_SendPassivePerc',
+    'Npc_SendSinglePerc',
+    'Npc_SetAttitude',
+    'Npc_SetKnowsPlayer',
+    'Npc_SetPercTime',
+    'Npc_SetRefuseTalk',
+    'Npc_SetStateTime',
+    'Npc_SetTarget',
+    'Npc_SetTempAttitude',
+    'Npc_StopAni',
+    
+    // AI functions (all void)
+    'AI_AimAt',
+    'AI_AlignToFP',
+    'AI_AlignToWP',
+    'AI_Ask',
+    'AI_AskText',
+    'AI_Attack',
+    'AI_CanSeeNpc',
+    'AI_CombatReactToDamage',
+    'AI_ContinueRoutine',
+    'AI_Defend',
+    'AI_Dodge',
+    'AI_DrawWeapon',
+    'AI_DropItem',
+    'AI_DropMob',
+    'AI_EquipArmor',
+    'AI_EquipBestArmor',
+    'AI_EquipBestMeleeWeapon',
+    'AI_EquipBestRangedWeapon',
+    'AI_FinishingMove',
+    'AI_Flee',
+    'AI_GotoFP',
+    'AI_GotoItem',
+    'AI_GotoNextFP',
+    'AI_GotoNpc',
+    'AI_GotoSound',
+    'AI_GotoWP',
+    'AI_LookAt',
+    'AI_LookAtNpc',
+    'AI_Output',
+    'AI_OutputSVM',
+    'AI_OutputSVM_Overlay',
+    'AI_PlayAni',
+    'AI_PlayAniBS',
+    'AI_PlayCutscene',
+    'AI_PlayFX',
+    'AI_PointAt',
+    'AI_PointAtNpc',
+    'AI_ProcessInfos',
+    'AI_Quicklook',
+    'AI_ReadyMeleeWeapon',
+    'AI_ReadyRangedWeapon',
+    'AI_ReadySpell',
+    'AI_RemoveWeapon',
+    'AI_SetNpcsToState',
+    'AI_SetWalkmode',
+    'AI_ShootAt',
+    'AI_Snd_Play',
+    'AI_Snd_Play3D',
+    'AI_StandUp',
+    'AI_StandUpQuick',
+    'AI_StartState',
+    'AI_StopAim',
+    'AI_StopFX',
+    'AI_StopLookAt',
+    'AI_StopPointAt',
+    'AI_StopProcessInfos',
+    'AI_TakeItem',
+    'AI_TakeMob',
+    'AI_Teleport',
+    'AI_TurnAway',
+    'AI_TurnToNpc',
+    'AI_TurnToSound',
+    'AI_UnequipArmor',
+    'AI_UnequipWeapons',
+    'AI_UnreadySpell',
+    'AI_UseItem',
+    'AI_UseItemToState',
+    'AI_Wait',
+    'AI_WaitForQuestion',
+    'AI_WaitMS',
+    'AI_WaitTillEnd',
+    'AI_WhirlAround',
+    'AI_WhirlAroundToSource',
+    
+    // Document functions
+    'Doc_Font',
+    'Doc_MapCoordinates',
+    'Doc_Open',
+    'Doc_Print',
+    'Doc_PrintLine',
+    'Doc_PrintLines',
+    'Doc_SetFont',
+    'Doc_SetLevel',
+    'Doc_SetLevelCoords',
+    'Doc_SetMargins',
+    'Doc_SetPage',
+    'Doc_SetPages',
+    'Doc_Show',
+    
+    // Log functions
+    'Log_AddEntry',
+    'Log_CreateTopic',
+    'Log_SetTopicStatus',
+    
+    // Mission functions
+    'Mis_AddMissionEntry',
+    'Mis_RemoveMission',
+    'Mis_SetStatus',
+    
+    // Mob functions
+    'Mob_CreateItems',
+    
+    // Print functions
+    'Print',
+    'PrintDebug',
+    'PrintDebugCh',
+    'PrintDebugInst',
+    'PrintDebugInstCh',
+    'PrintMulti',
+    'PrintScreen',
+    
+    // Routine functions
+    'Rtn_Exchange',
+    
+    // Sound functions
+    'Snd_Play',
+    'Snd_Play3D',
+    
+    // TA (Time Assignment) functions
+    'TA',
+    'TA_BeginOverlay',
+    'TA_CS',
+    'TA_EndOverlay',
+    'TA_Min',
+    'TA_RemoveOverlay',
+    
+    // Info/Dialog functions
+    'Info_AddChoice',
+    'Info_ClearChoices',
+    
+    // Deprecated/legacy functions
+    'Game_InitEngIntl',
+    'Game_InitEnglish',
+    'Game_InitGerman',
+    'SetPercentDone',
+    'Tal_Configure',
   ];
 
-  // Additional externals needed for instance initialization
+  // Additional externals needed for instance initialization (void)
   const initExternals = [
-    'B_SETATTRIBUTESTOCHAPTER', // Set attributes to chapter (void)
-    'B_CREATEAMBIENTINV',       // Create ambient inventory (void)
-    'B_SETNPCVISUAL',           // Set NPC visual (void)
-    'B_GIVENPCTALENTS',         // Give NPC talents (void)
-    'B_SETFIGHTSKILLS',         // Set fight skills (void)
+    'B_SetAttributesToChapter', // Set attributes to chapter (void)
+    'B_CreateAmbientInv',       // Create ambient inventory (void)
+    'B_SetNpcVisual',           // Set NPC visual (void)
+    'B_GiveNpcTalents',         // Give NPC talents (void)
+    'B_SetFightSkills',         // Set fight skills (void)
   ];
 
   // Functions that return int (return 0/false)
   const intExternals = [
-    'NPC_ISDEAD',
-    'HLP_ISVALIDNPC',
+    'Npc_IsDead',
+    'Hlp_IsValidNpc',
+    'Hlp_IsValidItem',
+    'Hlp_IsItem',
+    'Hlp_GetInstanceID',
+    'Hlp_CutscenePlayed',
+    'Hlp_StrCmp',
+    'InfoManager_HasFinished',
+    'Mis_GetStatus',
+    'Mis_OnTime',
+    'Mob_HasItems',
+    'NPC_GiveInfo',
+    'Npc_AreWeStronger',
+    'Npc_CanSeeItem',
+    'Npc_CanSeeNpc',
+    'Npc_CanSeeNpcFreeLOS',
+    'Npc_CanSeeSource',
+    'Npc_CheckAvailableMission',
+    'Npc_CheckInfo',
+    'Npc_CheckOfferMission',
+    'Npc_CheckRunningMission',
+    'Npc_DeleteNews',
+    'Npc_GetActiveSpell',
+    'Npc_GetActiveSpellCat',
+    'Npc_GetActiveSpellIsScroll',
+    'Npc_GetActiveSpellLevel',
+    'Npc_GetAttitude',
+    'Npc_GetBodyState',
+    'Npc_GetComrades',
+    'Npc_GetDistToItem',
+    'Npc_GetDistToNpc',
+    'Npc_GetDistToPlayer',
+    'Npc_GetDistToWP',
+    'Npc_GetGuildAttitude',
+    'Npc_GetHeightToItem',
+    'Npc_GetHeightToNpc',
+    'Npc_GetInvItem',
+    'Npc_GetInvItemBySlot',
+    'Npc_GetLastHitSpellCat',
+    'Npc_GetLastHitSpellID',
+    'Npc_GetNextTarget',
+    'Npc_GetPermAttitude',
+    'Npc_GetPortalGuild',
+    'Npc_GetStateTime',
+    'Npc_GetTalentSkill',
+    'Npc_GetTalentValue',
+    'Npc_GetTarget',
+    'Npc_GetTrueGuild',
+    'Npc_HasBodyFlag',
+    'Npc_HasDetectedNpc',
+    'Npc_HasEquippedArmor',
+    'Npc_HasEquippedMeleeWeapon',
+    'Npc_HasEquippedRangedWeapon',
+    'Npc_HasEquippedWeapon',
+    'Npc_HasItems',
+    'Npc_HasNews',
+    'Npc_HasOffered',
+    'Npc_HasRangedWeaponWithAmmo',
+    'Npc_HasReadiedMeleeWeapon',
+    'Npc_HasReadiedRangedWeapon',
+    'Npc_HasReadiedWeapon',
+    'Npc_HasSpell',
+    'Npc_IsAiming',
+    'Npc_IsDetectedMobOwnedByGuild',
+    'Npc_IsDetectedMobOwnedByNpc',
+    'Npc_IsDrawingSpell',
+    'Npc_IsDrawingWeapon',
+    'Npc_IsInCutscene',
+    'Npc_IsInFightMode',
+    'Npc_IsInPlayersRoom',
+    'Npc_IsInRoutine',
+    'Npc_IsInState',
+    'Npc_IsNear',
+    'Npc_IsNewsGossip',
+    'Npc_IsNextTargetAvailable',
+    'Npc_IsOnFP',
+    'Npc_IsPlayer',
+    'Npc_IsPlayerInMyRoom',
+    'Npc_IsVoiceActive',
+    'Npc_IsWayBlocked',
+    'Npc_KnowsInfo',
+    'Npc_KnowsPlayer',
+    'Npc_OwnedByGuild',
+    'Npc_OwnedByNpc',
+    'Npc_RefuseTalk',
+    'Npc_RemoveInvItem',
+    'Npc_RemoveInvItems',
+    'Npc_SetActiveSpellInfo',
+    'Npc_SetTrueGuild',
+    'Npc_StartItemReactModules',
+    'Npc_WasInState',
+    'Npc_WasPlayerInMyRoom',
+    'PlayVideo',
+    'PlayVideoEx',
+    'PrintDialog',
+    'Snd_GetDistToSource',
+    'Snd_IsSourceItem',
+    'Snd_IsSourceNpc',
+    'Wld_DetectItem',
+    'Wld_DetectNpc',
+    'Wld_DetectNpcEx',
+    'Wld_DetectNpcExAtt',
+    'Wld_DetectPlayer',
+    'Wld_GetDay',
+    'Wld_GetFormerPlayerPortalGuild',
+    'Wld_GetGuildAttitude',
+    'Wld_GetMobState',
+    'Wld_GetPlayerPortalGuild',
+    'Wld_IsFPAvailable',
+    'Wld_IsMobAvailable',
+    'Wld_IsNextFPAvailable',
+    'Wld_IsRaining',
+    'Wld_IsTime',
+    'Wld_RemoveItem',
+    'AI_PrintScreen',
+    'AI_UseMob',
+    'Doc_Create',
+    'Doc_CreateMap',
+    'FloatToInt',
   ];
 
-  // Functions that return instance (return null)
+  // Functions that return instance/C_NPC/C_ITEM (return null instance object)
   const instanceExternals = [
-    'HLP_GETNPC',
+    'Hlp_GetNpc',
+    'Npc_GetLookAtTarget',
+    'Npc_GetNewsOffender',
+    'Npc_GetNewsVictim',
+    'Npc_GetNewsWitness',
+    'Npc_GetPortalOwner',
+    'Wld_GetFormerPlayerPortalOwner',
+    'Wld_GetPlayerPortalOwner',
+    'Npc_GetEquippedArmor',
+    'Npc_GetEquippedMeleeWeapon',
+    'Npc_GetEquippedRangedWeapon',
+    'Npc_GetReadiedWeapon',
+  ];
+
+  // Functions that return string (return empty string)
+  const stringExternals = [
+    'ConcatStrings',
+    'FloatToString',
+    'IntToString',
+    'Npc_GetDetectedMob',
+    'Npc_GetNearestWP',
+    'Npc_GetNextWP',
+  ];
+
+  // Functions that return float (return 0.0)
+  const floatExternals = [
+    'IntToFloat',
   ];
 
   // Register void functions
@@ -208,9 +561,9 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     });
   });
 
-  // Register HLP_RANDOM (returns int)
-  registerExternalSafe(vm, 'HLP_RANDOM', () => {
-    return Math.floor(Math.random() * 100);
+  // Register Hlp_Random (returns int) - simple implementation
+  registerExternalSafe(vm, 'Hlp_Random', (bound: number) => {
+    return Math.floor(Math.random() * (bound || 100));
   });
 
   // Register int-returning functions (return 0)
@@ -222,6 +575,16 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
   // Must return an object with symbol_index: -1, not null, to avoid WASM binding errors
   instanceExternals.forEach(funcName => {
     registerExternalSafe(vm, funcName, () => ({ symbol_index: -1 }));
+  });
+
+  // Register string-returning functions (return empty string)
+  stringExternals.forEach(funcName => {
+    registerExternalSafe(vm, funcName, () => '');
+  });
+
+  // Register float-returning functions (return 0.0)
+  floatExternals.forEach(funcName => {
+    registerExternalSafe(vm, funcName, () => 0);
   });
 }
 
