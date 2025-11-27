@@ -7,6 +7,7 @@ import { createRef, RefObject, useCallback, useEffect, useRef, useState } from "
 import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
+import { WaynetRenderer } from "./waynet-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
@@ -98,6 +99,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           onSelectedVobBoundingBox={onSelectedVobBoundingBox}
         />
       )}
+
+      {/* Waynet Renderer */}
+      {world && <WaynetRenderer world={world} enabled={true} />}
     </>
   );
 }
