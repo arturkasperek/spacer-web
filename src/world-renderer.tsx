@@ -31,10 +31,9 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
         // Load VM script and call startup function
         onLoadingStatus('Loading VM script...');
         try {
-          const vmResult = await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld');
-          console.log(`VM loaded: ${vmResult.npcNames.length} NPCs found`);
-          console.log('NPC names:', vmResult.npcNames);
-          onLoadingStatus(`VM loaded: ${vmResult.npcNames.length} NPCs available`);
+          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld');
+          console.log('VM loaded successfully');
+          onLoadingStatus('VM loaded');
         } catch (vmError) {
           console.warn('Failed to load VM script:', vmError);
           onLoadingStatus(`VM loading failed: ${(vmError as Error).message}`);

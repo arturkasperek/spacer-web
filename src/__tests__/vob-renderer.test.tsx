@@ -61,6 +61,12 @@ const createMockWorld = (): World => ({
   loadFromArray: jest.fn(() => true),
   isLoaded: true,
   getLastError: jest.fn(() => null),
+  getWaypointCount: jest.fn(() => 0),
+  getWaypoint: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),
+  findWaypointByName: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),
+  getAllWaypoints: jest.fn(() => []),
+  getWaypointEdgeCount: jest.fn(() => 0),
+  getWaypointEdge: jest.fn(() => ({ success: false, data: { waypoint_a_index: 0, waypoint_b_index: 0 }, errorMessage: 'Not implemented' })),
   mesh: {
     getProcessedMeshData: jest.fn(() => ({
       vertices: { size: () => 0, get: () => 0 },
@@ -111,7 +117,14 @@ const createMockZenKit = (): ZenKit => ({
 
 // Helper to add World properties to partial mocks
 const addWorldProperties = (partial: Partial<World>): World => ({
+  ...partial,
   loadFromArray: jest.fn(() => true),
+  getWaypointCount: jest.fn(() => 0),
+  getWaypoint: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),
+  findWaypointByName: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),
+  getAllWaypoints: jest.fn(() => []),
+  getWaypointEdgeCount: jest.fn(() => 0),
+  getWaypointEdge: jest.fn(() => ({ success: false, data: { waypoint_a_index: 0, waypoint_b_index: 0 }, errorMessage: 'Not implemented' })),
   isLoaded: true,
   getLastError: jest.fn(() => null),
   mesh: {

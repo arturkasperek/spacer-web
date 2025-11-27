@@ -37,6 +37,44 @@ jest.mock('react-window', () => {
   };
 });
 
+// Helper to create a default empty VOB for testing
+const createEmptyVob = (): any => ({
+  id: -1,
+  objectName: '',
+  position: { x: 0, y: 0, z: 0 },
+  visual: { type: 0, name: '' },
+  rotation: { toArray: () => ({ size: () => 9, get: () => 0 }) },
+  showVisual: false,
+  children: { size: () => 0, get: () => null as any }
+});
+
+// Helper to add waypoint methods to World mock
+const addWaypointMethods = (world: Partial<World>): World => {
+  const defaultVobCollection = { size: () => 0, get: () => createEmptyVob() };
+  const defaultMesh = {
+    getProcessedMeshData: () => ({
+      vertices: { size: () => 0, get: () => 0 },
+      indices: { size: () => 0, get: () => 0 },
+      materials: { size: () => 0, get: () => ({ texture: '' }) },
+      materialIds: { size: () => 0, get: () => 0 }
+    })
+  };
+  
+  return {
+    getVobs: world.getVobs || (() => defaultVobCollection),
+    loadFromArray: world.loadFromArray || (() => true),
+    isLoaded: world.isLoaded ?? true,
+    getLastError: world.getLastError || (() => null),
+    getWaypointCount: () => 0,
+    getWaypoint: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
+    findWaypointByName: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
+    getAllWaypoints: () => [],
+    getWaypointEdgeCount: () => 0,
+    getWaypointEdge: () => ({ success: false, data: { waypoint_a_index: 0, waypoint_b_index: 0 }, errorMessage: 'Not implemented' }),
+    mesh: world.mesh || defaultMesh,
+  } as World;
+};
+
 // Mock world object
 const createMockWorld = (vobCount = 3): World => {
   const mockVobs: any[] = [];
@@ -45,6 +83,7 @@ const createMockWorld = (vobCount = 3): World => {
     mockVobs.push({
       id: i,
       objectName: `VOB_${i}`,
+      name: `VOB_${i}`,
       position: { x: i * 100, y: i * 50, z: i * 25 },
       visual: {
         type: 1, // MESH
@@ -55,6 +94,7 @@ const createMockWorld = (vobCount = 3): World => {
         get: (childIndex: number) => ({
           id: 1000 + i * 10 + childIndex,
           objectName: `Child_${i}_${childIndex}`,
+          name: `Child_${i}_${childIndex}`,
           position: { x: 0, y: 0, z: 0 },
           visual: {
             type: 2, // MULTI_RES_MESH
@@ -62,14 +102,14 @@ const createMockWorld = (vobCount = 3): World => {
           },
           children: {
             size: () => 0,
-            get: () => null
+            get: () => null as any
           }
         })
       }
     });
   }
   
-  return {
+  return addWaypointMethods({
     getVobs: () => ({
       size: () => mockVobs.length,
       get: (index: number) => mockVobs[index]
@@ -85,7 +125,7 @@ const createMockWorld = (vobCount = 3): World => {
         materialIds: { size: () => 0, get: () => 0 }
       })
     }
-  } as World;
+  });
 };
 
 describe('VOBTree Component', () => {
@@ -272,12 +312,13 @@ describe('VOBTree Component', () => {
 
   describe('Visual Types', () => {
     it('should display correct visual type names', () => {
-      const world = {
+      const world = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => ({
             id: 999,
             objectName: 'TestVOB',
+            name: 'TestVOB',
             position: { x: 0, y: 0, z: 0 },
             visual: {
               type: 5, // MODEL
@@ -307,19 +348,20 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 }
           })
         }
-      } as World;
+      });
       
       render(<VOBTree world={world} />);
       expect(screen.getByText(/MODEL: test\.mdl/)).toBeInTheDocument();
     });
 
     it('should handle unknown visual types', () => {
-      const world: World = {
+      const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => ({
             id: 888,
             objectName: 'TestVOB',
+            name: 'TestVOB',
             position: { x: 0, y: 0, z: 0 },
             visual: {
               type: 999, // Unknown type
@@ -349,7 +391,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 }
           })
         }
-      } as unknown as World;
+      }) as unknown as World;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText(/UNKNOWN\(999\): test\.unknown/)).toBeInTheDocument();
@@ -358,10 +400,10 @@ describe('VOBTree Component', () => {
 
   describe('Empty States', () => {
     it('should show "No VOBs found" when world has no VOBs', () => {
-      const world: World = {
+      const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 0,
-          get: () => null
+          get: () => createEmptyVob()
         }),
         loadFromArray: () => true,
         isLoaded: true,
@@ -374,7 +416,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 }
           })
         }
-      } as unknown as World;
+      }) as unknown as World;
       
       render(<VOBTree world={world} />);
       expect(screen.getByText('No VOBs found')).toBeInTheDocument();
@@ -459,14 +501,16 @@ describe('VOBTree Component', () => {
       const grandchildVob: any = {
         id: 2000,
         objectName: 'Grandchild_0_0',
+        name: 'Grandchild_0_0',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 1, name: 'grandchild.3ds' },
-        children: { size: () => 0, get: () => null },
+        children: { size: () => 0, get: () => null as any },
       };
 
       const childVob: any = {
         id: 1000,
         objectName: 'Child_0',
+        name: 'Child_0',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 1, name: 'child.3ds' },
         children: {
@@ -478,6 +522,7 @@ describe('VOBTree Component', () => {
       const rootVob: any = {
         id: 0,
         objectName: 'Root_0',
+        name: 'Root_0',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 1, name: 'root.3ds' },
         children: {
@@ -489,12 +534,13 @@ describe('VOBTree Component', () => {
       const otherRootVob: any = {
         id: 1,
         objectName: 'Root_1',
+        name: 'Root_1',
         position: { x: 100, y: 0, z: 0 },
         visual: { type: 1, name: 'root1.3ds' },
-        children: { size: () => 0, get: () => null },
+        children: { size: () => 0, get: () => null as any },
       };
 
-      return {
+      return addWaypointMethods({
         getVobs: () => ({
           size: () => 2,
           get: (index: number) => (index === 0 ? rootVob : otherRootVob),
@@ -510,7 +556,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 },
           }),
         },
-      } as World;
+      });
     };
 
     it('should scroll to root VOB when selectedVob changes', async () => {
@@ -619,7 +665,7 @@ describe('VOBTree Component', () => {
         objectName: 'NonExistent',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 1, name: 'nonexistent.3ds' },
-        children: { size: () => 0, get: () => null },
+        children: { size: () => 0, get: () => null as any },
       } as any;
 
       render(<VOBTree world={world} selectedVob={nonExistentVob} />);
@@ -742,6 +788,7 @@ describe('VOBTree Component', () => {
       const multiResMeshVob: Vob = {
         id: 5000,
         objectName: 'MultiResMesh',
+        name: 'MultiResMesh',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 2, name: 'multires.3ds' }, // type 2 = MULTI_RES_MESH
         children: {
@@ -749,14 +796,15 @@ describe('VOBTree Component', () => {
           get: () => ({
             id: 5001,
             objectName: 'ChildOfMultiRes',
+            name: 'ChildOfMultiRes',
             position: { x: 0, y: 0, z: 0 },
             visual: { type: 1, name: 'child.3ds' },
-            children: { size: () => 0, get: () => null },
+            children: { size: () => 0, get: () => null as any },
           }),
         },
       } as any;
 
-      const worldWithMultiRes: World = {
+      const worldWithMultiRes: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => multiResMeshVob,
@@ -772,7 +820,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 },
           }),
         },
-      } as World;
+      });
 
       const { rerender } = render(<VOBTree world={worldWithMultiRes} />);
 
@@ -811,6 +859,7 @@ describe('VOBTree Component', () => {
       const multiResMeshVob: Vob = {
         id: 6000,
         objectName: 'MultiResMesh',
+        name: 'MultiResMesh',
         position: { x: 10, y: 20, z: 30 },
         visual: { type: 2, name: 'multires.3ds' }, // type 2 = MULTI_RES_MESH
         children: {
@@ -818,14 +867,15 @@ describe('VOBTree Component', () => {
           get: () => ({
             id: 6001,
             objectName: 'Child',
+            name: 'Child',
             position: { x: 0, y: 0, z: 0 },
             visual: { type: 1, name: 'child.3ds' },
-            children: { size: () => 0, get: () => null },
+            children: { size: () => 0, get: () => null as any },
           }),
         },
       } as any;
 
-      const world: World = {
+      const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => multiResMeshVob,
@@ -841,7 +891,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 },
           }),
         },
-      } as World;
+      });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
 
@@ -863,6 +913,7 @@ describe('VOBTree Component', () => {
       const multiResMeshVob: Vob = {
         id: 7000,
         objectName: 'MultiResMesh',
+        name: 'MultiResMesh',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 2, name: 'multires.3ds' },
         children: {
@@ -870,14 +921,15 @@ describe('VOBTree Component', () => {
           get: (index: number) => ({
             id: 7001 + index,
             objectName: `Child_${index}`,
+            name: `Child_${index}`,
             position: { x: 0, y: 0, z: 0 },
             visual: { type: 1, name: `child_${index}.3ds` },
-            children: { size: () => 0, get: () => null },
+            children: { size: () => 0, get: () => null as any },
           }),
         },
       } as any;
 
-      const world: World = {
+      const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => multiResMeshVob,
@@ -893,7 +945,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 },
           }),
         },
-      } as World;
+      });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
 
@@ -918,6 +970,7 @@ describe('VOBTree Component', () => {
       const regularMeshVob: Vob = {
         id: 8000,
         objectName: 'RegularMesh',
+        name: 'RegularMesh',
         position: { x: 0, y: 0, z: 0 },
         visual: { type: 1, name: 'regular.3ds' }, // type 1 = MESH (not MULTI_RES_MESH)
         children: {
@@ -925,14 +978,15 @@ describe('VOBTree Component', () => {
           get: () => ({
             id: 8001,
             objectName: 'Child',
+            name: 'Child',
             position: { x: 0, y: 0, z: 0 },
             visual: { type: 1, name: 'child.3ds' },
-            children: { size: () => 0, get: () => null },
+            children: { size: () => 0, get: () => null as any },
           }),
         },
       } as any;
 
-      const world: World = {
+      const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 1,
           get: () => regularMeshVob,
@@ -948,7 +1002,7 @@ describe('VOBTree Component', () => {
             materialIds: { size: () => 0, get: () => 0 },
           }),
         },
-      } as World;
+      });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
 

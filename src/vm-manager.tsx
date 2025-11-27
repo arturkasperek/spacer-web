@@ -3,7 +3,6 @@ import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 export interface VmLoadResult {
   script: DaedalusScript;
   vm: DaedalusVm;
-  npcNames: string[];
 }
 
 /**
@@ -59,25 +58,129 @@ function registerExternalSafe(
 }
 
 /**
- * Register empty external functions that are called during startup
- * These functions don't need to do anything in the web context
+ * Get NPC information from VM by instance symbol index
+ * Uses qualified class names to access properties after initialization
+ */
+function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, any> {
+  const info: Record<string, any> = {
+    instanceIndex: npcInstanceIndex,
+  };
+
+  // Initialize the instance explicitly - this executes the instance definition code
+  const initResult = vm.initInstanceByIndex(npcInstanceIndex);
+  if (!initResult.success) {
+    console.warn(`⚠️  Failed to initialize NPC instance ${npcInstanceIndex}: ${initResult.errorMessage}`);
+    // Continue trying to read properties even if initialization failed, as some might be static
+  }
+
+  // Get symbol name from index
+  const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
+  if (nameResult.success && nameResult.data) {
+    info.symbolName = nameResult.data;
+    
+    // Get NPC properties using qualified class names
+    // Properties are available after initialization
+    const properties = [
+      { qualified: 'C_NPC.name', type: 'string', key: 'name' },
+      { qualified: 'C_NPC.id', type: 'int', key: 'id' },
+      { qualified: 'C_NPC.guild', type: 'int', key: 'guild' },
+      { qualified: 'C_NPC.level', type: 'int', key: 'level' },
+      { qualified: 'C_NPC.attribute[ATR_HITPOINTS]', type: 'int', key: 'hp' },
+      { qualified: 'C_NPC.attribute[ATR_HITPOINTS_MAX]', type: 'int', key: 'hpmax' },
+    ];
+    
+    for (const prop of properties) {
+      try {
+        if (prop.type === 'string') {
+          const value = vm.getSymbolString(prop.qualified, nameResult.data);
+          if (value && value.trim() !== '') {
+            info[prop.key] = value;
+          }
+        } else {
+          const value = vm.getSymbolInt(prop.qualified, nameResult.data);
+          if (value !== undefined && value !== null) {
+            info[prop.key] = value;
+          }
+        }
+      } catch (e) {
+        // Property access failed, skip
+      }
+    }
+  }
+
+  return info;
+}
+
+/**
+ * Register external functions with specific implementations
+ */
+export function registerVmExternals(vm: DaedalusVm): void {
+  // Register WLD_INSERTNPC with detailed logging implementation
+  registerExternalSafe(vm, 'WLD_INSERTNPC', (npcInstanceIndex: number, spawnpoint: string) => {
+    if (npcInstanceIndex <= 0) {
+      console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
+      return;
+    }
+    
+    const npcInfo = getNpcInfo(vm, npcInstanceIndex);
+    
+    // Format output similar to test script
+    const nameStr = npcInfo.symbolName || `NPC[${npcInstanceIndex}]`;
+    const details = [];
+    
+    if (npcInfo.name && npcInfo.name.trim() !== '') {
+      details.push(`Name: "${npcInfo.name}"`);
+    }
+    if (npcInfo.id !== undefined && npcInfo.id !== null) {
+      details.push(`ID: ${npcInfo.id}`);
+    }
+    if (npcInfo.guild !== undefined && npcInfo.guild !== null) {
+      details.push(`Guild: ${npcInfo.guild}`);
+    }
+    if (npcInfo.level !== undefined && npcInfo.level !== null) {
+      details.push(`Level: ${npcInfo.level}`);
+    }
+    if (npcInfo.hp !== undefined && npcInfo.hpmax !== undefined && 
+        (npcInfo.hp !== 0 || npcInfo.hpmax !== 0)) {
+      details.push(`HP: ${npcInfo.hp}/${npcInfo.hpmax}`);
+    }
+    
+    const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
+    console.log(`👤 WLD_INSERTNPC: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+  });
+}
+
+/**
+ * Register empty/no-op external functions to prevent warnings
+ * These functions don't have specific implementations yet
  */
 export function registerEmptyExternals(vm: DaedalusVm): void {
-  // Functions that return void
+  // Functions that return void - called during startup/initialization
   const voidExternals = [
     'WLD_INSERTITEM',
-    'WLD_INSERTNPC',
     'WLD_SETTIME',
     'WLD_ASSIGNROOMTOGUILD',
     'PLAYVIDEO',
-    'CREATEINVITEMS',      // Create inventory items (not needed for VM inspection)
-    'MDL_SETVISUAL',       // Set NPC visual model (not needed for VM inspection)
-    'MDL_SETVISUALBODY',   // Set NPC visual body/head (not needed for VM inspection)
-    'MDL_SETMODELSCALE',   // Set NPC model scale (not needed for VM inspection)
-    'MDL_SETMODELFATNESS', // Set NPC model fatness (not needed for VM inspection)
-    'MDL_APPLYOVERLAYMDS', // Apply overlay skeleton (not needed for VM inspection)
-    'NPC_SETTALENTSKILL',  // Set NPC talent skill (not needed for VM inspection)
-    'EQUIPITEM',           // Equip item on NPC (not needed for VM inspection)
+    'CREATEINVITEMS',
+    'CREATEINVITEM',
+    'MDL_SETVISUAL',
+    'MDL_SETVISUALBODY',
+    'MDL_SETMODELSCALE',
+    'MDL_SETMODELFATNESS',
+    'MDL_APPLYOVERLAYMDS',
+    'NPC_SETTALENTSKILL',
+    'NPC_SETTOFISTMODE',
+    'NPC_SETTOFIGHTMODE',
+    'EQUIPITEM',
+  ];
+
+  // Additional externals needed for instance initialization
+  const initExternals = [
+    'B_SETATTRIBUTESTOCHAPTER', // Set attributes to chapter (void)
+    'B_CREATEAMBIENTINV',       // Create ambient inventory (void)
+    'B_SETNPCVISUAL',           // Set NPC visual (void)
+    'B_GIVENPCTALENTS',         // Give NPC talents (void)
+    'B_SETFIGHTSKILLS',         // Set fight skills (void)
   ];
 
   // Functions that return int (return 0/false)
@@ -94,8 +197,20 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
   // Register void functions
   voidExternals.forEach(funcName => {
     registerExternalSafe(vm, funcName, () => {
-      // Do nothing - empty implementation
+      // Empty implementation
     });
+  });
+
+  // Register initialization externals (void)
+  initExternals.forEach(funcName => {
+    registerExternalSafe(vm, funcName, () => {
+      // Empty implementation for void functions
+    });
+  });
+
+  // Register HLP_RANDOM (returns int)
+  registerExternalSafe(vm, 'HLP_RANDOM', () => {
+    return Math.floor(Math.random() * 100);
   });
 
   // Register int-returning functions (return 0)
@@ -133,70 +248,6 @@ export function callStartupFunction(vm: DaedalusVm, functionName: string = 'star
   }
 }
 
-/**
- * Check if a symbol is an NPC instance by verifying it has NPC properties
- */
-function isNpcInstance(vm: DaedalusVm, symbolName: string): boolean {
-  if (!vm.hasSymbol(symbolName)) {
-    return false;
-  }
-
-  try {
-    // Try to get NAME property - NPCs should have this
-    const name = vm.getSymbolString('NAME', symbolName);
-    if (name !== undefined && name !== null) {
-      return true; // Has NAME property, likely an NPC
-    }
-  } catch {
-    // NAME property access failed, try ID instead
-  }
-
-  try {
-    // Try to get ID property - NPCs should have this
-    const id = vm.getSymbolInt('ID', symbolName);
-    if (id !== undefined && id !== null) {
-      return true; // Has ID property, likely an NPC
-    }
-  } catch {
-    // ID property access failed
-  }
-
-  return false;
-}
-
-/**
- * Extract all NPC instance names from VM
- * Since we can't iterate symbols directly, we check known/common NPC instance names
- */
-export function extractNpcNames(vm: DaedalusVm): string[] {
-  const npcNames: string[] = [];
-
-  // Common NPC instance name patterns to try
-  const commonNpcPatterns = [
-    'PC_HERO',
-    'NONE_100_XARDAS',
-    'PC_L10',
-    'PC_L20',
-    'PC_L30',
-    'PC_L40',
-    'PC_L50',
-    'PC_L60',
-    'PC_E3MAGE',
-    'PC_E3PALADIN',
-    'PC_BANDIT',
-  ];
-
-  // Check each pattern
-  for (const symbolName of commonNpcPatterns) {
-    if (isNpcInstance(vm, symbolName)) {
-      npcNames.push(symbolName);
-    }
-  }
-
-  // Since we can't iterate all symbols directly, we'll return what we found
-  // In a full implementation, we'd need WASM bindings to iterate symbols
-  return npcNames.sort((a, b) => a.localeCompare(b));
-}
 
 /**
  * Complete VM loading workflow
@@ -212,19 +263,30 @@ export async function loadVm(
   // Create VM
   const vm = createVm(zenKit, script);
 
+  // Register external functions with specific implementations
+  registerVmExternals(vm);
+
   // Register empty external functions to prevent warnings
   registerEmptyExternals(vm);
+
+  // Set up global context variables (self and other)
+  // These are used by some scripts during initialization
+  const selfNpcName = 'NONE_100_XARDAS';
+  const otherNpcName = 'PC_HERO';
+  
+  if (vm.hasSymbol(selfNpcName)) {
+    vm.setGlobalSelf(selfNpcName);
+  }
+  if (vm.hasSymbol(otherNpcName)) {
+    vm.setGlobalOther(otherNpcName);
+  }
 
   // Call startup function
   callStartupFunction(vm, startupFunction);
 
-  // Extract NPC names
-  const npcNames = extractNpcNames(vm);
-
   return {
     script,
     vm,
-    npcNames,
   };
 }
 
