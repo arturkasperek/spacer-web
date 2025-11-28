@@ -42,16 +42,16 @@ export function shouldUpdateStreaming(
   const camPos = cameraPosition || new THREE.Vector3(0, 0, 0);
   const updateInterval = config.updateInterval ?? 10;
 
-  // Only run update every N frames
-  if (state.updateCounter.current % updateInterval !== 0) {
+  // Check if camera moved significantly OR if this is the first update
+  const distance = state.lastCameraPosition.current.distanceTo(camPos);
+  const shouldUpdate = state.isFirstUpdate.current || distance > config.updateThreshold;
+
+  // Only run update every N frames, but always allow first update
+  if (!state.isFirstUpdate.current && state.updateCounter.current % updateInterval !== 0) {
     state.updateCounter.current++;
     return { shouldUpdate: false, cameraPos: camPos };
   }
   state.updateCounter.current++;
-
-  // Check if camera moved significantly OR if this is the first update
-  const distance = state.lastCameraPosition.current.distanceTo(camPos);
-  const shouldUpdate = state.isFirstUpdate.current || distance > config.updateThreshold;
 
   if (shouldUpdate) {
     state.isFirstUpdate.current = false;

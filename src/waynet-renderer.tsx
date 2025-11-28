@@ -90,6 +90,8 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
 
   // Load waypoint visual mesh once (shared by all waypoints)
   const waypointVisualTemplateRef = useRef<THREE.Mesh | null>(null);
+  const isTemplateLoadingRef = useRef(false);
+  const isTemplateLoadedRef = useRef(false);
   
   const loadWaypointVisualTemplate = async (): Promise<THREE.Mesh | null> => {
     if (waypointVisualTemplateRef.current) {
@@ -127,10 +129,12 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
       // Create template mesh (we'll clone this for each waypoint)
       const templateMesh = new THREE.Mesh(geometry, materials);
       waypointVisualTemplateRef.current = templateMesh;
+      isTemplateLoadedRef.current = true;
       
       return templateMesh;
     } catch (error) {
       console.warn(`Failed to load waypoint visual template:`, error);
+      isTemplateLoadedRef.current = true; // Mark as loaded even on failure so we don't block forever
       return null;
     }
   };
@@ -179,7 +183,10 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
 
   // Streaming waypoint loader - loads/unloads based on camera distance
   const updateWaypointStreaming = () => {
-    if (!enabled || allWaypointsRef.current.length === 0 || !zenKit) return;
+    // Wait for template to load before creating waypoints
+    if (!enabled || allWaypointsRef.current.length === 0 || !zenKit || !isTemplateLoadedRef.current) {
+      return;
+    }
 
     const config = {
       loadDistance: WAYPOINT_LOAD_DISTANCE,
@@ -188,9 +195,13 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
       updateInterval: 10,
     };
 
+    // Use the Three.js camera position directly if cameraPosition prop is not provided or is at origin
+    const { camera } = scene as any;
+    const effectiveCameraPos = cameraPosition || (camera ? camera.position : undefined);
+
     const { shouldUpdate, cameraPos } = shouldUpdateStreaming(
       streamingState.current,
-      cameraPosition,
+      effectiveCameraPos,
       config
     );
 
@@ -241,8 +252,17 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
 
   // Load waypoint visual template on mount
   useEffect(() => {
-    if (!enabled || !zenKit) return;
-    loadWaypointVisualTemplate();
+    if (!enabled || !zenKit || isTemplateLoadingRef.current) return;
+    
+    isTemplateLoadingRef.current = true;
+    
+    loadWaypointVisualTemplate().then(template => {
+      if (template) {
+        console.log('[Waynet] Waypoint visual template loaded - ready to create waypoints');
+      } else {
+        console.log('[Waynet] Using sphere-only waypoint rendering');
+      }
+    });
   }, [enabled, zenKit]);
 
   // Streaming update via useFrame
@@ -331,4 +351,5 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
   // Component doesn't render anything directly (uses imperative scene manipulation)
   return null;
 }
+
 
