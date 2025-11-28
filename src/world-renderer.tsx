@@ -1,15 +1,16 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
-import { loadVm } from './vm-manager';
+import { loadVm, type NpcSpawnCallback } from './vm-manager';
 import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
 import { tgaNameToCompiledUrl } from './vob-utils';
 
 // World Renderer Component - loads ZenKit and renders world mesh
-function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
+function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
   onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
+  onNpcSpawn?: NpcSpawnCallback;
 }>) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [worldMesh, setWorldMesh] = useState<THREE.Mesh | null>(null);
@@ -33,7 +34,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
         // Load VM script and call startup function
         onLoadingStatus('Loading VM script...');
         try {
-          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld');
+          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn);
           console.log('VM loaded successfully');
           onLoadingStatus('VM loaded');
         } catch (vmError) {
@@ -129,7 +130,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
     };
 
     loadWorld();
-  }, [worldPath, onLoadingStatus, onWorldLoaded]);
+  }, [worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn]);
 
   return worldMesh ? <primitive object={worldMesh as THREE.Object3D} ref={meshRef} /> : null;
 }

@@ -8,10 +8,12 @@ import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { WaynetRenderer } from "./waynet-renderer.js";
+import { NpcRenderer, type NpcData } from "./npc-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
 import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
+import type { NpcSpawnCallback } from "./vm-manager.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -38,7 +40,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, onVobClickFromScene }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, onVobClickFromScene, npcs, onNpcSpawn }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -51,6 +53,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
   onVobClickFromScene?: (vob: Vob) => void;
+  npcs: Map<number, NpcData>;
+  onNpcSpawn: NpcSpawnCallback;
 }>) {
   const { camera } = useThree();
 
@@ -76,7 +80,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       <SkyComponent />
 
       {/* World Renderer */}
-      <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} onWorldLoaded={onWorldLoaded} />
+      <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} onWorldLoaded={onWorldLoaded} onNpcSpawn={onNpcSpawn} />
 
       {/* Camera position tracker */}
       <CameraPositionTracker
@@ -102,6 +106,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 
       {/* Waynet Renderer */}
       {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} cameraPosition={cameraPosition} enabled={true} />}
+
+      {/* NPC Renderer */}
+      {world && <NpcRenderer world={world} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
     </>
   );
 }
@@ -155,6 +162,9 @@ export function App() {
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
   const shouldUpdateCameraRef = useRef(false);
+  
+  // NPC state management
+  const [npcs, setNpcs] = useState<Map<number, NpcData>>(new Map());
 
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
@@ -191,6 +201,16 @@ export function App() {
     const lookAtPos: [number, number, number] = [center.x, center.y, center.z];
     
     cameraControlsRef.current.setPose(cameraPos, lookAtPos);
+  }, []);
+
+  // Handle NPC spawn events from VM
+  const handleNpcSpawn = useCallback<NpcSpawnCallback>((npcData) => {
+    setNpcs(prev => {
+      const newMap = new Map(prev);
+      // Replace existing NPC if same instance index (move to new spawnpoint)
+      newMap.set(npcData.instanceIndex, npcData);
+      return newMap;
+    });
   }, []);
 
   // Default world path - can be made configurable later
@@ -257,6 +277,8 @@ export function App() {
           selectedVob={selectedVob}
           onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
           onVobClickFromScene={handleVobClickFromScene}
+          npcs={npcs}
+          onNpcSpawn={handleNpcSpawn}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />

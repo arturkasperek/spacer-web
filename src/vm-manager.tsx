@@ -112,9 +112,20 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
 }
 
 /**
+ * NPC spawn callback type
+ */
+export type NpcSpawnCallback = (npcData: {
+  instanceIndex: number;
+  symbolName: string;
+  name?: string;
+  spawnpoint: string;
+  npcInfo: Record<string, any>;
+}) => void;
+
+/**
  * Register external functions with specific implementations
  */
-export function registerVmExternals(vm: DaedalusVm): void {
+export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallback): void {
   // Register Wld_InsertNpc with detailed logging implementation
   // Note: Also try uppercase version for compatibility
   const registerWldInsertNpc = (name: string) => {
@@ -149,6 +160,17 @@ export function registerVmExternals(vm: DaedalusVm): void {
     
     const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
     console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+    
+    // Emit NPC spawn event if callback is provided
+    if (onNpcSpawn) {
+      onNpcSpawn({
+        instanceIndex: npcInstanceIndex,
+        symbolName: nameStr,
+        name: npcInfo.name,
+        spawnpoint: spawnpoint,
+        npcInfo: npcInfo,
+      });
+    }
     });
   };
   
@@ -618,7 +640,8 @@ export function callStartupFunction(vm: DaedalusVm, functionName: string = 'star
 export async function loadVm(
   zenKit: ZenKit,
   scriptPath: string = '/SCRIPTS/_COMPILED/GOTHIC.DAT',
-  startupFunction: string = 'startup_newworld'
+  startupFunction: string = 'startup_newworld',
+  onNpcSpawn?: NpcSpawnCallback
 ): Promise<VmLoadResult> {
   // Load script
   const { script } = await loadDaedalusScript(zenKit, scriptPath);
@@ -627,7 +650,7 @@ export async function loadVm(
   const vm = createVm(zenKit, script);
 
   // Register external functions with specific implementations
-  registerVmExternals(vm);
+  registerVmExternals(vm, onNpcSpawn);
 
   // Register empty external functions to prevent warnings
   registerEmptyExternals(vm);
