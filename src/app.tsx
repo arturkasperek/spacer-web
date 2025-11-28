@@ -42,9 +42,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
-  world: any;
-  zenKit: any;
-  onWorldLoaded: (world: any, zenKit: any) => void;
+  world: World | null;
+  zenKit: ZenKit | null;
+  onWorldLoaded: (world: World, zenKit: ZenKit) => void;
   cameraPosition: THREE.Vector3;
   onCameraPositionChange: (position: THREE.Vector3) => void;
   onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
@@ -101,7 +101,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       )}
 
       {/* Waynet Renderer */}
-      {world && <WaynetRenderer world={world} enabled={true} />}
+      {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} enabled={true} />}
     </>
   );
 }

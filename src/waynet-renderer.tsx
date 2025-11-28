@@ -1,10 +1,13 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import type { World, WayPointData, WayEdgeData } from '@kolarz3/zenkit';
+import type { World, ZenKit, WayPointData, WayEdgeData } from '@kolarz3/zenkit';
+import { getMeshPath } from './vob-utils';
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from './mesh-utils';
 
 interface WaynetRendererProps {
   world: World | null;
+  zenKit: ZenKit | null;
   enabled?: boolean;
 }
 
@@ -12,15 +15,20 @@ interface WaynetRendererProps {
  * WaynetRenderer Component - renders waypoint network (waypoints and edges)
  * 
  * Features:
- * - Renders waypoints as colored spheres (blue for regular, orange for free points)
+ * - Renders waypoints with their visual meshes (if available) or colored spheres as fallback
  * - Renders waypoint edges as lines connecting waypoints
  * - Differentiates between free points and regular waypoints
  */
-export function WaynetRenderer({ world, enabled = true }: WaynetRendererProps) {
+export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRendererProps) {
   const { scene } = useThree();
   const waypointsGroupRef = useRef<THREE.Group>(null);
   const edgesGroupRef = useRef<THREE.Group>(null);
   const hasLoadedRef = useRef(false);
+  
+  // Caches for waypoint mesh rendering
+  const meshCacheRef = useRef(new Map<string, any>());
+  const textureCacheRef = useRef(new Map<string, THREE.DataTexture>());
+  const materialCacheRef = useRef(new Map<string, THREE.Material>());
 
   // Load waypoints and edges from world
   const waynetData = useMemo(() => {
@@ -67,42 +75,118 @@ export function WaynetRenderer({ world, enabled = true }: WaynetRendererProps) {
     console.log(`Waynet: Loaded ${waynetData.waypoints.length} waypoints and ${waynetData.edges.length} edges`);
   }, [world, enabled, waynetData]);
 
-  // Create waypoint spheres
-  const waypointMeshes = useMemo(() => {
-    if (!enabled || waynetData.waypoints.length === 0) return null;
+  // Load waypoint visual mesh once (shared by all waypoints)
+  const waypointVisualTemplateRef = useRef<THREE.Mesh | null>(null);
+  
+  const loadWaypointVisualTemplate = async (): Promise<THREE.Mesh | null> => {
+    if (waypointVisualTemplateRef.current) {
+      return waypointVisualTemplateRef.current;
+    }
+    
+    if (!zenKit) return null;
+    
+    try {
+      // Waypoints use the helper visual INVISIBLE_ZCVOBWAYPOINT.MRM
+      const visualName = 'INVISIBLE_ZCVOBWAYPOINT.MRM';
+      
+      // Load mesh
+      const meshPath = getMeshPath(visualName);
+      if (!meshPath) {
+        console.warn(`Could not get mesh path for waypoint visual "${visualName}"`);
+        return null;
+      }
+      
+      const processed = await loadMeshCached(meshPath, zenKit, meshCacheRef.current);
+      if (!processed) return null;
+      
+      // Build geometry and materials
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+        processed,
+        zenKit,
+        textureCacheRef.current,
+        materialCacheRef.current
+      );
+      
+      if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
+        return null;
+      }
+      
+      // Create template mesh (we'll clone this for each waypoint)
+      const templateMesh = new THREE.Mesh(geometry, materials);
+      waypointVisualTemplateRef.current = templateMesh;
+      
+      return templateMesh;
+    } catch (error) {
+      console.warn(`Failed to load waypoint visual template:`, error);
+      return null;
+    }
+  };
+  
+  // Create a waypoint mesh instance from the template
+  const createWaypointMesh = (wp: WayPointData, index: number): THREE.Object3D => {
+    const template = waypointVisualTemplateRef.current;
+    
+    if (template) {
+      // Clone the template mesh for this waypoint
+      const mesh = template.clone();
+      mesh.position.set(-wp.position.x, wp.position.y, wp.position.z);
+      mesh.userData.waypointName = wp.name;
+      mesh.userData.freePoint = wp.free_point;
+      mesh.userData.waypointIndex = index;
+      return mesh;
+    }
+    
+    // Fallback to sphere if visual template not loaded
+    const color = wp.free_point ? 0xff8800 : 0x0088ff;
+    const radius = wp.free_point ? 15 : 10;
+    
+    const geometry = new THREE.SphereGeometry(radius, 8, 8);
+    const material = new THREE.MeshBasicMaterial({ 
+      color,
+      transparent: true,
+      opacity: 0.7,
+    });
+    
+    const sphere = new THREE.Mesh(geometry, material);
+    sphere.position.set(-wp.position.x, wp.position.y, wp.position.z);
+    sphere.userData = {
+      waypointIndex: index,
+      waypointName: wp.name,
+      freePoint: wp.free_point,
+      underWater: wp.under_water,
+      waterDepth: wp.water_depth,
+    };
+    
+    return sphere;
+  };
+
+  // Create waypoint meshes (visuals or spheres as fallback)
+  const [waypointMeshes, setWaypointMeshes] = useState<THREE.Group | null>(null);
+  
+  useEffect(() => {
+    if (!enabled || waynetData.waypoints.length === 0 || !zenKit) {
+      setWaypointMeshes(null);
+      return;
+    }
 
     const waypointsGroup = new THREE.Group();
     waypointsGroup.name = 'Waypoints';
 
-    waynetData.waypoints.forEach((wp: WayPointData, index: number) => {
-      // Different colors for free points vs regular waypoints
-      const color = wp.free_point ? 0xff8800 : 0x0088ff; // Orange for free points, blue for regular
-      const radius = wp.free_point ? 15 : 10; // Slightly larger for free points
+    const loadWaypoints = async () => {
+      // Load the visual template once (shared by all waypoints)
+      await loadWaypointVisualTemplate();
       
-      const geometry = new THREE.SphereGeometry(radius, 8, 8);
-      const material = new THREE.MeshBasicMaterial({ 
-        color,
-        transparent: true,
-        opacity: 0.7,
+      // Create waypoint meshes using the template (or fallback spheres)
+      waynetData.waypoints.forEach((wp: WayPointData, index: number) => {
+        const mesh = createWaypointMesh(wp, index);
+        waypointsGroup.add(mesh);
       });
       
-      const sphere = new THREE.Mesh(geometry, material);
-      
-      // Convert position (Gothic uses different coordinate system)
-      sphere.position.set(-wp.position.x, wp.position.y, wp.position.z);
-      sphere.userData = {
-        waypointIndex: index,
-        waypointName: wp.name,
-        freePoint: wp.free_point,
-        underWater: wp.under_water,
-        waterDepth: wp.water_depth,
-      };
-      
-      waypointsGroup.add(sphere);
-    });
+      setWaypointMeshes(waypointsGroup);
+    };
 
-    return waypointsGroup;
-  }, [waynetData.waypoints, enabled]);
+    loadWaypoints();
+  }, [waynetData.waypoints, enabled, zenKit]);
 
   // Create edge lines
   const edgeLines = useMemo(() => {
