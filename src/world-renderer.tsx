@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
 import { loadVm } from './vm-manager';
+import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
+import { tgaNameToCompiledUrl } from './vob-utils';
 
 // World Renderer Component - loads ZenKit and renders world mesh
 function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
@@ -77,31 +79,8 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
 
         console.log(`World loaded: ${vertCount/8} vertices, ${idxCount/3} triangles, ${matCount} materials`);
 
-        // Build Three.js geometry
-        const positions = new Float32Array(idxCount * 3);
-        const normals = new Float32Array(idxCount * 3);
-        const uvs = new Float32Array(idxCount * 2);
-
-        for (let i = 0; i < idxCount; i++) {
-          const vertIdx = processed.indices.get(i);
-          const vertBase = vertIdx * 8;
-
-          positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
-          positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
-          positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
-
-          normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
-          normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
-          normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
-
-          uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
-          uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-        geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        // Build Three.js geometry using shared utility
+        const geometry = buildThreeJSGeometry(processed);
 
         // Build materials array from deduplicated materials
         const materialArray: THREE.MeshBasicMaterial[] = [];
@@ -116,7 +95,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
           });
           materialArray.push(material);
 
-          // Load texture asynchronously
+          // Load texture asynchronously using shared utility
           if (mat?.texture && mat.texture.length) {
             const textureUrl = tgaNameToCompiledUrl(mat.texture);
             loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
@@ -130,27 +109,8 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
           }
         }
 
-        // Set up geometry groups for multi-material mesh
-        // materialIds is per-triangle, so we need to find consecutive runs
-        const triCount = processed.materialIds.size();
-        geometry.clearGroups();
-
-        let currentMatId = processed.materialIds.get(0);
-        let groupStart = 0;
-
-        for (let t = 1; t <= triCount; t++) {
-          const matId = (t < triCount) ? processed.materialIds.get(t) : -1; // Force flush at end
-
-          if (t === triCount || matId !== currentMatId) {
-            // End of group
-            const vertexStart = groupStart * 3; // 3 vertices per triangle
-            const vertexCount = (t - groupStart) * 3;
-            geometry.addGroup(vertexStart, vertexCount, currentMatId);
-
-            groupStart = t;
-            currentMatId = matId;
-          }
-        }
+        // Set up geometry groups for multi-material mesh using shared utility
+        buildMaterialGroups(geometry, processed);
 
         console.log(`Created ${geometry.groups.length} material groups for ${matCount} materials`);
 
@@ -174,52 +134,4 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded }: Readonly<{
   return worldMesh ? <primitive object={worldMesh as THREE.Object3D} ref={meshRef} /> : null;
 }
 
-// Helper function to convert TGA texture name to compiled TEX URL
-function tgaNameToCompiledUrl(name: string): string | null {
-  if (!name || typeof name !== 'string') return null;
-  const base = name.replace(/\.[^.]*$/, '').toUpperCase();
-  return `/TEXTURES/_COMPILED/${base}-C.TEX`;
-}
-
-// Helper function to load compiled TEX file as DataTexture
-async function loadCompiledTexAsDataTexture(url: string | null, zenKit: ZenKit): Promise<THREE.DataTexture | null> {
-  if (!url) return null;
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-
-    const buf = await res.arrayBuffer();
-    const arr = new Uint8Array(buf);
-
-    const zkTex = new zenKit.Texture();
-    const ok = zkTex.loadFromArray(arr);
-    if (!ok || !ok.success) {
-      return null;
-    }
-
-    const w = zkTex.width;
-    const h = zkTex.height;
-    const rgba = zkTex.asRgba8(0);
-    if (!rgba) return null;
-
-    const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
-    tex.needsUpdate = true;
-    tex.flipY = false;  // OpenGothic doesn't flip Y
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;  // Reasonable anisotropic filtering
-    // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapNearestFilter;  // Use nearest mipmap for more blur
-    tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
-
-    return tex;
-  } catch (error: unknown) {
-    console.warn('Failed to load texture:', error);
-    return null;
-  }
-}
-
-export { WorldRenderer, tgaNameToCompiledUrl };
+export { WorldRenderer };

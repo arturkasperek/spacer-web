@@ -1,8 +1,9 @@
 import { useRef, useEffect, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { getMeshPath, getModelPath, getMorphMeshPath, tgaNameToCompiledUrl, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
+import { getMeshPath, getModelPath, getMorphMeshPath, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
 interface VobData {
@@ -327,13 +328,18 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     
     try {
       // Load mesh with caching
-      const processed = await loadMeshCached(meshPath, zenKit);
+      const processed = await loadMeshCached(meshPath, zenKit, meshCacheRef.current);
       if (!processed) {
         return false;
       }
 
       // Build Three.js geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+        processed,
+        zenKit,
+        textureCacheRef.current,
+        materialCacheRef.current
+      );
 
       // Verify geometry has data
       if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
@@ -441,7 +447,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           }
 
           // Build Three.js geometry and materials
-          const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
+          const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+            processed,
+            zenKit,
+            textureCacheRef.current,
+            materialCacheRef.current
+          );
 
           // Create mesh - soft-skin meshes are positioned relative to root node
           // Apply root node translation offset (similar to OpenGothic's mkBaseTranslation logic)
@@ -527,7 +538,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         }
 
         // Build Three.js geometry and materials using shared function
-        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(processed, zenKit);
+        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+          processed,
+          zenKit,
+          textureCacheRef.current,
+          materialCacheRef.current
+        );
 
         // Create mesh for this attachment
         const attachmentMesh = new THREE.Mesh(geometry, materials);
@@ -589,7 +605,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       }
 
       // Build Three.js geometry and materials from processed mesh data
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(morphData.processed, zenKit);
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+        morphData.processed,
+        zenKit,
+        textureCacheRef.current,
+        materialCacheRef.current
+      );
 
       if (!geometry) {
         return false;
@@ -625,111 +646,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     }
   };
 
-  // Shared function to build Three.js geometry and materials from processed mesh data
-  const buildThreeJSGeometryAndMaterials = async (processed: ProcessedMeshData, zenKit: ZenKit) => {
-    const idxCount = processed.indices.size();
-    const matCount = processed.materials.size();
 
-    // Build Three.js geometry
-    const positions = new Float32Array(idxCount * 3);
-    const normals = new Float32Array(idxCount * 3);
-    const uvs = new Float32Array(idxCount * 2);
-
-    for (let i = 0; i < idxCount; i++) {
-      const vertIdx = processed.indices.get(i);
-      const vertBase = vertIdx * 8;
-
-      positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
-      positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
-      positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
-
-      normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
-      normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
-      normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
-
-      uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
-      uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-
-    // Build material groups
-    const triCount = processed.materialIds.size();
-    geometry.clearGroups();
-
-    let currentMatId = processed.materialIds.get(0);
-    let groupStart = 0;
-
-    for (let t = 1; t <= triCount; t++) {
-      const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
-
-      if (t === triCount || matId !== currentMatId) {
-        const vertexStart = groupStart * 3;
-        const vertexCount = (t - groupStart) * 3;
-        geometry.addGroup(vertexStart, vertexCount, currentMatId);
-
-        groupStart = t;
-        currentMatId = matId;
-      }
-    }
-
-    // Build materials using cache
-    const materialArray: THREE.MeshBasicMaterial[] = [];
-    for (let mi = 0; mi < matCount; mi++) {
-      const mat = processed.materials.get(mi);
-      const material = await getMaterialCached(mat, zenKit);
-      materialArray.push(material);
-    }
-
-    return { geometry, materials: materialArray };
-  };
-
-  // Cached mesh loader
-  const loadMeshCached = async (meshPath: string, zenKit: ZenKit): Promise<ProcessedMeshData | null> => {
-    // Check cache first
-    const cached = meshCacheRef.current.get(meshPath);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const response = await fetch(meshPath);
-      if (!response.ok) {
-        return null;
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-
-      // Load mesh with ZenKit
-      const vobMesh = zenKit.createMesh();
-      const isMRM = meshPath.toUpperCase().endsWith('.MRM');
-      const loadResult = isMRM ? vobMesh.loadMRMFromArray(uint8Array) : vobMesh.loadFromArray(uint8Array);
-
-      if (!loadResult || !loadResult.success) {
-        return null;
-      }
-
-      // Get processed mesh data
-      const meshData = vobMesh.getMeshData();
-      const processed = meshData.getProcessedMeshData();
-
-      // Check if mesh has data
-      if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
-        return null;
-      }
-
-      // Cache and return
-      meshCacheRef.current.set(meshPath, processed);
-      return processed;
-    } catch (error: unknown) {
-      console.warn(`Failed to load mesh ${meshPath}:`, error);
-      return null;
-    }
-  };
 
   // Cached model loader for .MDL files
   const loadModelCached = async (modelPath: string, zenKit: ZenKit): Promise<Model | null> => {
@@ -885,119 +802,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     }
   };
 
-  // Cached texture loader
-  const loadTextureCached = async (texturePath: string, zenKit: ZenKit): Promise<THREE.DataTexture | null> => {
-    // Check cache first
-    const cached = textureCacheRef.current.get(texturePath);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const tex = await loadCompiledTexAsDataTexture(texturePath, zenKit);
-      if (tex) {
-        textureCacheRef.current.set(texturePath, tex);
-      }
-      return tex;
-    } catch (error) {
-      return null;
-    }
-  };
-
-  // Color name to hex mapping for helper visuals (matching original Spacer editor)
-  const colorNameToHex: { [key: string]: number } = {
-    'RED': 0xFF0000,
-    'GREEN': 0x00FF00,
-    'BLUE': 0x0000FF,
-    'YELLOW': 0xFFFF00,
-    'ORANGE': 0xFFA500,
-    'PURPLE': 0x800080,
-    'CYAN': 0x00FFFF,
-    'MAGENTA': 0xFF00FF,
-    'WHITE': 0xFFFFFF,
-    'BLACK': 0x000000,
-    'GRAY': 0x808080,
-    'GREY': 0x808080,
-    // Camera-related materials (zCCamTrj_KeyFrame - type 17)
-    'KAMERA': 0x00FFFF,      // CYAN - cameras are typically cyan
-    'FILM': 0xFF00FF,        // MAGENTA - film/cinematic
-    'DIRECTION': 0xFFFF00,   // YELLOW - direction indicators
-    // Light materials (zCVobLight - type 10)
-    'LIGHTMESH': 0xFFFF00,   // YELLOW - lights are yellow
-    // Numbered materials (zCVobSound - type 36, zCCamTrj_KeyFrame - type 17)
-    'ZCVOBMAT1': 0xFF6B6B,   // CORAL/RED - lighter red
-    'ZCVOBMAT2': 0x4ECDC4,   // TURQUOISE - cyan-green
-    'ZCVOBMAT3': 0x45B7D1,   // SKY BLUE - light blue
-    'ZCVOBMAT4': 0xFFA07A,   // LIGHT SALMON - orange-pink
-    'ZCVOBMAT5': 0x98D8C8,   // MINT GREEN - light green
-    'ZCVOBMAT6': 0xC0C0C0,   // SILVER - lighter gray
-    'ZCVOBMAT7': 0xA0A0A0,   // GRAY - medium gray
-    'ZCVOBMAT8': 0x808080,   // DARKGRAY - darker gray
-  };
-
-  // Cached material creator
-  const getMaterialCached = async (materialData: { texture: string; name?: string }, zenKit: ZenKit): Promise<THREE.MeshBasicMaterial> => {
-    const textureName = materialData.texture || '';
-    const materialName = materialData.name || '';
-
-    // For helper visuals: check if material name is a color name (no texture)
-    // Helper visuals have no texture but have a material name (like "ORANGE", "RED", etc.)
-    if (!textureName && materialName) {
-      const materialNameUpper = materialName.toUpperCase();
-      const colorHex = colorNameToHex[materialNameUpper];
-      const cacheKey = `HELPER_COLOR_${materialNameUpper}`;
-      const finalColor = colorHex !== undefined ? colorHex : 0xFFFFFF;
-      
-      // Check cache first
-      const cached = materialCacheRef.current.get(cacheKey);
-      if (cached && cached instanceof THREE.MeshBasicMaterial) {
-        return cached;
-      }
-
-      // Create solid color material for helper visual
-      const material = new THREE.MeshBasicMaterial({
-        color: finalColor,
-        side: THREE.DoubleSide,
-        transparent: false,
-        alphaTest: 0.5
-      });
-
-      // Cache and return
-      materialCacheRef.current.set(cacheKey, material);
-      return material;
-    }
-
-    // Regular texture-based material (for non-spot VOBs or spot VOBs with textures)
-    // Check cache first
-    const cached = materialCacheRef.current.get(textureName);
-    if (cached && cached instanceof THREE.MeshBasicMaterial) {
-      return cached;
-    }
-
-    // Create material
-    const material = new THREE.MeshBasicMaterial({
-      color: 0xFFFFFF,
-      side: THREE.DoubleSide,
-      transparent: false,  // Disable transparency for alpha-tested materials
-      alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
-    });
-
-    // Load texture if available
-    if (textureName && textureName.length) {
-      const url = tgaNameToCompiledUrl(textureName);
-      if (url) {
-        const tex = await loadTextureCached(url, zenKit);
-        if (tex) {
-          material.map = tex;
-          material.needsUpdate = true;
-        }
-      }
-    }
-
-    // Cache and return
-    materialCacheRef.current.set(textureName, material);
-    return material;
-  };
 
   // Helper function to apply VOB transform to an object
   const applyVobTransform = (object: THREE.Object3D, vob: Vob) => {
@@ -1031,43 +835,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     object.scale.copy(scale);
   };
 
-  // Helper function to load compiled TEX file as DataTexture
-  const loadCompiledTexAsDataTexture = async (url: string | null, zenKit: ZenKit): Promise<THREE.DataTexture | null> => {
-    if (!url) return null;
-
-    try {
-      const res = await fetch(url);
-      if (!res.ok) return null;
-
-      const buf = await res.arrayBuffer();
-      const arr = new Uint8Array(buf);
-
-      const zkTex = new zenKit.Texture();
-      const ok = zkTex.loadFromArray(arr);
-      if (!ok || !ok.success) return null;
-
-      const w = zkTex.width;
-      const h = zkTex.height;
-      const rgba = zkTex.asRgba8(0);
-      if (!rgba) return null;
-
-      const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
-      tex.needsUpdate = true;
-      tex.flipY = false;  // OpenGothic doesn't flip Y
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 4;  // Enable some anisotropy for better quality
-      // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.generateMipmaps = true;
-
-      return tex;
-    } catch (error) {
-      return null;
-    }
-  };
 
 
 
