@@ -147,6 +147,29 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
     group.userData.freePoint = wp.free_point;
     group.userData.waypointIndex = index;
     
+    // Apply rotation from direction vector
+    if (wp.direction && (wp.direction.x !== 0 || wp.direction.y !== 0 || wp.direction.z !== 0)) {
+      // Convert Gothic direction to Three.js world space (flip X)
+      const direction = new THREE.Vector3(-wp.direction.x, wp.direction.y, wp.direction.z);
+      
+      // Create a quaternion from the direction vector
+      // We assume the direction is the forward direction (negative Z in Three.js)
+      const up = new THREE.Vector3(0, 1, 0);
+      const quaternion = new THREE.Quaternion();
+      
+      // Create a matrix that looks along the direction
+      const matrix = new THREE.Matrix4();
+      matrix.lookAt(new THREE.Vector3(0, 0, 0), direction, up);
+      quaternion.setFromRotationMatrix(matrix);
+      
+      // Apply 180-degree rotation around Y axis to correct orientation
+      const yRotation = new THREE.Quaternion();
+      yRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+      quaternion.multiply(yRotation);
+      
+      group.quaternion.copy(quaternion);
+    }
+    
     // Add visual mesh if template is loaded
     const template = waypointVisualTemplateRef.current;
     if (template) {
