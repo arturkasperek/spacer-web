@@ -9,6 +9,8 @@ interface VOBNode {
   name: string;
   visualName: string;
   visualType: string;
+  vobType: number | undefined;
+  vobName: string | undefined;
   children: VOBNode[];
   position: { x: number; y: number; z: number };
 }
@@ -59,6 +61,8 @@ function buildVOBTree(world: World): VOBNode[] {
       name: displayName,
       visualName: vob.visual?.name || '',
       visualType: visualTypeName,
+      vobType: vobType,
+      vobName: vob.vobName,
       children,
       position: {
         x: vob.position?.x || 0,
@@ -124,7 +128,8 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
       const matches = 
         node.name.toLowerCase().includes(search) ||
         node.visualName.toLowerCase().includes(search) ||
-        node.visualType.toLowerCase().includes(search);
+        node.visualType.toLowerCase().includes(search) ||
+        node.vobName?.toLowerCase().includes(search) || false;
 
       const filteredChildren = node.children
         .map(child => filterNode(child))
@@ -292,10 +297,12 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     return () => clearTimeout(scrollTimeout);
   }, [selectedVob?.id, filteredTree, findVobInTree]);
 
-  // Calculate item height - larger if it has visual name
+  // Calculate item height - larger if it has visual name or vobName (for VOB spots)
   const getItemSize = useCallback((index: number) => {
     const item = flattenedItems[index];
-    return item?.node.visualName ? 48 : 32;
+    const hasSecondaryText = (item?.node.visualName && item?.node.vobType !== 11) || 
+                             (item?.node.vobType === 11 && item?.node.vobName);
+    return hasSecondaryText ? 48 : 32;
   }, [flattenedItems]);
 
   // Row component for react-window v2
@@ -376,17 +383,28 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
             }}>
               {node.name}
             </div>
-            {node.visualName && (
-              <div style={{ 
-                fontSize: '10px', 
-                color: 'rgba(255, 255, 255, 0.6)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}>
-                {node.visualType}: {node.visualName}
-              </div>
-            )}
+            {(() => {
+              const isVobSpot = node.vobType === 11;
+              let secondaryText: string | null = null;
+              
+              if (isVobSpot && node.vobName) {
+                secondaryText = node.vobName;
+              } else if (!isVobSpot && node.visualName) {
+                secondaryText = `${node.visualType}: ${node.visualName}`;
+              }
+              
+              return secondaryText ? (
+                <div style={{ 
+                  fontSize: '10px', 
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {secondaryText}
+                </div>
+              ) : null;
+            })()}
           </div>
           {hasChildren && (
             <span style={{ 
