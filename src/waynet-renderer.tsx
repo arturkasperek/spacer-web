@@ -122,22 +122,24 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
     }
   };
   
-  // Create a waypoint mesh instance from the template
-  const createWaypointMesh = (wp: WayPointData, index: number): THREE.Object3D => {
-    const template = waypointVisualTemplateRef.current;
+  // Create a waypoint mesh instance from the template with icon
+  const createWaypointMesh = (wp: WayPointData, index: number): THREE.Group => {
+    const group = new THREE.Group();
+    group.position.set(-wp.position.x, wp.position.y, wp.position.z);
+    group.userData.waypointName = wp.name;
+    group.userData.freePoint = wp.free_point;
+    group.userData.waypointIndex = index;
     
+    // Add visual mesh if template is loaded
+    const template = waypointVisualTemplateRef.current;
     if (template) {
-      // Clone the template mesh for this waypoint
-      const mesh = template.clone();
-      mesh.position.set(-wp.position.x, wp.position.y, wp.position.z);
-      mesh.userData.waypointName = wp.name;
-      mesh.userData.freePoint = wp.free_point;
-      mesh.userData.waypointIndex = index;
-      return mesh;
+      const visualMesh = template.clone();
+      visualMesh.position.set(0, 0, 0); // Position relative to group
+      group.add(visualMesh);
     }
     
-    // Fallback to sphere if visual template not loaded
-    const color = wp.free_point ? 0xff8800 : 0x0088ff;
+    // Always add colored icon/sphere on top
+    const color = wp.free_point ? 0xff8800 : 0x0088ff; // Orange for free points, blue for regular
     const radius = wp.free_point ? 15 : 10;
     
     const geometry = new THREE.SphereGeometry(radius, 8, 8);
@@ -147,17 +149,19 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
       opacity: 0.7,
     });
     
-    const sphere = new THREE.Mesh(geometry, material);
-    sphere.position.set(-wp.position.x, wp.position.y, wp.position.z);
-    sphere.userData = {
+    const iconSphere = new THREE.Mesh(geometry, material);
+    iconSphere.position.set(0, 0, 0); // Position relative to group
+    iconSphere.userData = {
       waypointIndex: index,
       waypointName: wp.name,
       freePoint: wp.free_point,
       underWater: wp.under_water,
       waterDepth: wp.water_depth,
+      isIcon: true,
     };
     
-    return sphere;
+    group.add(iconSphere);
+    return group;
   };
 
   // Create waypoint meshes (visuals or spheres as fallback)
