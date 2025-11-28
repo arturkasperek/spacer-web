@@ -101,7 +101,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       )}
 
       {/* Waynet Renderer */}
-      {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} enabled={true} />}
+      {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} cameraPosition={cameraPosition} enabled={true} />}
     </>
   );
 }

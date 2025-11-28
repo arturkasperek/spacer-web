@@ -1,13 +1,15 @@
-import { useRef, useEffect, useMemo, useState } from "react";
-import { useThree } from "@react-three/fiber";
+import { useRef, useEffect, useMemo } from "react";
+import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, ZenKit, WayPointData, WayEdgeData } from '@kolarz3/zenkit';
 import { getMeshPath } from './vob-utils';
 import { loadMeshCached, buildThreeJSGeometryAndMaterials } from './mesh-utils';
+import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
 
 interface WaynetRendererProps {
   world: World | null;
   zenKit: ZenKit | null;
+  cameraPosition?: THREE.Vector3;
   enabled?: boolean;
 }
 
@@ -19,11 +21,20 @@ interface WaynetRendererProps {
  * - Renders waypoint edges as lines connecting waypoints
  * - Differentiates between free points and regular waypoints
  */
-export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRendererProps) {
+export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }: WaynetRendererProps) {
   const { scene } = useThree();
   const waypointsGroupRef = useRef<THREE.Group>(null);
   const edgesGroupRef = useRef<THREE.Group>(null);
   const hasLoadedRef = useRef(false);
+  
+  // Distance-based streaming
+  const loadedWaypointsRef = useRef(new Map<string, THREE.Group>()); // waypoint name -> THREE.Group
+  const allWaypointsRef = useRef<WayPointData[]>([]); // All waypoint data
+  const WAYPOINT_LOAD_DISTANCE = 5000; // Load waypoints within this distance
+  const WAYPOINT_UNLOAD_DISTANCE = 6000; // Unload waypoints beyond this distance
+  
+  // Streaming state using shared utility
+  const streamingState = useRef(createStreamingState());
   
   // Caches for waypoint mesh rendering
   const meshCacheRef = useRef(new Map<string, any>());
@@ -72,6 +83,8 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
     if (!enabled || !world || hasLoadedRef.current) return;
     
     hasLoadedRef.current = true;
+    // Store all waypoints for streaming
+    allWaypointsRef.current = waynetData.waypoints;
     console.log(`Waynet: Loaded ${waynetData.waypoints.length} waypoints and ${waynetData.edges.length} edges`);
   }, [world, enabled, waynetData]);
 
@@ -164,35 +177,82 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
     return group;
   };
 
-  // Create waypoint meshes (visuals or spheres as fallback)
-  const [waypointMeshes, setWaypointMeshes] = useState<THREE.Group | null>(null);
-  
-  useEffect(() => {
-    if (!enabled || waynetData.waypoints.length === 0 || !zenKit) {
-      setWaypointMeshes(null);
-      return;
-    }
+  // Streaming waypoint loader - loads/unloads based on camera distance
+  const updateWaypointStreaming = () => {
+    if (!enabled || allWaypointsRef.current.length === 0 || !zenKit) return;
 
-    const waypointsGroup = new THREE.Group();
-    waypointsGroup.name = 'Waypoints';
-
-    const loadWaypoints = async () => {
-      // Load the visual template once (shared by all waypoints)
-      await loadWaypointVisualTemplate();
-      
-      // Create waypoint meshes using the template (or fallback spheres)
-      waynetData.waypoints.forEach((wp: WayPointData, index: number) => {
-        const mesh = createWaypointMesh(wp, index);
-        waypointsGroup.add(mesh);
-      });
-      
-      setWaypointMeshes(waypointsGroup);
+    const config = {
+      loadDistance: WAYPOINT_LOAD_DISTANCE,
+      unloadDistance: WAYPOINT_UNLOAD_DISTANCE,
+      updateThreshold: 100,
+      updateInterval: 10,
     };
 
-    loadWaypoints();
-  }, [waynetData.waypoints, enabled, zenKit]);
+    const { shouldUpdate, cameraPos } = shouldUpdateStreaming(
+      streamingState.current,
+      cameraPosition,
+      config
+    );
 
-  // Create edge lines
+    if (shouldUpdate) {
+      // Convert waypoints to streamable items with positions for distance checking
+      const waypointItems = allWaypointsRef.current.map(wp => ({
+        id: wp.name,
+        position: new THREE.Vector3(-wp.position.x, wp.position.y, wp.position.z),
+      }));
+
+      // Find waypoints to load/unload using shared utility
+      const { toLoad, toUnload } = getItemsToLoadUnload(
+        waypointItems,
+        cameraPos,
+        config,
+        loadedWaypointsRef.current
+      );
+
+      // Load new waypoints
+      for (const item of toLoad) {
+        const wp = allWaypointsRef.current.find(w => w.name === item.id);
+        if (!wp) continue;
+        
+        const waypointMesh = createWaypointMesh(wp, allWaypointsRef.current.indexOf(wp));
+        loadedWaypointsRef.current.set(wp.name, waypointMesh);
+        
+        // Ensure waypoints group exists
+        if (!waypointsGroupRef.current) {
+          const group = new THREE.Group();
+          group.name = 'Waypoints';
+          waypointsGroupRef.current = group;
+          scene.add(group);
+        }
+        waypointsGroupRef.current.add(waypointMesh);
+      }
+
+      // Unload distant waypoints
+      for (const wpName of toUnload) {
+        const mesh = loadedWaypointsRef.current.get(wpName);
+        if (mesh && waypointsGroupRef.current) {
+          waypointsGroupRef.current.remove(mesh);
+          disposeObject3D(mesh);
+          loadedWaypointsRef.current.delete(wpName);
+        }
+      }
+    }
+  };
+
+  // Load waypoint visual template on mount
+  useEffect(() => {
+    if (!enabled || !zenKit) return;
+    loadWaypointVisualTemplate();
+  }, [enabled, zenKit]);
+
+  // Streaming update via useFrame
+  useFrame(() => {
+    if (hasLoadedRef.current && allWaypointsRef.current.length > 0) {
+      updateWaypointStreaming();
+    }
+  });
+
+  // Create edge lines (only for loaded waypoints)
   const edgeLines = useMemo(() => {
     if (!enabled || waynetData.edges.length === 0 || waynetData.waypoints.length === 0) return null;
 
@@ -208,7 +268,8 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
       
       if (!wpA || !wpB) return; // Skip invalid edges
       
-      // Add line segment (Gothic coordinate system conversion)
+      // Only render edges if both waypoints are loaded (or render all edges - simpler)
+      // For now, render all edges for simplicity
       positions.push(
         -wpA.position.x, wpA.position.y, wpA.position.z,
         -wpB.position.x, wpB.position.y, wpB.position.z,
@@ -233,28 +294,15 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
     return edgesGroup;
   }, [waynetData.edges, waynetData.waypoints, enabled]);
 
-  // Add/remove waypoints and edges from scene
+  // Add/remove edges from scene (waypoints are managed by streaming)
   useEffect(() => {
     if (!enabled) {
-      // Remove from scene if disabled
-      if (waypointsGroupRef.current) {
-        scene.remove(waypointsGroupRef.current);
-        waypointsGroupRef.current = null;
-      }
+      // Remove edges if disabled
       if (edgesGroupRef.current) {
         scene.remove(edgesGroupRef.current);
         edgesGroupRef.current = null;
       }
       return;
-    }
-
-    // Add waypoints to scene
-    if (waypointMeshes && waypointsGroupRef.current !== waypointMeshes) {
-      if (waypointsGroupRef.current) {
-        scene.remove(waypointsGroupRef.current);
-      }
-      scene.add(waypointMeshes);
-      waypointsGroupRef.current = waypointMeshes;
     }
 
     // Add edges to scene
@@ -268,16 +316,17 @@ export function WaynetRenderer({ world, zenKit, enabled = true }: WaynetRenderer
 
     // Cleanup on unmount
     return () => {
-      if (waypointsGroupRef.current) {
-        scene.remove(waypointsGroupRef.current);
-        waypointsGroupRef.current = null;
-      }
       if (edgesGroupRef.current) {
         scene.remove(edgesGroupRef.current);
         edgesGroupRef.current = null;
       }
+      // Cleanup waypoints group
+      if (waypointsGroupRef.current) {
+        scene.remove(waypointsGroupRef.current);
+        waypointsGroupRef.current = null;
+      }
     };
-  }, [scene, waypointMeshes, edgeLines, enabled]);
+  }, [scene, edgeLines, enabled]);
 
   // Component doesn't render anything directly (uses imperative scene manipulation)
   return null;

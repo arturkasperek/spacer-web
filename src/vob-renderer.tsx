@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
 import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
+import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from "./distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
 interface VobData {
@@ -30,9 +31,11 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   // VOB management state
   const loadedVOBsRef = useRef(new Map<string, THREE.Object3D>()); // vob id -> THREE.Mesh/Object3D
   const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
-  const lastCameraPositionRef = useRef(new THREE.Vector3());
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
+
+  // Streaming state using shared utility
+  const streamingState = useRef(createStreamingState());
 
   // Asset caches to avoid reloading
   const meshCacheRef = useRef(new Map<string, ProcessedMeshData>()); // path -> processed mesh data
@@ -44,8 +47,6 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   // Streaming loader state
   const vobLoadQueueRef = useRef<VobData[]>([]);
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
-  const isFirstVOBUpdateRef = useRef(true);
-  const updateCounterRef = useRef(0);
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
 
   useEffect(() => {
@@ -150,32 +151,30 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
   // Streaming VOB loader - loads/unloads based on camera distance
   const updateVOBStreaming = () => {
+    const config = {
+      loadDistance: VOB_LOAD_DISTANCE,
+      unloadDistance: VOB_UNLOAD_DISTANCE,
+      updateThreshold: 100,
+      updateInterval: 10,
+    };
 
-    // Use the camera position passed from parent component (fallback to origin if not provided)
-    const camPos = cameraPosition || new THREE.Vector3(0, 0, 0);
-
-    // Check if camera moved significantly OR if this is the first update
-    const distance = lastCameraPositionRef.current.distanceTo(camPos);
-    const shouldUpdate = isFirstVOBUpdateRef.current || distance > 100;
+    const { shouldUpdate, cameraPos } = shouldUpdateStreaming(
+      streamingState.current,
+      cameraPosition,
+      config
+    );
 
     if (shouldUpdate) {
-      isFirstVOBUpdateRef.current = false;
-      lastCameraPositionRef.current.copy(camPos);
+      // Find VOBs to load/unload using shared utility
+      const { toLoad, toUnload } = getItemsToLoadUnload(
+        allVOBsRef.current,
+        cameraPos,
+        config,
+        loadedVOBsRef.current
+      );
 
-      // Find VOBs to load/unload
-      vobLoadQueueRef.current = [];
-      const toUnload = [];
-
-      for (const vobData of allVOBsRef.current) {
-        const distance = camPos.distanceTo(vobData.position);
-        const isLoaded = loadedVOBsRef.current.has(vobData.id);
-
-        if (distance < VOB_LOAD_DISTANCE && !isLoaded) {
-          vobLoadQueueRef.current.push(vobData);
-        } else if (distance > VOB_UNLOAD_DISTANCE && isLoaded) {
-          toUnload.push(vobData.id);
-        }
-      }
+      // Add items to load queue
+      vobLoadQueueRef.current = toLoad;
 
       // Unload distant VOBs
       for (const id of toUnload) {
@@ -189,7 +188,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Sort queue by distance (closest first)
       vobLoadQueueRef.current.sort((a, b) => {
-        return camPos.distanceTo(a.position) - camPos.distanceTo(b.position);
+        return cameraPos.distanceTo(a.position) - cameraPos.distanceTo(b.position);
       });
     }
 
@@ -233,33 +232,11 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     // Streaming continues via useFrame hook
   };
 
-  // Helper function to properly dispose of Three.js objects
-  const disposeObject3D = (object: THREE.Object3D) => {
-    if (!object) return;
-
-    // If it's a Mesh, dispose its geometry
-    if ((object as THREE.Mesh).geometry) {
-      (object as THREE.Mesh).geometry.dispose();
-    }
-
-    // If it's a Group or has children, recursively dispose children
-    if (object.children && object.children.length > 0) {
-      for (const child of object.children) {
-        disposeObject3D(child);
-      }
-    }
-
-    // Note: materials are cached and shared, don't dispose them
-  };
 
   // Alternative approach: use useFrame for continuous streaming updates
   useFrame(() => {
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
-      // Only run streaming update every few frames to reduce overhead
-      if (updateCounterRef.current % 10 === 0) {  // Every 10 frames
-        updateVOBStreaming();
-      }
-      updateCounterRef.current++;
+      updateVOBStreaming();
     }
   });
 
