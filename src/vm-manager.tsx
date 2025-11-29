@@ -203,14 +203,8 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   registerWldInsertNpc('Wld_InsertNpc');
   registerWldInsertNpc('WLD_INSERTNPC');
 
-  // Register TA (Time Assignment) - Sets NPC daily routine with hour precision
-  registerExternalSafe(vm, 'TA', (npcInstanceIndex: number, start_h: number, stop_h: number, state: number, waypoint: string) => {
-    if (npcInstanceIndex <= 0) {
-      console.warn(`⚠️  TA: Invalid NPC instance index: ${npcInstanceIndex}`);
-      return;
-    }
-
-    // Get NPC name without re-initializing (can't call getNpcInfo during execution)
+  // Helper: Get NPC name without re-initializing (safe to call during NPC execution)
+  const getNpcNameSafe = (npcInstanceIndex: number): string => {
     let npcName = `NPC[${npcInstanceIndex}]`;
     const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
     if (nameResult.success && nameResult.data) {
@@ -225,15 +219,25 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
         // Name property not accessible, use symbol name
       }
     }
+    return npcName;
+  };
 
-    // Get state function name from symbol index
-    let stateName = 'Unknown';
-    if (state > 0) {
-      const stateNameResult = vm.getSymbolNameByIndex(state);
-      if (stateNameResult.success && stateNameResult.data) {
-        stateName = stateNameResult.data;
-      }
+  // Helper: Get state function name from symbol index
+  const getStateName = (stateIndex: number): string => {
+    if (stateIndex <= 0) return 'Unknown';
+    const stateNameResult = vm.getSymbolNameByIndex(stateIndex);
+    return (stateNameResult.success && stateNameResult.data) ? stateNameResult.data : 'Unknown';
+  };
+
+  // Register TA (Time Assignment) - Sets NPC daily routine with hour precision
+  registerExternalSafe(vm, 'TA', (npcInstanceIndex: number, start_h: number, stop_h: number, state: number, waypoint: string) => {
+    if (npcInstanceIndex <= 0) {
+      console.warn(`⚠️  TA: Invalid NPC instance index: ${npcInstanceIndex}`);
+      return;
     }
+
+    const npcName = getNpcNameSafe(npcInstanceIndex);
+    const stateName = getStateName(state);
 
     console.log(`📅 TA: ${npcName} | ${start_h}:00 - ${stop_h}:00 | State: ${stateName} | Waypoint: "${waypoint}"`);
   });
@@ -245,30 +249,8 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       return;
     }
 
-    // Get NPC name without re-initializing (can't call getNpcInfo during execution)
-    let npcName = `NPC[${npcInstanceIndex}]`;
-    const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
-    if (nameResult.success && nameResult.data) {
-      npcName = nameResult.data;
-      // Try to get the actual name property
-      try {
-        const displayName = vm.getSymbolString('C_NPC.name', nameResult.data);
-        if (displayName && displayName.trim() !== '') {
-          npcName = displayName;
-        }
-      } catch (e) {
-        // Name property not accessible, use symbol name
-      }
-    }
-
-    // Get state function name from symbol index
-    let stateName = 'Unknown';
-    if (state > 0) {
-      const stateNameResult = vm.getSymbolNameByIndex(state);
-      if (stateNameResult.success && stateNameResult.data) {
-        stateName = stateNameResult.data;
-      }
-    }
+    const npcName = getNpcNameSafe(npcInstanceIndex);
+    const stateName = getStateName(state);
 
     // Format time with leading zeros for minutes
     const startTime = `${start_h}:${start_m.toString().padStart(2, '0')}`;
