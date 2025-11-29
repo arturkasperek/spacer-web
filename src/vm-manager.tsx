@@ -77,7 +77,7 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
   const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
   if (nameResult.success && nameResult.data) {
     info.symbolName = nameResult.data;
-    
+
     // Get NPC properties using qualified class names
     // Properties are available after initialization
     const properties = [
@@ -88,7 +88,7 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
       { qualified: 'C_NPC.attribute[ATR_HITPOINTS]', type: 'int', key: 'hp' },
       { qualified: 'C_NPC.attribute[ATR_HITPOINTS_MAX]', type: 'int', key: 'hpmax' },
     ];
-    
+
     for (const prop of properties) {
       try {
         if (prop.type === 'string') {
@@ -130,53 +130,152 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   // Note: Also try uppercase version for compatibility
   const registerWldInsertNpc = (name: string) => {
     registerExternalSafe(vm, name, (npcInstanceIndex: number, spawnpoint: string) => {
-    if (npcInstanceIndex <= 0) {
-      console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
-      return;
-    }
-    
-    const npcInfo = getNpcInfo(vm, npcInstanceIndex);
-    
-    // Format output similar to test script
-    const nameStr = npcInfo.symbolName || `NPC[${npcInstanceIndex}]`;
-    const details = [];
-    
-    if (npcInfo.name && npcInfo.name.trim() !== '') {
-      details.push(`Name: "${npcInfo.name}"`);
-    }
-    if (npcInfo.id !== undefined && npcInfo.id !== null) {
-      details.push(`ID: ${npcInfo.id}`);
-    }
-    if (npcInfo.guild !== undefined && npcInfo.guild !== null) {
-      details.push(`Guild: ${npcInfo.guild}`);
-    }
-    if (npcInfo.level !== undefined && npcInfo.level !== null) {
-      details.push(`Level: ${npcInfo.level}`);
-    }
-    if (npcInfo.hp !== undefined && npcInfo.hpmax !== undefined && 
+      if (npcInstanceIndex <= 0) {
+        console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
+        return;
+      }
+
+      const npcInfo = getNpcInfo(vm, npcInstanceIndex);
+
+      // Format output similar to test script
+      const nameStr = npcInfo.symbolName || `NPC[${npcInstanceIndex}]`;
+      const details = [];
+
+      if (npcInfo.name && npcInfo.name.trim() !== '') {
+        details.push(`Name: "${npcInfo.name}"`);
+      }
+      if (npcInfo.id !== undefined && npcInfo.id !== null) {
+        details.push(`ID: ${npcInfo.id}`);
+      }
+      if (npcInfo.guild !== undefined && npcInfo.guild !== null) {
+        details.push(`Guild: ${npcInfo.guild}`);
+      }
+      if (npcInfo.level !== undefined && npcInfo.level !== null) {
+        details.push(`Level: ${npcInfo.level}`);
+      }
+      if (npcInfo.hp !== undefined && npcInfo.hpmax !== undefined &&
         (npcInfo.hp !== 0 || npcInfo.hpmax !== 0)) {
-      details.push(`HP: ${npcInfo.hp}/${npcInfo.hpmax}`);
-    }
-    
-    const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
-    console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
-    
-    // Emit NPC spawn event if callback is provided
-    if (onNpcSpawn) {
-      onNpcSpawn({
-        instanceIndex: npcInstanceIndex,
-        symbolName: nameStr,
-        name: npcInfo.name,
-        spawnpoint: spawnpoint,
-        npcInfo: npcInfo,
-      });
-    }
+        details.push(`HP: ${npcInfo.hp}/${npcInfo.hpmax}`);
+      }
+
+      const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
+      console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+
+      // Check if NPC has a daily_routine property and call it
+      if (npcInfo.symbolName) {
+        try {
+          const dailyRoutineSymbol = vm.getSymbolInt('C_NPC.daily_routine', npcInfo.symbolName);
+          if (dailyRoutineSymbol && dailyRoutineSymbol > 0) {
+            // daily_routine is a function symbol index, get the function name
+            const routineFuncNameResult = vm.getSymbolNameByIndex(dailyRoutineSymbol);
+            if (routineFuncNameResult.success && routineFuncNameResult.data) {
+              console.log(`  ↳ Calling daily_routine: ${routineFuncNameResult.data}()`);
+
+              // Set self to the NPC instance before calling the routine
+              vm.setGlobalSelf(npcInfo.symbolName);
+
+              // Call the daily routine function
+              const callResult = vm.callFunction(routineFuncNameResult.data, []);
+              if (!callResult.success) {
+                console.warn(`  ⚠️  Failed to call daily_routine ${routineFuncNameResult.data}: ${callResult.errorMessage}`);
+              }
+            }
+          }
+        } catch (e) {
+          // daily_routine property might not exist or be accessible, ignore
+        }
+      }
+
+      // Emit NPC spawn event if callback is provided
+      if (onNpcSpawn) {
+        onNpcSpawn({
+          instanceIndex: npcInstanceIndex,
+          symbolName: nameStr,
+          name: npcInfo.name,
+          spawnpoint: spawnpoint,
+          npcInfo: npcInfo,
+        });
+      }
     });
   };
-  
+
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc('Wld_InsertNpc');
   registerWldInsertNpc('WLD_INSERTNPC');
+
+  // Register TA (Time Assignment) - Sets NPC daily routine with hour precision
+  registerExternalSafe(vm, 'TA', (npcInstanceIndex: number, start_h: number, stop_h: number, state: number, waypoint: string) => {
+    if (npcInstanceIndex <= 0) {
+      console.warn(`⚠️  TA: Invalid NPC instance index: ${npcInstanceIndex}`);
+      return;
+    }
+
+    // Get NPC name without re-initializing (can't call getNpcInfo during execution)
+    let npcName = `NPC[${npcInstanceIndex}]`;
+    const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
+    if (nameResult.success && nameResult.data) {
+      npcName = nameResult.data;
+      // Try to get the actual name property
+      try {
+        const displayName = vm.getSymbolString('C_NPC.name', nameResult.data);
+        if (displayName && displayName.trim() !== '') {
+          npcName = displayName;
+        }
+      } catch (e) {
+        // Name property not accessible, use symbol name
+      }
+    }
+
+    // Get state function name from symbol index
+    let stateName = 'Unknown';
+    if (state > 0) {
+      const stateNameResult = vm.getSymbolNameByIndex(state);
+      if (stateNameResult.success && stateNameResult.data) {
+        stateName = stateNameResult.data;
+      }
+    }
+
+    console.log(`📅 TA: ${npcName} | ${start_h}:00 - ${stop_h}:00 | State: ${stateName} | Waypoint: "${waypoint}"`);
+  });
+
+  // Register TA_Min (Time Assignment with Minutes) - Sets NPC daily routine with minute precision
+  registerExternalSafe(vm, 'TA_Min', (npcInstanceIndex: number, start_h: number, start_m: number, stop_h: number, stop_m: number, state: number, waypoint: string) => {
+    if (npcInstanceIndex <= 0) {
+      console.warn(`⚠️  TA_Min: Invalid NPC instance index: ${npcInstanceIndex}`);
+      return;
+    }
+
+    // Get NPC name without re-initializing (can't call getNpcInfo during execution)
+    let npcName = `NPC[${npcInstanceIndex}]`;
+    const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
+    if (nameResult.success && nameResult.data) {
+      npcName = nameResult.data;
+      // Try to get the actual name property
+      try {
+        const displayName = vm.getSymbolString('C_NPC.name', nameResult.data);
+        if (displayName && displayName.trim() !== '') {
+          npcName = displayName;
+        }
+      } catch (e) {
+        // Name property not accessible, use symbol name
+      }
+    }
+
+    // Get state function name from symbol index
+    let stateName = 'Unknown';
+    if (state > 0) {
+      const stateNameResult = vm.getSymbolNameByIndex(state);
+      if (stateNameResult.success && stateNameResult.data) {
+        stateName = stateNameResult.data;
+      }
+    }
+
+    // Format time with leading zeros for minutes
+    const startTime = `${start_h}:${start_m.toString().padStart(2, '0')}`;
+    const stopTime = `${stop_h}:${stop_m.toString().padStart(2, '0')}`;
+
+    console.log(`📅 TA_Min: ${npcName} | ${startTime} - ${stopTime} | State: ${stateName} | Waypoint: "${waypoint}"`);
+  });
 }
 
 /**
@@ -211,7 +310,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'Wld_SetObjectRoutine',
     'Wld_SpawnNpcRange',
     'Wld_StopEffect',
-    
+
     // Video/Game functions
     'PlayVideo',
     'PlayVideoEx',
@@ -219,12 +318,12 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'ExitSession',
     'IntroduceChapter',
     'Perc_SetRange',
-    
+
     // Item/NPC creation functions
     'CreateInvItems',
     'CreateInvItem',
     'EquipItem',
-    
+
     // Model/Visual functions
     'Mdl_SetVisual',
     'Mdl_SetVisualBody',
@@ -237,7 +336,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'Mdl_ApplyRandomFaceAni',
     'Mdl_RemoveOverlayMDS',
     'Mdl_StartFaceAni',
-    
+
     // NPC functions
     'Npc_SetTalentSkill',
     'Npc_SetTalentValue',
@@ -266,7 +365,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'Npc_SetTarget',
     'Npc_SetTempAttitude',
     'Npc_StopAni',
-    
+
     // AI functions (all void)
     'AI_AimAt',
     'AI_AlignToFP',
@@ -341,7 +440,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'AI_WaitTillEnd',
     'AI_WhirlAround',
     'AI_WhirlAroundToSource',
-    
+
     // Document functions
     'Doc_Font',
     'Doc_MapCoordinates',
@@ -356,20 +455,20 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'Doc_SetPage',
     'Doc_SetPages',
     'Doc_Show',
-    
+
     // Log functions
     'Log_AddEntry',
     'Log_CreateTopic',
     'Log_SetTopicStatus',
-    
+
     // Mission functions
     'Mis_AddMissionEntry',
     'Mis_RemoveMission',
     'Mis_SetStatus',
-    
+
     // Mob functions
     'Mob_CreateItems',
-    
+
     // Print functions
     'Print',
     'PrintDebug',
@@ -378,26 +477,24 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     'PrintDebugInstCh',
     'PrintMulti',
     'PrintScreen',
-    
+
     // Routine functions
     'Rtn_Exchange',
-    
+
     // Sound functions
     'Snd_Play',
     'Snd_Play3D',
-    
-    // TA (Time Assignment) functions
-    'TA',
+
+    // TA (Time Assignment) functions - TA and TA_Min have specific implementations
     'TA_BeginOverlay',
     'TA_CS',
     'TA_EndOverlay',
-    'TA_Min',
     'TA_RemoveOverlay',
-    
+
     // Info/Dialog functions
     'Info_AddChoice',
     'Info_ClearChoices',
-    
+
     // Deprecated/legacy functions
     'Game_InitEngIntl',
     'Game_InitEnglish',
@@ -659,7 +756,7 @@ export async function loadVm(
   // These are used by some scripts during initialization
   const selfNpcName = 'NONE_100_XARDAS';
   const otherNpcName = 'PC_HERO';
-  
+
   if (vm.hasSymbol(selfNpcName)) {
     vm.setGlobalSelf(selfNpcName);
   }
