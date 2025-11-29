@@ -208,15 +208,26 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     let npcName = `NPC[${npcInstanceIndex}]`;
     const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
     if (nameResult.success && nameResult.data) {
-      npcName = nameResult.data;
-      // Try to get the actual name property
-      try {
-        const displayName = vm.getSymbolString('C_NPC.name', nameResult.data);
-        if (displayName && displayName.trim() !== '') {
-          npcName = displayName;
+      const symbolName = nameResult.data;
+
+      // Check if this is the special $INSTANCE_HELP or similar helper variable
+      // These start with special characters (char code 255) and represent "self"
+      if (symbolName.includes('INSTANCE_HELP') || symbolName.startsWith('$')) {
+        // This is a helper variable representing the current instance (self)
+        // We can't directly get "self", so we'll show it as the helper variable
+        // The actual NPC context is already set via setGlobalSelf before calling the routine
+        npcName = 'self';
+      } else {
+        npcName = symbolName;
+        // Try to get the actual name property
+        try {
+          const displayName = vm.getSymbolString('C_NPC.name', symbolName);
+          if (displayName && displayName.trim() !== '') {
+            npcName = displayName;
+          }
+        } catch (e) {
+          // Name property not accessible, use symbol name
         }
-      } catch (e) {
-        // Name property not accessible, use symbol name
       }
     }
     return npcName;
