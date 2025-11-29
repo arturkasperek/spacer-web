@@ -8,12 +8,12 @@ import { CameraControls, CameraControlsRef } from "./camera-controls.js";
 import { WorldRenderer } from "./world-renderer.js";
 import { VOBRenderer } from "./vob-renderer.js";
 import { WaynetRenderer } from "./waynet-renderer.js";
-import { NpcRenderer, type NpcData } from "./npc-renderer.js";
+import { NpcRenderer } from "./npc-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
 import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
-import type { NpcSpawnCallback } from "./vm-manager.js";
+import type { NpcData, NpcSpawnCallback } from "./types.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -162,7 +162,7 @@ export function App() {
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
   const shouldUpdateCameraRef = useRef(false);
-  
+
   // NPC state management
   const [npcs, setNpcs] = useState<Map<number, NpcData>>(new Map());
 
@@ -191,15 +191,15 @@ export function App() {
     const distance = maxDimension * 1.5 + 100;
     const offsetDirection = new THREE.Vector3(1, 0.5, 1).normalize();
     const cameraOffset = offsetDirection.clone().multiplyScalar(distance);
-    
+
     const cameraPos: [number, number, number] = [
       center.x + cameraOffset.x,
       center.y + cameraOffset.y,
       center.z + cameraOffset.z
     ];
-    
+
     const lookAtPos: [number, number, number] = [center.x, center.y, center.z];
-    
+
     cameraControlsRef.current.setPose(cameraPos, lookAtPos);
   }, []);
 

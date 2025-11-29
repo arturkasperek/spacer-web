@@ -3,14 +3,7 @@ import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, Vob } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
-
-export interface NpcData {
-  instanceIndex: number;
-  symbolName: string;
-  name?: string;
-  spawnpoint: string;
-  npcInfo: Record<string, any>;
-}
+import type { NpcData } from './types';
 
 interface NpcRendererProps {
   world: World | null;
@@ -34,7 +27,7 @@ function findVobByName(vob: Vob, name: string): Vob | null {
   if (vob.name && vob.name === name) {
     return vob;
   }
-  
+
   // Search children recursively
   const childCount = vob.children.size();
   for (let i = 0; i < childCount; i++) {
@@ -44,7 +37,7 @@ function findVobByName(vob: Vob, name: string): Vob | null {
       return found;
     }
   }
-  
+
   return null;
 }
 
@@ -147,13 +140,13 @@ function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.Group {
 export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
-  
+
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3 }>>([]); // All NPC data
   const NPC_LOAD_DISTANCE = 5000; // Load NPCs within this distance
   const NPC_UNLOAD_DISTANCE = 6000; // Unload NPCs beyond this distance
-  
+
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
@@ -170,10 +163,10 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
 
     for (const [, npcData] of npcs.entries()) {
       let position: [number, number, number] | null = null;
-      
+
       // First, try to find waypoint by name (matching original engine behavior)
       const wpResult = world.findWaypointByName(npcData.spawnpoint);
-      
+
       if (wpResult.success && wpResult.data) {
         const wp = wpResult.data;
         // Convert Gothic coordinates to Three.js coordinates: (-x, y, z)
@@ -186,11 +179,11 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
         // If waypoint not found, try to find VOB by name (fallback)
         const vobs = world.getVobs();
         const vobCount = vobs.size();
-        
+
         for (let i = 0; i < vobCount; i++) {
           const rootVob = vobs.get(i);
           const foundVob = findVobByName(rootVob, npcData.spawnpoint);
-          
+
           if (foundVob) {
             // Convert Gothic coordinates to Three.js coordinates: (-x, y, z)
             position = [
@@ -202,7 +195,7 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
           }
         }
       }
-      
+
       if (position) {
         renderableNpcs.push({
           npcData,
@@ -280,11 +273,11 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
       for (const item of toLoad) {
         const npc = allNpcsRef.current.find(n => `npc-${n.npcData.instanceIndex}` === item.id);
         if (!npc) continue;
-        
+
         // Create NPC mesh imperatively
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
-        
+
         // Ensure NPCs group exists
         if (!npcsGroupRef.current) {
           const group = new THREE.Group();

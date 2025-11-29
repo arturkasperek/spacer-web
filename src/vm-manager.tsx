@@ -1,4 +1,5 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
+import type { NpcSpawnCallback, RoutineEntry } from './types';
 
 export interface VmLoadResult {
   script: DaedalusScript;
@@ -111,21 +112,15 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
   return info;
 }
 
-/**
- * NPC spawn callback type
- */
-export type NpcSpawnCallback = (npcData: {
-  instanceIndex: number;
-  symbolName: string;
-  name?: string;
-  spawnpoint: string;
-  npcInfo: Record<string, any>;
-}) => void;
+
 
 /**
  * Register external functions with specific implementations
  */
 export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallback): void {
+  // Store routine entries for the currently processing NPC
+  let currentRoutineEntries: RoutineEntry[] = [];
+
   // Register Wld_InsertNpc with detailed logging implementation
   // Note: Also try uppercase version for compatibility
   const registerWldInsertNpc = (name: string) => {
@@ -161,6 +156,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
       console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
 
+      // Reset routine entries for this NPC
+      currentRoutineEntries = [];
+
       // Check if NPC has a daily_routine property and call it
       if (npcInfo.symbolName) {
         try {
@@ -194,8 +192,12 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
           name: npcInfo.name,
           spawnpoint: spawnpoint,
           npcInfo: npcInfo,
+          dailyRoutine: currentRoutineEntries.length > 0 ? [...currentRoutineEntries] : undefined,
         });
       }
+
+      // Clear entries after spawning
+      currentRoutineEntries = [];
     });
   };
 
@@ -251,6 +253,14 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const stateName = getStateName(state);
 
     console.log(`📅 TA: ${npcName} | ${start_h}:00 - ${stop_h}:00 | State: ${stateName} | Waypoint: "${waypoint}"`);
+
+    // Collect routine entry
+    currentRoutineEntries.push({
+      start_h,
+      stop_h,
+      state: stateName,
+      waypoint
+    });
   });
 
   // Register TA_Min (Time Assignment with Minutes) - Sets NPC daily routine with minute precision
@@ -268,6 +278,16 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const stopTime = `${stop_h}:${stop_m.toString().padStart(2, '0')}`;
 
     console.log(`📅 TA_Min: ${npcName} | ${startTime} - ${stopTime} | State: ${stateName} | Waypoint: "${waypoint}"`);
+
+    // Collect routine entry
+    currentRoutineEntries.push({
+      start_h,
+      start_m,
+      stop_h,
+      stop_m,
+      state: stateName,
+      waypoint
+    });
   });
 }
 
