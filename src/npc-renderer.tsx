@@ -3,7 +3,7 @@ import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, Vob } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
-import type { NpcData } from './types';
+import type { NpcData, RoutineEntry } from './types';
 
 interface NpcRendererProps {
   world: World | null;
@@ -17,6 +17,41 @@ function getMapKey(npcs: Map<number, NpcData>): string {
   const entries = Array.from(npcs.entries());
   entries.sort((a, b) => a[0] - b[0]); // Sort by instance index
   return entries.map(([idx, data]) => `${idx}:${data.spawnpoint}`).join('|');
+}
+
+/**
+ * Find the active routine entry at a given time (hour:minute)
+ * Returns the waypoint name from the active routine, or null if no routine is active
+ */
+function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, hour: number, minute: number = 0): string | null {
+  if (!routines || routines.length === 0) {
+    return null;
+  }
+
+  // Convert current time to minutes since midnight for easier comparison
+  const currentTime = hour * 60 + minute;
+
+  for (const routine of routines) {
+    const startM = (routine.start_h * 60) + (routine.start_m ?? 0);
+    const stopM = (routine.stop_h * 60) + (routine.stop_m ?? 0);
+
+    let isActive = false;
+
+    // Handle routines that wrap around midnight (end < start)
+    if (stopM < startM) {
+      // Routine wraps: active if currentTime >= startM OR currentTime < stopM
+      isActive = currentTime >= startM || currentTime < stopM;
+    } else {
+      // Normal routine: active if startM <= currentTime < stopM
+      isActive = currentTime >= startM && currentTime < stopM;
+    }
+
+    if (isActive && routine.waypoint) {
+      return routine.waypoint;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -131,8 +166,13 @@ function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.Group {
  * - Renders NPCs as green boxes with name labels (imperative Three.js objects)
  * - Handles coordinate conversion from Gothic to Three.js space
  * - Distance-based streaming: only renders NPCs near the camera for performance
+ * - Prioritizes routine waypoints: NPCs are positioned at their routine waypoint for the current time (10:00)
  * 
- * Spawnpoint lookup order (matching original engine):
+ * Waypoint lookup priority:
+ * 1. Routine waypoint active at current time (10:00) - highest priority
+ * 2. Spawnpoint waypoint/VOB (fallback if no active routine)
+ * 
+ * Spawnpoint lookup order (for the selected waypoint name):
  * 1. Waypoint by name
  * 2. VOB by name (searches entire VOB tree)
  * 3. If neither found, shows warning
@@ -160,12 +200,24 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
     }
 
     const renderableNpcs: Array<{ npcData: NpcData; position: THREE.Vector3 }> = [];
+    const CURRENT_HOUR = 10; // Assume current time is 10:00
+    const CURRENT_MINUTE = 0;
 
     for (const [, npcData] of npcs.entries()) {
       let position: [number, number, number] | null = null;
+      let waypointName: string | null = null;
+
+      // Priority 1: Check routine waypoint at current time (10:00)
+      const routineWaypoint = findActiveRoutineWaypoint(npcData.dailyRoutine, CURRENT_HOUR, CURRENT_MINUTE);
+      if (routineWaypoint) {
+        waypointName = routineWaypoint;
+      } else {
+        // Priority 2: Fall back to spawnpoint if no routine is active
+        waypointName = npcData.spawnpoint;
+      }
 
       // First, try to find waypoint by name (matching original engine behavior)
-      const wpResult = world.findWaypointByName(npcData.spawnpoint);
+      const wpResult = world.findWaypointByName(waypointName);
 
       if (wpResult.success && wpResult.data) {
         const wp = wpResult.data;
@@ -182,7 +234,7 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
 
         for (let i = 0; i < vobCount; i++) {
           const rootVob = vobs.get(i);
-          const foundVob = findVobByName(rootVob, npcData.spawnpoint);
+          const foundVob = findVobByName(rootVob, waypointName);
 
           if (foundVob) {
             // Convert Gothic coordinates to Three.js coordinates: (-x, y, z)
@@ -202,7 +254,8 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
           position: new THREE.Vector3(position[0], position[1], position[2])
         });
       } else {
-        console.warn(`⚠️ Could not find spawnpoint "${npcData.spawnpoint}" (waypoint or VOB) for NPC ${npcData.symbolName}`);
+        const source = routineWaypoint ? `routine waypoint "${routineWaypoint}"` : `spawnpoint "${npcData.spawnpoint}"`;
+        console.warn(`⚠️ Could not find ${source} (waypoint or VOB) for NPC ${npcData.symbolName}`);
       }
     }
 
