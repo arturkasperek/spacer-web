@@ -1,6 +1,9 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 import type { NpcSpawnCallback, RoutineEntry } from './types';
 
+// Re-export types for consumers
+export type { NpcSpawnCallback } from './types';
+
 export interface VmLoadResult {
   script: DaedalusScript;
   vm: DaedalusVm;
