@@ -203,3 +203,25 @@ export const tgaNameToCompiledUrl = (name: string): string | null => {
   const base = name.replace(/\.[^.]*$/, '').toUpperCase();
   return `/TEXTURES/_COMPILED/${base}-C.TEX`;
 };
+
+/**
+ * Recursively search for a VOB by name in the VOB tree
+ */
+export function findVobByName(vob: Vob, name: string): Vob | null {
+  // Check if this VOB matches
+  if (vob.name && vob.name === name) {
+    return vob;
+  }
+
+  // Search children recursively
+  const childCount = vob.children.size();
+  for (let i = 0; i < childCount; i++) {
+    const child = vob.children.get(i);
+    const found = findVobByName(child, name);
+    if (found) {
+      return found;
+    }
+  }
+
+  return null;
+}

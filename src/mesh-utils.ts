@@ -302,3 +302,51 @@ export async function buildThreeJSGeometryAndMaterials(
 
   return { geometry, materials: materialArray };
 }
+
+/**
+ * Create a text sprite for NPC name label
+ */
+export function createTextSprite(text: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Could not get 2D context');
+  }
+
+  // Set canvas size
+  canvas.width = 256;
+  canvas.height = 64;
+
+  // Draw text with outline
+  const fontSize = 32;
+  context.font = `bold ${fontSize}px Arial`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+
+  // Draw outline (black)
+  context.strokeStyle = '#000000';
+  context.lineWidth = 4;
+  context.strokeText(text, canvas.width / 2, canvas.height / 2);
+
+  // Draw text (white)
+  context.fillStyle = '#ffffff';
+  context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+  // Create texture from canvas
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+
+  // Create sprite material
+  const spriteMaterial = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    alphaTest: 0.1,
+  });
+
+  // Create sprite
+  const sprite = new THREE.Sprite(spriteMaterial);
+  sprite.scale.set(100, 25, 1); // Scale to appropriate size
+  sprite.position.y = 35; // Position above box
+
+  return sprite;
+}

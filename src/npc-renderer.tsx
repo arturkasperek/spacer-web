@@ -1,160 +1,17 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import type { World, Vob } from '@kolarz3/zenkit';
+import type { World } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
-import type { NpcData, RoutineEntry } from './types';
+import type { NpcData } from './types';
+import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
+import { findVobByName } from './vob-utils';
 
 interface NpcRendererProps {
   world: World | null;
   npcs: Map<number, NpcData>;
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
-}
-
-// Helper to create a stable key from Map for React dependencies
-function getMapKey(npcs: Map<number, NpcData>): string {
-  const entries = Array.from(npcs.entries());
-  entries.sort((a, b) => a[0] - b[0]); // Sort by instance index
-  return entries.map(([idx, data]) => `${idx}:${data.spawnpoint}`).join('|');
-}
-
-/**
- * Find the active routine entry at a given time (hour:minute)
- * Returns the waypoint name from the active routine, or null if no routine is active
- */
-function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, hour: number, minute: number = 0): string | null {
-  if (!routines || routines.length === 0) {
-    return null;
-  }
-
-  // Convert current time to minutes since midnight for easier comparison
-  const currentTime = hour * 60 + minute;
-
-  for (const routine of routines) {
-    const startM = (routine.start_h * 60) + (routine.start_m ?? 0);
-    const stopM = (routine.stop_h * 60) + (routine.stop_m ?? 0);
-
-    let isActive = false;
-
-    // Handle routines that wrap around midnight (end < start)
-    if (stopM < startM) {
-      // Routine wraps: active if currentTime >= startM OR currentTime < stopM
-      isActive = currentTime >= startM || currentTime < stopM;
-    } else {
-      // Normal routine: active if startM <= currentTime < stopM
-      isActive = currentTime >= startM && currentTime < stopM;
-    }
-
-    if (isActive && routine.waypoint) {
-      return routine.waypoint;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Recursively search for a VOB by name in the VOB tree
- */
-function findVobByName(vob: Vob, name: string): Vob | null {
-  // Check if this VOB matches
-  if (vob.name && vob.name === name) {
-    return vob;
-  }
-
-  // Search children recursively
-  const childCount = vob.children.size();
-  for (let i = 0; i < childCount; i++) {
-    const child = vob.children.get(i);
-    const found = findVobByName(child, name);
-    if (found) {
-      return found;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Create a text sprite for NPC name label
- */
-function createTextSprite(text: string): THREE.Sprite {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('Could not get 2D context');
-  }
-
-  // Set canvas size
-  canvas.width = 256;
-  canvas.height = 64;
-
-  // Draw text with outline
-  const fontSize = 32;
-  context.font = `bold ${fontSize}px Arial`;
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-
-  // Draw outline (black)
-  context.strokeStyle = '#000000';
-  context.lineWidth = 4;
-  context.strokeText(text, canvas.width / 2, canvas.height / 2);
-
-  // Draw text (white)
-  context.fillStyle = '#ffffff';
-  context.fillText(text, canvas.width / 2, canvas.height / 2);
-
-  // Create texture from canvas
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.needsUpdate = true;
-
-  // Create sprite material
-  const spriteMaterial = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    alphaTest: 0.1,
-  });
-
-  // Create sprite
-  const sprite = new THREE.Sprite(spriteMaterial);
-  sprite.scale.set(100, 25, 1); // Scale to appropriate size
-  sprite.position.y = 35; // Position above box
-
-  return sprite;
-}
-
-/**
- * Create NPC mesh (box + text sprite) imperatively
- */
-function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.Group {
-  const group = new THREE.Group();
-  group.position.copy(position);
-
-  // Create green box
-  const boxGeometry = new THREE.BoxGeometry(30, 50, 30);
-  const boxMaterial = new THREE.MeshBasicMaterial({
-    color: 0x00ff00,
-    transparent: true,
-    opacity: 0.8,
-  });
-  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
-  group.add(boxMesh);
-
-  // Create text sprite
-  const displayName = npcData.name || npcData.symbolName;
-  try {
-    const textSprite = createTextSprite(displayName);
-    group.add(textSprite);
-  } catch (error) {
-    console.warn(`Failed to create text sprite for NPC ${displayName}:`, error);
-  }
-
-  // Store NPC data in userData
-  group.userData.npcData = npcData;
-  group.userData.isNpc = true;
-
-  return group;
 }
 
 /**
