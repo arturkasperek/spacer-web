@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VOBTree } from '../vob-tree';
-import type { World, Vob } from '@kolarz3/zenkit';
+import type { World, Vob, MeshData } from '@kolarz3/zenkit';
 
 // Mock scrollToRow function
 const mockScrollToRow = jest.fn();
@@ -48,23 +48,61 @@ const createEmptyVob = (): any => ({
   children: { size: () => 0, get: () => null as any }
 });
 
+// Helper to create complete MeshData mock
+const createMockMeshData = (): MeshData => ({
+  vertices: [],
+  features: [],
+  vertexIndices: [],
+  normals: [],
+  textureCoords: [],
+  lightValues: [],
+  materials: [],
+  boundingBoxMin: { x: 0, y: 0, z: 0 },
+  boundingBoxMax: { x: 0, y: 0, z: 0 },
+  orientedBoundingBox: {
+    center: { x: 0, y: 0, z: 0 },
+    axes: [{ x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }],
+    half_width: { x: 1, y: 1, z: 1 }
+  },
+  name: '',
+  vertexCount: 0,
+  featureCount: 0,
+  indexCount: 0,
+  getVerticesTypedArray: () => null,
+  getNormalsTypedArray: () => null,
+  getUVsTypedArray: () => null,
+  getIndicesTypedArray: () => null,
+  getFeatureIndicesTypedArray: () => null,
+  getTriFeatureIndicesTypedArray: () => null,
+  getPolygonMaterialIndicesTypedArray: () => null,
+  getProcessedMeshData: () => ({
+    vertices: { size: () => 0, get: () => 0 },
+    indices: { size: () => 0, get: () => 0 },
+    materials: { size: () => 0, get: () => ({ texture: '' }) },
+    materialIds: { size: () => 0, get: () => 0 },
+    boneWeights: undefined,
+    boneIndices: undefined,
+    bonePositions: undefined
+  })
+});
+
 // Helper to add waypoint methods to World mock
 const addWaypointMethods = (world: Partial<World>): World => {
   const defaultVobCollection = { size: () => 0, get: () => createEmptyVob() };
-  const defaultMesh = {
-    getProcessedMeshData: () => ({
-      vertices: { size: () => 0, get: () => 0 },
-      indices: { size: () => 0, get: () => 0 },
-      materials: { size: () => 0, get: () => ({ texture: '' }) },
-      materialIds: { size: () => 0, get: () => 0 }
-    })
-  };
+  const defaultMesh = createMockMeshData();
   
   return {
+    // Required World properties
+    npcSpawnEnabled: world.npcSpawnEnabled ?? false,
+    npcSpawnFlags: world.npcSpawnFlags ?? 0,
+    hasPlayer: world.hasPlayer ?? false,
+    hasSkyController: world.hasSkyController ?? false,
+
+    // Default implementations with correct return types
     getVobs: world.getVobs || (() => defaultVobCollection),
-    loadFromArray: world.loadFromArray || (() => true),
+    loadFromArray: world.loadFromArray || (() => ({ success: true })),
     isLoaded: world.isLoaded ?? true,
-    getLastError: world.getLastError || (() => null),
+    getLastError: world.getLastError || (() => ''),
     getWaypointCount: () => 0,
     getWaypoint: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
     findWaypointByName: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
@@ -114,17 +152,10 @@ const createMockWorld = (vobCount = 3): World => {
       size: () => mockVobs.length,
       get: (index: number) => mockVobs[index]
     }),
-    loadFromArray: () => true,
+    loadFromArray: () => ({ success: true }),
     isLoaded: true,
-    getLastError: () => null,
-    mesh: {
-      getProcessedMeshData: () => ({
-        vertices: { size: () => 0, get: () => 0 },
-        indices: { size: () => 0, get: () => 0 },
-        materials: { size: () => 0, get: () => ({ texture: '' }) },
-        materialIds: { size: () => 0, get: () => 0 }
-      })
-    }
+    getLastError: () => '',
+    mesh: createMockMeshData()
   });
 };
 
@@ -337,17 +368,10 @@ describe('VOBTree Component', () => {
             }
           })
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 }
-          })
-        }
+        getLastError: () => '',
+        mesh: createMockMeshData()
       });
       
       render(<VOBTree world={world} />);
@@ -380,17 +404,10 @@ describe('VOBTree Component', () => {
             }
           })
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 }
-          })
-        }
+        getLastError: () => '',
+        mesh: createMockMeshData()
       }) as unknown as World;
       
       render(<VOBTree world={world} />);
@@ -405,17 +422,10 @@ describe('VOBTree Component', () => {
           size: () => 0,
           get: () => createEmptyVob()
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 }
-          })
-        }
+        getLastError: () => '',
+        mesh: createMockMeshData()
       }) as unknown as World;
       
       render(<VOBTree world={world} />);
@@ -545,17 +555,10 @@ describe('VOBTree Component', () => {
           size: () => 2,
           get: (index: number) => (index === 0 ? rootVob : otherRootVob),
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 },
-          }),
-        },
+        getLastError: () => '',
+        mesh: createMockMeshData(),
       });
     };
 
@@ -809,17 +812,10 @@ describe('VOBTree Component', () => {
           size: () => 1,
           get: () => multiResMeshVob,
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 },
-          }),
-        },
+        getLastError: () => '',
+        mesh: createMockMeshData(),
       });
 
       const { rerender } = render(<VOBTree world={worldWithMultiRes} />);
@@ -880,17 +876,10 @@ describe('VOBTree Component', () => {
           size: () => 1,
           get: () => multiResMeshVob,
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 },
-          }),
-        },
+        getLastError: () => '',
+        mesh: createMockMeshData(),
       });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
@@ -934,17 +923,10 @@ describe('VOBTree Component', () => {
           size: () => 1,
           get: () => multiResMeshVob,
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 },
-          }),
-        },
+        getLastError: () => '',
+        mesh: createMockMeshData(),
       });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
@@ -991,17 +973,10 @@ describe('VOBTree Component', () => {
           size: () => 1,
           get: () => regularMeshVob,
         }),
-        loadFromArray: () => true,
+        loadFromArray: () => ({ success: true }),
         isLoaded: true,
-        getLastError: () => null,
-        mesh: {
-          getProcessedMeshData: () => ({
-            vertices: { size: () => 0, get: () => 0 },
-            indices: { size: () => 0, get: () => 0 },
-            materials: { size: () => 0, get: () => ({ texture: '' }) },
-            materialIds: { size: () => 0, get: () => 0 },
-          }),
-        },
+        getLastError: () => '',
+        mesh: createMockMeshData(),
       });
 
       render(<VOBTree world={world} onVobClick={mockOnVobClick} />);
