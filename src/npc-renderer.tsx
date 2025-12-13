@@ -160,8 +160,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       const modelObj = integration.getModelObject();
       if (sprite && modelObj) {
+        npcGroup.updateMatrixWorld(true);
+        modelObj.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(modelObj);
-        sprite.position.y = box.max.y + 25;
+        const center = box.getCenter(new THREE.Vector3());
+        const topWorld = new THREE.Vector3(center.x, box.max.y, center.z);
+        const topLocal = npcGroup.worldToLocal(topWorld);
+        sprite.position.y = topLocal.y + 25;
       }
 
       npcGroup.userData.modelLoaded = true;
