@@ -54,20 +54,23 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.
   const group = new THREE.Group();
   group.position.copy(position);
 
-  // Create green box
-  const boxGeometry = new THREE.BoxGeometry(30, 50, 30);
+  // Placeholder while real model loads
+  const boxGeometry = new THREE.BoxGeometry(20, 60, 20);
   const boxMaterial = new THREE.MeshBasicMaterial({
     color: 0x00ff00,
     transparent: true,
-    opacity: 0.8,
+    opacity: 0.25,
   });
-  const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
-  group.add(boxMesh);
+  const placeholder = new THREE.Mesh(boxGeometry, boxMaterial);
+  placeholder.name = 'npc-placeholder';
+  placeholder.position.y = 30;
+  group.add(placeholder);
 
   // Create text sprite
   const displayName = npcData.name || npcData.symbolName;
   try {
     const textSprite = createTextSprite(displayName);
+    textSprite.position.y = 120;
     group.add(textSprite);
   } catch (error) {
     console.warn(`Failed to create text sprite for NPC ${displayName}:`, error);

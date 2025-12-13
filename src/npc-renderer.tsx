@@ -1,14 +1,16 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import type { World } from '@kolarz3/zenkit';
+import type { World, ZenKit } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
 import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
 import { findVobByName } from './vob-utils';
+import { MDSViewerIntegration } from './mds-viewer-integration.js';
 
 interface NpcRendererProps {
   world: World | null;
+  zenKit: ZenKit | null;
   npcs: Map<number, NpcData>;
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
@@ -20,7 +22,7 @@ interface NpcRendererProps {
  * 
  * Features:
  * - Looks up spawnpoints by name (waypoints first, then VOBs) - matching original engine behavior
- * - Renders NPCs as green boxes with name labels (imperative Three.js objects)
+ * - Renders NPCs as character models with name labels (falls back to green placeholder while loading)
  * - Handles coordinate conversion from Gothic to Three.js space
  * - Distance-based streaming: only renders NPCs near the camera for performance
  * - Prioritizes routine waypoints: NPCs are positioned at their routine waypoint for the current time (10:00)
@@ -34,8 +36,8 @@ interface NpcRendererProps {
  * 2. VOB by name (searches entire VOB tree)
  * 3. If neither found, shows warning
  */
-export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
-  const { scene, camera } = useThree();
+export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
+  const { scene, camera, gl } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
 
   // Distance-based streaming
@@ -124,23 +126,55 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
     allNpcsRef.current = npcsWithPositions;
   }, [npcsWithPositions]);
 
-  // Update text sprites to face camera (billboard effect)
-  useFrame(() => {
-    if (!enabled || loadedNpcsRef.current.size === 0) return;
+  const loadNpcCharacter = async (npcGroup: THREE.Group, npcData: NpcData) => {
+    if (!zenKit) return;
+    if (npcGroup.userData.mdsIntegration) return;
 
-    const cameraPos = cameraPosition || (camera ? camera.position : undefined);
-    if (!cameraPos) return;
+    const integration = new MDSViewerIntegration(zenKit, scene, camera, gl);
+    integration.setParent(npcGroup);
+    integration.setRenderOptions({
+      align: 'ground',
+      mirrorX: true,
+      showSkeletonHelper: false,
+      renderNow: false,
+    });
 
-    // Update all text sprites to face camera
-    for (const npcGroup of loadedNpcsRef.current.values()) {
-      // Find sprite in group (should be the second child after box)
+    npcGroup.userData.mdsIntegration = integration;
+    npcGroup.userData.modelLoading = true;
+
+    try {
+      await integration.loadMdsFile('HumanS.mds', null);
+      if (npcGroup.userData.isDisposed) return;
+
+      // Optional: play a simple looping animation (safe to fail if assets missing)
+      await integration.playAnimationLoop('S_RUN');
+      integration.update(0);
+      if (npcGroup.userData.isDisposed) return;
+
+      const placeholder = npcGroup.getObjectByName('npc-placeholder');
+      if (placeholder) {
+        npcGroup.remove(placeholder);
+        disposeObject3D(placeholder);
+      }
+
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
-      if (sprite) {
-        // Make sprite face camera
-        sprite.lookAt(cameraPos);
+      const modelObj = integration.getModelObject();
+      if (sprite && modelObj) {
+        const box = new THREE.Box3().setFromObject(modelObj);
+        sprite.position.y = box.max.y + 25;
+      }
+
+      npcGroup.userData.modelLoaded = true;
+    } catch (error) {
+      console.warn(`Failed to load NPC character model for ${npcData.symbolName}:`, error);
+    } finally {
+      npcGroup.userData.modelLoading = false;
+      if (npcGroup.userData.isDisposed) {
+        integration.dispose();
+        disposeObject3D(npcGroup);
       }
     }
-  });
+  };
 
   // Streaming NPC loader - loads/unloads based on camera distance
   const updateNpcStreaming = () => {
@@ -171,6 +205,15 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
         position: npc.position,
       }));
 
+      // Keep already-loaded NPCs in sync with their latest computed positions
+      for (const npc of allNpcsRef.current) {
+        const id = `npc-${npc.npcData.instanceIndex}`;
+        const npcGroup = loadedNpcsRef.current.get(id);
+        if (npcGroup) {
+          npcGroup.position.copy(npc.position);
+        }
+      }
+
       // Find NPCs to load/unload using shared utility
       const { toLoad, toUnload } = getItemsToLoadUnload(
         npcItems,
@@ -196,12 +239,19 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
           scene.add(group);
         }
         npcsGroupRef.current.add(npcGroup);
+
+        // Load real model asynchronously (replaces placeholder)
+        void loadNpcCharacter(npcGroup, npc.npcData);
       }
 
       // Unload distant NPCs
       for (const npcId of toUnload) {
         const npcGroup = loadedNpcsRef.current.get(npcId);
         if (npcGroup && npcsGroupRef.current) {
+          npcGroup.userData.isDisposed = true;
+          const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
+          const isLoading = Boolean(npcGroup.userData.modelLoading);
+          if (integration && !isLoading) integration.dispose();
           npcsGroupRef.current.remove(npcGroup);
           disposeObject3D(npcGroup);
           loadedNpcsRef.current.delete(npcId);
@@ -211,9 +261,26 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
   };
 
   // Streaming update via useFrame
-  useFrame(() => {
+  useFrame((_state, delta) => {
     if (allNpcsRef.current.length > 0) {
       updateNpcStreaming();
+    }
+
+    if (!enabled || loadedNpcsRef.current.size === 0) return;
+
+    const cameraPos = cameraPosition || (camera ? camera.position : undefined);
+    if (!cameraPos) return;
+
+    for (const npcGroup of loadedNpcsRef.current.values()) {
+      const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
+      if (sprite) {
+        sprite.lookAt(cameraPos);
+      }
+
+      const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
+      if (integration) {
+        integration.update(delta);
+      }
     }
   });
 
@@ -224,6 +291,10 @@ export function NpcRenderer({ world, npcs, cameraPosition, enabled = true }: Npc
         scene.remove(npcsGroupRef.current);
         // Dispose all NPCs
         for (const npcGroup of loadedNpcsRef.current.values()) {
+          npcGroup.userData.isDisposed = true;
+          const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
+          const isLoading = Boolean(npcGroup.userData.modelLoading);
+          if (integration && !isLoading) integration.dispose();
           disposeObject3D(npcGroup);
         }
         loadedNpcsRef.current.clear();

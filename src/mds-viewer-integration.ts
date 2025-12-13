@@ -2,7 +2,23 @@ import * as THREE from "three";
 import type { ZenKit } from '@kolarz3/zenkit';
 
 // MDS Viewer Integration - wraps functionality from mds-viewer.html
+type MDSViewerRenderOptions = {
+  align: 'center' | 'ground';
+  mirrorX: boolean;
+  showSkeletonHelper: boolean;
+  renderNow: boolean;
+};
+
 export class MDSViewerIntegration {
+  private parent: THREE.Object3D | null = null;
+  private attachedParent: THREE.Object3D | null = null;
+  private renderOptions: MDSViewerRenderOptions = {
+    align: 'center',
+    mirrorX: false,
+    showSkeletonHelper: true,
+    renderNow: true,
+  };
+
   // @ts-ignore - unused for now, will be used in future UI integration
   private ZenKit: ZenKit | null = null;
   // @ts-ignore - unused for now, will be used in future UI integration
@@ -23,6 +39,7 @@ export class MDSViewerIntegration {
   private animation: any = null; // Custom Animation class instance
   // @ts-ignore - unused for now, will be used in future UI integration
   private poseEvaluator: any = null; // PoseEvaluator from ZenKit (WASM)
+  private activeSequence: any = null; // Current AnimationSequence (fallback when PoseEvaluator is unavailable)
   // @ts-ignore - unused for now, will be used in future UI integration
   private currentAnimTimeMs: number = 0; // Current animation time in ms
   // @ts-ignore - unused for now, will be used in future UI integration
@@ -119,6 +136,87 @@ export class MDSViewerIntegration {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
+  }
+
+  setParent(parent: THREE.Object3D | null) {
+    this.parent = parent;
+  }
+
+  setRenderOptions(options: Partial<MDSViewerRenderOptions>) {
+    this.renderOptions = { ...this.renderOptions, ...options };
+  }
+
+  getModelObject() {
+    return this.modelMesh;
+  }
+
+  async playAnimationLoop(animationName: string, mdsAnimation: any = null) {
+    const baseName = (this.currentMdsBaseName || '').toUpperCase();
+    const seq = await this.loadAnimation(animationName, mdsAnimation, baseName || '');
+    if (!seq || !seq._man) {
+      console.warn(`⚠️ Animation ${animationName} could not be loaded for playback`);
+      return;
+    }
+
+    this.isAnimLooping = true;
+    this.currentAnimTimeMs = 0;
+    this.isAnimPlaying = true;
+    this.activeSequence = seq;
+
+    if (this.poseEvaluator) {
+      this.poseEvaluator.setAnimationFromWrapper(seq._man);
+    }
+  }
+
+  update(deltaSeconds: number) {
+    if (!this.isAnimPlaying) return;
+    const deltaMs = deltaSeconds * 1000;
+    const updated = this.poseEvaluator
+      ? this.updatePoseFromEvaluator(deltaMs)
+      : this.updatePoseFromSequence(deltaMs);
+    if (updated) {
+      this.applyCPUSkinning();
+    }
+  }
+
+  dispose() {
+    const parent = this.attachedParent || this.parent || this.scene;
+    if (parent && this.modelMesh) {
+      parent.remove(this.modelMesh);
+    }
+    if (parent && this.skeletonHelper) {
+      parent.remove(this.skeletonHelper);
+    }
+
+    if (this.modelMesh?.children) {
+      this.modelMesh.children.forEach((child: any) => {
+        if (child.geometry) child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          (child.material as THREE.Material[]).forEach((m: THREE.Material) => m.dispose());
+        } else if (child.material) {
+          (child.material as THREE.Material).dispose();
+        }
+      });
+    }
+    if (this.skeletonHelper?.material) {
+      if (Array.isArray(this.skeletonHelper.material)) {
+        this.skeletonHelper.material.forEach((mat: THREE.Material) => mat.dispose());
+      } else {
+        (this.skeletonHelper.material as THREE.Material).dispose();
+      }
+    }
+
+    this.modelMesh = null;
+    this.characterMesh = null;
+    this.skinnedMeshes = [];
+    this.skeleton = null;
+    this.animation = null;
+    this.poseEvaluator = null;
+    this.activeSequence = null;
+    this.skeletonHelper = null;
+    this.attachedParent = null;
+    this.isAnimPlaying = false;
+    this.isAnimLooping = false;
   }
 
   // Skeleton class from mds-viewer.html
@@ -369,6 +467,112 @@ export class MDSViewerIntegration {
     }
 
             // Apply to bones for visualization
+    for (let i = 0; i < nodeCount; i++) {
+      const bone = this.skeleton.bones[i];
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl = new THREE.Vector3();
+      animLocal[i].decompose(pos, quat, scl);
+      bone.position.copy(pos);
+      bone.quaternion.copy(quat);
+      bone.scale.copy(scl);
+    }
+
+    this.skeleton.animWorld = animWorld;
+
+    for (const rootIdx of this.skeleton.rootNodes) {
+      this.skeleton.bones[rootIdx].updateMatrixWorld(true);
+    }
+
+    if (this.skeletonHelper && typeof this.skeletonHelper.update === 'function') {
+      this.skeletonHelper.update();
+    }
+
+    return true;
+  }
+
+  private updatePoseFromSequence(deltaTime: number) {
+    if (!this.skeleton || !this.activeSequence) {
+      return false;
+    }
+
+    const seq = this.activeSequence;
+    const nodeCount = this.skeleton.nodes.length;
+    const nodeIndexCount = Array.isArray(seq.nodeIndex) ? seq.nodeIndex.length : 0;
+    const totalTime = typeof seq.totalTime === 'function' ? seq.totalTime() : 0;
+
+    if (nodeCount === 0 || nodeIndexCount === 0 || totalTime <= 0) {
+      return false;
+    }
+
+    this.currentAnimTimeMs += deltaTime;
+
+    if (this.isAnimLooping) {
+      if (this.currentAnimTimeMs < 0 || this.currentAnimTimeMs >= totalTime) {
+        this.currentAnimTimeMs = this.currentAnimTimeMs % totalTime;
+      }
+    } else {
+      if (this.currentAnimTimeMs >= totalTime) {
+        this.currentAnimTimeMs = totalTime;
+        this.isAnimPlaying = false;
+      }
+      if (this.currentAnimTimeMs < 0) {
+        this.currentAnimTimeMs = 0;
+      }
+    }
+
+    const fpsRate = typeof seq.fpsRate === 'number' ? seq.fpsRate : 25.0;
+    const numFrames = typeof seq.numFrames === 'number' ? seq.numFrames : 0;
+    if (numFrames <= 0 || fpsRate <= 0) {
+      return false;
+    }
+
+    const frameFloat = (this.currentAnimTimeMs / 1000.0) * fpsRate;
+    const frame0 = Math.max(0, Math.min(numFrames - 1, Math.floor(frameFloat))) % numFrames;
+    const frame1 = this.isAnimLooping ? ((frame0 + 1) % numFrames) : Math.min(numFrames - 1, frame0 + 1);
+    const t = frameFloat - Math.floor(frameFloat);
+
+    const animLocal = new Array(nodeCount);
+    const animWorld = new Array(nodeCount);
+
+    // Start from bind pose
+    for (let i = 0; i < nodeCount; i++) {
+      animLocal[i] = this.skeleton.bindLocal[i].clone();
+    }
+
+    // Apply samples
+    for (let i = 0; i < nodeIndexCount; i++) {
+      const nodeId = seq.nodeIndex[i];
+      if (nodeId < 0 || nodeId >= nodeCount) continue;
+
+      const s0 = seq.samples[frame0 * nodeIndexCount + i];
+      const s1 = seq.samples[frame1 * nodeIndexCount + i];
+      if (!s0 || !s1) continue;
+
+      const p0 = new THREE.Vector3(s0.position.x, s0.position.y, s0.position.z);
+      const p1 = new THREE.Vector3(s1.position.x, s1.position.y, s1.position.z);
+      const pos = p0.lerp(p1, t);
+
+      let q0 = new THREE.Quaternion(s0.rotation.x, s0.rotation.y, s0.rotation.z, s0.rotation.w);
+      let q1 = new THREE.Quaternion(s1.rotation.x, s1.rotation.y, s1.rotation.z, s1.rotation.w);
+      q0 = new THREE.Quaternion(-q0.x, -q0.y, -q0.z, q0.w);
+      q1 = new THREE.Quaternion(-q1.x, -q1.y, -q1.z, q1.w);
+      const rot = q0.slerp(q1, t).normalize();
+
+      animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+    }
+
+    // Build world matrices
+    for (let i = 0; i < nodeCount; i++) {
+      const parentIdx = this.skeleton.nodes[i].parent;
+      if (parentIdx >= 0) {
+        animWorld[i] = new THREE.Matrix4().multiplyMatrices(animWorld[parentIdx], animLocal[i]);
+      } else {
+        animWorld[i] = animLocal[i].clone();
+      }
+    }
+
+    // Apply to bones for visualization
     for (let i = 0; i < nodeCount; i++) {
       const bone = this.skeleton.bones[i];
       const pos = new THREE.Vector3();
@@ -770,9 +974,11 @@ export class MDSViewerIntegration {
 
   async renderModel(model: any) {
     try {
+      const parent = this.parent || this.scene!;
+
       // Remove existing mesh
       if (this.modelMesh) {
-        this.scene!.remove(this.modelMesh);
+        (this.attachedParent || parent).remove(this.modelMesh);
                 if (this.modelMesh.children) {
                   this.modelMesh.children.forEach((child: any) => {
                     if (child.geometry) child.geometry.dispose();
@@ -788,7 +994,7 @@ export class MDSViewerIntegration {
       // Clear skinned meshes array
       this.skinnedMeshes = [];
       if (this.skeletonHelper) {
-        this.scene!.remove(this.skeletonHelper);
+        (this.attachedParent || parent).remove(this.skeletonHelper);
         if (this.skeletonHelper.material) {
           if (Array.isArray(this.skeletonHelper.material)) {
             this.skeletonHelper.material.forEach((mat: THREE.Material) => mat.dispose());
@@ -805,8 +1011,14 @@ export class MDSViewerIntegration {
       // Build custom Skeleton class (mimics OpenGothic)
       this.skeleton = new (this.Skeleton as any)(hierarchy);
 
-                // Initialize PoseEvaluator (WASM)
-                this.poseEvaluator = this.ZenKit!.createPoseEvaluator();
+      // Initialize PoseEvaluator (WASM) if available (not present in some ZenKit builds)
+      const maybeCreatePoseEvaluator = (this.ZenKit as any)?.createPoseEvaluator;
+      this.poseEvaluator = typeof maybeCreatePoseEvaluator === 'function'
+        ? maybeCreatePoseEvaluator.call(this.ZenKit)
+        : null;
+      if (!this.poseEvaluator) {
+        console.warn('ℹ️ PoseEvaluator not available; falling back to MAN sample evaluation');
+      }
 
       // Initialize Animation
       if (!this.animation) {
@@ -999,10 +1211,19 @@ export class MDSViewerIntegration {
 
       console.log(`📐 Model bounds: center=(${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}), size=(${size.x.toFixed(2)}, ${size.y.toFixed(2)}, ${size.z.toFixed(2)})`);
 
-      this.modelMesh.position.sub(center);
+      const offset = center.clone();
+      if (this.renderOptions.align === 'ground') {
+        offset.y = box.min.y;
+      }
+      this.modelMesh.position.sub(offset);
 
-      this.scene!.add(this.modelMesh);
-      if (this.skeleton) {
+      if (this.renderOptions.mirrorX) {
+        this.modelMesh.scale.x = -Math.abs(this.modelMesh.scale.x || 1);
+      }
+
+      parent.add(this.modelMesh);
+      this.attachedParent = parent;
+      if (this.skeleton && this.renderOptions.showSkeletonHelper) {
         this.skeletonHelper = new THREE.SkeletonHelper(this.modelMesh);
         (this.skeletonHelper.material as THREE.LineBasicMaterial).color = new THREE.Color(0x00ff00);
         if ('linewidth' in this.skeletonHelper.material) {
@@ -1012,12 +1233,14 @@ export class MDSViewerIntegration {
         // Disable frustum culling for skeleton helper (same reason as SkinnedMesh)
         this.skeletonHelper.frustumCulled = false;
 
-        this.scene!.add(this.skeletonHelper);
+        parent.add(this.skeletonHelper);
       }
 
       console.log(`📷 Camera positioned at: (${this.camera!.position.x.toFixed(2)}, ${this.camera!.position.y.toFixed(2)}, ${this.camera!.position.z.toFixed(2)})`);
 
-      this.renderer!.render(this.scene!, this.camera!);
+      if (this.renderOptions.renderNow) {
+        this.renderer!.render(this.scene!, this.camera!);
+      }
 
     } catch (error) {
       this.updateStatus(`❌ Failed to render model: ${(error as Error).message}`, 'error');
@@ -1196,7 +1419,7 @@ export class MDSViewerIntegration {
       const matData = materials[mi];
       const textureName = matData.texture || '';
 
-      const phongMaterial = new THREE.MeshPhongMaterial({
+      const phongMaterial = new THREE.MeshBasicMaterial({
         color: 0xFFFFFF,
         side: THREE.DoubleSide,
         transparent: false,
@@ -1218,7 +1441,7 @@ export class MDSViewerIntegration {
       materialArray.push(phongMaterial);
     }
 
-    const material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+    const material = materialArray.length > 0 ? materialArray : new THREE.MeshBasicMaterial({
       color: 0xCCCCCC,
       side: THREE.DoubleSide
     });
@@ -1341,7 +1564,7 @@ export class MDSViewerIntegration {
         const matData = processed.materials.get(mi);
         const textureName = matData.texture || '';
 
-        const phongMaterial = new THREE.MeshPhongMaterial({
+        const phongMaterial = new THREE.MeshBasicMaterial({
           color: 0xFFFFFF,
           side: THREE.DoubleSide,
           transparent: false,
@@ -1371,7 +1594,7 @@ export class MDSViewerIntegration {
         materialArray.push(phongMaterial);
       }
 
-      material = materialArray.length > 0 ? materialArray : new THREE.MeshPhongMaterial({
+      material = materialArray.length > 0 ? materialArray : new THREE.MeshBasicMaterial({
         color: 0xCCCCCC,
         side: THREE.DoubleSide
       });
@@ -1381,7 +1604,7 @@ export class MDSViewerIntegration {
       if (processed.materials.size() > 0) {
         material = await this.getMaterialCached(processed.materials.get(0));
       } else {
-        material = new THREE.MeshPhongMaterial({
+        material = new THREE.MeshBasicMaterial({
           color: 0xCCCCCC,
           side: THREE.DoubleSide
         });
@@ -1457,11 +1680,6 @@ export class MDSViewerIntegration {
   }
 
   async playAnimation(animationName: string, mdsAnimation: any = null) {
-    if (!this.poseEvaluator) {
-      console.warn('⚠️ No pose evaluator initialized');
-      return;
-    }
-
     const baseName = (this.currentMdsBaseName || '').toUpperCase();
             const seq = await this.loadAnimation(animationName, mdsAnimation, baseName || '');
     if (!seq || !seq._man) {
@@ -1472,8 +1690,12 @@ export class MDSViewerIntegration {
     // One-shot play
     this.isAnimLooping = false;
     this.currentAnimTimeMs = 0;
-    this.poseEvaluator.setAnimationFromWrapper(seq._man);
     this.isAnimPlaying = true;
+    this.activeSequence = seq;
+
+    if (this.poseEvaluator) {
+      this.poseEvaluator.setAnimationFromWrapper(seq._man);
+    }
 
     // Update UI (TODO: implement when UI is ready)
   }
@@ -1485,7 +1707,7 @@ export class MDSViewerIntegration {
       return this.materialCache.get(textureName);
     }
 
-    const material = new THREE.MeshPhongMaterial({
+    const material = new THREE.MeshBasicMaterial({
       color: 0xFFFFFF,
       side: THREE.DoubleSide,
       transparent: false,

@@ -108,7 +108,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} cameraPosition={cameraPosition} enabled={true} />}
 
       {/* NPC Renderer */}
-      {world && <NpcRenderer world={world} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
+      {world && zenKit && <NpcRenderer world={world} zenKit={zenKit} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
     </>
   );
 }
