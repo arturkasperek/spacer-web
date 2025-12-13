@@ -6,7 +6,7 @@ import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disp
 import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
 import { findVobByName } from './vob-utils';
-import { MDSViewerIntegration } from './mds-viewer-integration.js';
+import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
 
 interface NpcRendererProps {
   world: World | null;
@@ -37,8 +37,14 @@ interface NpcRendererProps {
  * 3. If neither found, shows warning
  */
 export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
-  const { scene, camera, gl } = useThree();
+  const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
+  const characterCachesRef = useRef<CharacterCaches>({
+    binary: new Map(),
+    textures: new Map(),
+    materials: new Map(),
+    animations: new Map(),
+  });
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -128,27 +134,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   const loadNpcCharacter = async (npcGroup: THREE.Group, npcData: NpcData) => {
     if (!zenKit) return;
-    if (npcGroup.userData.mdsIntegration) return;
-
-    const integration = new MDSViewerIntegration(zenKit, scene, camera, gl);
-    integration.setParent(npcGroup);
-    integration.setRenderOptions({
-      align: 'ground',
-      mirrorX: true,
-      showSkeletonHelper: false,
-      renderNow: false,
-    });
-
-    npcGroup.userData.mdsIntegration = integration;
+    if (npcGroup.userData.characterInstance) return;
     npcGroup.userData.modelLoading = true;
 
     try {
-      await integration.loadMdsFile('HumanS.mds', null);
+      const instance = await createHumanCharacterInstance({
+        zenKit,
+        caches: characterCachesRef.current,
+        parent: npcGroup,
+        animationName: 't_dance_01',
+        loop: true,
+        mirrorX: true,
+        align: 'ground',
+      });
       if (npcGroup.userData.isDisposed) return;
 
-      // Optional: play a simple looping animation (safe to fail if assets missing)
-      await integration.playAnimationLoop('t_dance_01');
-      integration.update(0);
+      if (!instance) {
+        console.warn(`Failed to create NPC character model for ${npcData.symbolName}`);
+        return;
+      }
+
+      npcGroup.userData.characterInstance = instance;
+      (npcGroup.userData.characterInstance as CharacterInstance).update(0);
       if (npcGroup.userData.isDisposed) return;
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -158,7 +165,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
 
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
-      const modelObj = integration.getModelObject();
+      const modelObj = instance.object;
       if (sprite && modelObj) {
         npcGroup.updateMatrixWorld(true);
         modelObj.updateMatrixWorld(true);
@@ -175,7 +182,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     } finally {
       npcGroup.userData.modelLoading = false;
       if (npcGroup.userData.isDisposed) {
-        integration.dispose();
+        const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+        if (instance) instance.dispose();
         disposeObject3D(npcGroup);
       }
     }
@@ -254,9 +262,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const npcGroup = loadedNpcsRef.current.get(npcId);
         if (npcGroup && npcsGroupRef.current) {
           npcGroup.userData.isDisposed = true;
-          const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
+          const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
           const isLoading = Boolean(npcGroup.userData.modelLoading);
-          if (integration && !isLoading) integration.dispose();
+          if (instance && !isLoading) instance.dispose();
           npcsGroupRef.current.remove(npcGroup);
           disposeObject3D(npcGroup);
           loadedNpcsRef.current.delete(npcId);
@@ -282,9 +290,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         sprite.lookAt(cameraPos);
       }
 
-      const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
-      if (integration) {
-        integration.update(delta);
+      const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+      if (instance) {
+        instance.update(delta);
       }
     }
   });
@@ -297,9 +305,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Dispose all NPCs
         for (const npcGroup of loadedNpcsRef.current.values()) {
           npcGroup.userData.isDisposed = true;
-          const integration = npcGroup.userData.mdsIntegration as MDSViewerIntegration | undefined;
+          const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
           const isLoading = Boolean(npcGroup.userData.modelLoading);
-          if (integration && !isLoading) integration.dispose();
+          if (instance && !isLoading) instance.dispose();
           disposeObject3D(npcGroup);
         }
         loadedNpcsRef.current.clear();
