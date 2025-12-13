@@ -13,8 +13,17 @@ export async function loadCompiledTexAsDataTexture(
   if (!url) return null;
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
+    let res = await fetch(url);
+    if (!res.ok) {
+      // Fallback: many textures reference _C1/_C2 variants that don't exist in the shipped set
+      if (url.includes('_C') && !url.includes('_C0-C.TEX')) {
+        const fallbackUrl = url.replace(/_C\d+(-C\.TEX)$/i, '_C0$1');
+        res = await fetch(fallbackUrl);
+        if (!res.ok) return null;
+      } else {
+        return null;
+      }
+    }
 
     const buf = await res.arrayBuffer();
     const arr = new Uint8Array(buf);

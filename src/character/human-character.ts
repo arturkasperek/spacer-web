@@ -31,16 +31,31 @@ export async function createHumanCharacterInstance(params: {
   loop?: boolean;
   mirrorX?: boolean;
   align?: "center" | "ground";
+  bodyMesh?: string;
+  bodyTex?: number;
+  skin?: number;
+  headMesh?: string;
+  headTex?: number;
+  teethTex?: number;
+  armorInst?: number;
 }): Promise<CharacterInstance | null> {
   const {
     zenKit,
     caches,
     parent,
-    animationName = "t_dance_01",
+    animationName = "S_RUN",
     loop = true,
     mirrorX = true,
     align = "ground",
+    bodyMesh,
+    bodyTex = 0,
+    skin = 0,
+    headMesh,
+    headTex = 0,
+    teethTex = 0,
+    armorInst: _armorInst = -1,
   } = params;
+  void _armorInst;
 
   const group = new THREE.Group();
   group.name = "npc-character";
@@ -48,7 +63,11 @@ export async function createHumanCharacterInstance(params: {
 
   try {
     const mdhPath = `/ANIMS/_COMPILED/HUMANS.MDH`;
-    const mdmPath = `/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM`;
+    const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0").replace(/\.(ASC|MDM|MDH|MDL)$/i, "").toUpperCase();
+    if (!normalizedBodyMesh.startsWith("HUM_")) {
+      return null;
+    }
+    const mdmPath = `/ANIMS/_COMPILED/${normalizedBodyMesh}.MDM`;
 
     const mdhBytes = await fetchBinaryCached(mdhPath, caches.binary);
     const mdmBytes = await fetchBinaryCached(mdmPath, caches.binary);
@@ -88,6 +107,13 @@ export async function createHumanCharacterInstance(params: {
         softSkinMesh,
         bindWorld: skeleton.bindWorld,
         textureCache: caches.textures,
+        textureOverride: (name: string) => {
+          const upper = (name || "").toUpperCase();
+          if (!upper.includes("BODY")) return name;
+          return upper
+            .replace(/_V\d+/g, `_V${bodyTex}`)
+            .replace(/_C\d+/g, `_C${skin}`);
+        },
       });
 
       mesh.userData.cpuSkinningData = skinningData;
@@ -98,15 +124,34 @@ export async function createHumanCharacterInstance(params: {
     // Try to load and attach head mesh (MMB) to the head bone
     const nodeNames = skeleton.nodes.map(n => n.name);
     const headNodeIndex = findHeadBoneIndex(nodeNames);
+    const requestedHeadName = headMesh ? headMesh.trim() : '';
     if (headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
       const headMesh = await loadHeadMesh({
         zenKit,
         binaryCache: caches.binary,
         textureCache: caches.textures,
         materialCache: caches.materials,
+        headNames: requestedHeadName ? [requestedHeadName] : undefined,
+        headTex,
+        skin,
+        teethTex,
       });
       if (headMesh) {
         skeleton.bones[headNodeIndex].add(headMesh);
+      }
+    } else {
+      const headMeshObj = await loadHeadMesh({
+        zenKit,
+        binaryCache: caches.binary,
+        textureCache: caches.textures,
+        materialCache: caches.materials,
+        headNames: requestedHeadName ? [requestedHeadName] : undefined,
+        headTex,
+        skin,
+        teethTex,
+      });
+      if (headMeshObj) {
+        group.add(headMeshObj);
       }
     }
 

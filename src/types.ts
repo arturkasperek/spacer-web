@@ -18,6 +18,17 @@ export interface NpcData {
     spawnpoint: string;
     npcInfo: Record<string, any>;
     dailyRoutine?: RoutineEntry[];
+    visual?: NpcVisual;
+}
+
+export interface NpcVisual {
+    bodyMesh: string;
+    bodyTex: number;
+    skin: number;
+    headMesh: string;
+    headTex: number;
+    teethTex: number;
+    armorInst: number;
 }
 
 /**

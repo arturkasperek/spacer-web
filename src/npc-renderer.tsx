@@ -134,18 +134,37 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   const loadNpcCharacter = async (npcGroup: THREE.Group, npcData: NpcData) => {
     if (!zenKit) return;
-    if (npcGroup.userData.characterInstance) return;
+    const visual = npcData.visual;
+    const visualKey = visual
+      ? `${visual.bodyMesh}|${visual.bodyTex}|${visual.skin}|${visual.headMesh}|${visual.headTex}|${visual.teethTex}|${visual.armorInst}`
+      : 'default';
+
+    if (npcGroup.userData.characterInstance && npcGroup.userData.visualKey === visualKey) return;
+    if (npcGroup.userData.characterInstance && npcGroup.userData.visualKey !== visualKey) {
+      const existing = npcGroup.userData.characterInstance as CharacterInstance;
+      existing.dispose();
+      npcGroup.userData.characterInstance = null;
+    }
+
     npcGroup.userData.modelLoading = true;
+    npcGroup.userData.visualKey = visualKey;
 
     try {
       const instance = await createHumanCharacterInstance({
         zenKit,
         caches: characterCachesRef.current,
         parent: npcGroup,
-        animationName: 't_dance_01',
+        animationName: 'S_RUN',
         loop: true,
         mirrorX: true,
         align: 'ground',
+        bodyMesh: visual?.bodyMesh,
+        bodyTex: visual?.bodyTex,
+        skin: visual?.skin,
+        headMesh: visual?.headMesh,
+        headTex: visual?.headTex,
+        teethTex: visual?.teethTex,
+        armorInst: visual?.armorInst,
       });
       if (npcGroup.userData.isDisposed) return;
 

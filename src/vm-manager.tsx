@@ -1,5 +1,5 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
-import type { NpcSpawnCallback, RoutineEntry } from './types';
+import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from './types';
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -123,6 +123,51 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
 export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallback): void {
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
+  const npcVisualsByIndex = new Map<number, NpcVisual>();
+
+  const getInstanceIndexFromArg = (arg: any): number | null => {
+    if (typeof arg === 'number' && Number.isFinite(arg)) return arg;
+    if (arg && typeof arg === 'object') {
+      const idx = (arg as any).symbol_index;
+      if (typeof idx === 'number' && Number.isFinite(idx)) return idx;
+    }
+    return null;
+  };
+
+  const normalizeVisualName = (name: string): string => {
+    if (!name) return '';
+    return name.trim().replace(/\.(ASC|MDM|MDH|MDL|MMS|MMB)$/i, '').toUpperCase();
+  };
+
+  const registerMdlSetVisualBody = (name: string) => {
+    registerExternalSafe(
+      vm,
+      name,
+      (
+        npc: any,
+        body_mesh: string,
+        body_tex: number,
+        skin: number,
+        head_mesh: string,
+        head_tex: number,
+        teeth_tex: number,
+        armor_inst: number
+      ) => {
+        const npcIndex = getInstanceIndexFromArg(npc);
+        if (!npcIndex || npcIndex <= 0) return;
+
+        npcVisualsByIndex.set(npcIndex, {
+          bodyMesh: normalizeVisualName(body_mesh),
+          bodyTex: body_tex ?? 0,
+          skin: skin ?? 0,
+          headMesh: normalizeVisualName(head_mesh),
+          headTex: head_tex ?? 0,
+          teethTex: teeth_tex ?? 0,
+          armorInst: armor_inst ?? -1,
+        });
+      }
+    );
+  };
 
   // Register Wld_InsertNpc with detailed logging implementation
   // Note: Also try uppercase version for compatibility
@@ -189,6 +234,7 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
 
       // Emit NPC spawn event if callback is provided
       if (onNpcSpawn) {
+        const visual = npcVisualsByIndex.get(npcInstanceIndex);
         onNpcSpawn({
           instanceIndex: npcInstanceIndex,
           symbolName: nameStr,
@@ -196,6 +242,7 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
           spawnpoint: spawnpoint,
           npcInfo: npcInfo,
           dailyRoutine: currentRoutineEntries.length > 0 ? [...currentRoutineEntries] : undefined,
+          visual,
         });
       }
 
@@ -207,6 +254,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc('Wld_InsertNpc');
   registerWldInsertNpc('WLD_INSERTNPC');
+
+  registerMdlSetVisualBody('Mdl_SetVisualBody');
+  registerMdlSetVisualBody('MDL_SETVISUALBODY');
 
   // Helper: Get NPC name without re-initializing (safe to call during NPC execution)
   const getNpcNameSafe = (npcInstanceIndex: number): string => {
@@ -788,4 +838,3 @@ export async function loadVm(
     vm,
   };
 }
-

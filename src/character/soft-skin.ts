@@ -9,8 +9,9 @@ export async function buildSoftSkinMeshCPU(params: {
   softSkinMesh: any;
   bindWorld: THREE.Matrix4[];
   textureCache: Map<string, THREE.DataTexture>;
+  textureOverride?: (name: string) => string;
 }) {
-  const { zenKit, softSkinMesh, bindWorld, textureCache } = params;
+  const { zenKit, softSkinMesh, bindWorld, textureCache, textureOverride } = params;
 
   const mrMesh = softSkinMesh.mesh;
   const normals_raw = mrMesh.normals;
@@ -118,7 +119,8 @@ export async function buildSoftSkinMeshCPU(params: {
     });
 
     if (textureName && textureName.length) {
-      const url = tgaNameToCompiledUrl(textureName);
+      const finalName = textureOverride ? textureOverride(textureName) : textureName;
+      const url = tgaNameToCompiledUrl(finalName);
       if (url) {
         let tex = textureCache.get(url);
         if (!tex) {
@@ -150,4 +152,3 @@ export async function buildSoftSkinMeshCPU(params: {
 
   return { mesh, skinningData };
 }
-
