@@ -147,7 +147,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (npcGroup.userData.isDisposed) return;
 
       // Optional: play a simple looping animation (safe to fail if assets missing)
-      await integration.playAnimationLoop('S_RUN');
+      await integration.playAnimationLoop('t_dance_01');
       integration.update(0);
       if (npcGroup.userData.isDisposed) return;
 
