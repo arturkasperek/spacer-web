@@ -238,9 +238,10 @@ describe('VOBTree Component', () => {
       expect(screen.getByText(/Waypoint @ 10, 20, 30/)).toBeInTheDocument();
     });
 
-    it('should call onWaypointClick when clicking a waypoint leaf', () => {
+    it('should select on click and teleport on double-click for a waypoint leaf', () => {
       const wp = { name: 'WP_TEST', position: { x: 5, y: 6, z: 7 }, free_point: false };
-      const onWaypointClick = jest.fn();
+      const onWaypointSelect = jest.fn();
+      const onWaypointTeleport = jest.fn();
 
       const world: World = addWaypointMethods({
         getVobs: () => ({
@@ -254,13 +255,18 @@ describe('VOBTree Component', () => {
         mesh: createMockMeshData(),
       });
 
-      render(<VOBTree world={world} onWaypointClick={onWaypointClick} />);
+      render(<VOBTree world={world} onWaypointSelect={onWaypointSelect} onWaypointTeleport={onWaypointTeleport} />);
 
       fireEvent.click(screen.getByText('Waypoints').closest('div')!);
       fireEvent.click(screen.getByText('WP_TEST').closest('div')!);
 
-      expect(onWaypointClick).toHaveBeenCalledTimes(1);
-      expect(onWaypointClick).toHaveBeenCalledWith(wp);
+      expect(onWaypointSelect).toHaveBeenCalledTimes(1);
+      expect(onWaypointSelect).toHaveBeenCalledWith(wp);
+      expect(onWaypointTeleport).not.toHaveBeenCalled();
+
+      fireEvent.doubleClick(screen.getByText('WP_TEST').closest('div')!);
+      expect(onWaypointTeleport).toHaveBeenCalledTimes(1);
+      expect(onWaypointTeleport).toHaveBeenCalledWith(wp);
     });
 
     it('should keep Waypoints group when searching by waypoint name', async () => {

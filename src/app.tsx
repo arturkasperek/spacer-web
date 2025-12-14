@@ -187,7 +187,13 @@ export function App() {
     logVobDetails(vob);
   }, []);
 
-  const handleWaypointClick = useCallback((waypoint: WayPointData) => {
+  const handleWaypointSelect = useCallback((waypoint: WayPointData) => {
+    if (!waypoint?.name) return;
+    setSelectedVob(null);
+    setSelectedWaypoint(waypoint);
+  }, []);
+
+  const handleWaypointTeleport = useCallback((waypoint: WayPointData) => {
     if (!waypoint?.position || !cameraControlsRef.current) return;
     setSelectedVob(null);
     setSelectedWaypoint(waypoint);
@@ -213,9 +219,9 @@ export function App() {
   }, []);
 
   const handleWaypointClickFromScene = useCallback((waypoint: WayPointData) => {
-    // From scene: match tree behavior (select + move camera)
-    handleWaypointClick(waypoint);
-  }, [handleWaypointClick]);
+    // From scene: select, don't move camera (match VOB scene click behavior)
+    handleWaypointSelect(waypoint);
+  }, [handleWaypointSelect]);
 
   const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {
     if (size.length() === 0 || !shouldUpdateCameraRef.current || !cameraControlsRef.current) {
@@ -259,7 +265,8 @@ export function App() {
       <VOBTree
         world={world}
         onVobClick={handleVobClick}
-        onWaypointClick={handleWaypointClick}
+        onWaypointSelect={handleWaypointSelect}
+        onWaypointTeleport={handleWaypointTeleport}
         selectedVob={selectedVob}
         selectedWaypoint={selectedWaypoint}
       />

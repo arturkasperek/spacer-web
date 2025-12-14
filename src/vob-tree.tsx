@@ -34,7 +34,8 @@ interface FlattenedNode {
 interface VOBTreeProps {
   world: World | null;
   onVobClick?: (vob: Vob) => void;
-  onWaypointClick?: (waypoint: WayPointData) => void;
+  onWaypointSelect?: (waypoint: WayPointData) => void;
+  onWaypointTeleport?: (waypoint: WayPointData) => void;
   selectedVob?: Vob | null;
   selectedWaypoint?: WayPointData | null;
 }
@@ -162,7 +163,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selectedWaypoint }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTeleport, selectedVob, selectedWaypoint }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -442,16 +443,8 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selec
             borderRadius: '4px',
             height: '100%',
             boxSizing: 'border-box',
-            backgroundColor: isSelectedVob
-              ? 'rgba(255, 255, 0, 0.3)'
-              : isSelectedWaypoint
-                ? 'rgba(0, 170, 255, 0.25)'
-                : 'transparent',
-            borderLeft: isSelectedVob
-              ? '3px solid #ffff00'
-              : isSelectedWaypoint
-                ? '3px solid #00aaff'
-                : '3px solid transparent'
+            backgroundColor: isSelected ? 'rgba(255, 255, 0, 0.3)' : 'transparent',
+            borderLeft: isSelected ? '3px solid #ffff00' : '3px solid transparent'
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -466,7 +459,7 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selec
               if (node.kind === 'vob' && node.vob) {
                 onVobClick?.(node.vob);
               } else if (node.kind === 'waypoint' && node.waypoint) {
-                onWaypointClick?.(node.waypoint);
+                onWaypointSelect?.(node.waypoint);
               }
             }
           }}
@@ -475,7 +468,7 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selec
             if (node.kind === 'vob' && node.vob) {
               onVobClick?.(node.vob);
             } else if (node.kind === 'waypoint' && node.waypoint) {
-              onWaypointClick?.(node.waypoint);
+              onWaypointTeleport?.(node.waypoint);
             }
           }}
           onMouseEnter={(e) => {
@@ -489,7 +482,7 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selec
             } else if (isSelectedVob) {
               e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.3)'; // Keep yellow highlight
             } else if (isSelectedWaypoint) {
-              e.currentTarget.style.backgroundColor = 'rgba(0, 170, 255, 0.25)'; // Keep blue highlight
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.3)'; // Keep yellow highlight
             }
           }}
         >
@@ -553,7 +546,7 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selec
         </div>
       </div>
     );
-  }, [flattenedItems, toggleExpanded, onVobClick, onWaypointClick, selectedVob, selectedWaypoint]);
+  }, [flattenedItems, toggleExpanded, onVobClick, onWaypointSelect, onWaypointTeleport, selectedVob, selectedWaypoint]);
 
   if (!world) {
     return (

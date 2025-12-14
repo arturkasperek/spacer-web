@@ -413,6 +413,6 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true, 
   }, [scene, edgeLines, enabled]);
 
   return selectedWaypointObject ? (
-    <VOBBoundingBox vobObject={selectedWaypointObject} visible={true} color="#00aaff" lineWidth={3} />
+    <VOBBoundingBox vobObject={selectedWaypointObject} visible={true} color="#ffff00" />
   ) : null;
 }
