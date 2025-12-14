@@ -1,22 +1,31 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect, CSSProperties } from "react";
 import { List } from 'react-window';
-import type { World, Vob } from '@kolarz3/zenkit';
+import type { World, Vob, WayPointData } from '@kolarz3/zenkit';
 import { getVobTypeName, getVobType } from './vob-utils';
 
-interface VOBNode {
+type TreeNodeKind = 'group' | 'vob' | 'waypoint';
+
+interface TreeNode {
   id: string;
-  vob: Vob;
+  kind: TreeNodeKind;
   name: string;
-  visualName: string;
-  visualType: string;
-  vobType: number | undefined;
-  vobName: string | undefined;
-  children: VOBNode[];
+  children: TreeNode[];
   position: { x: number; y: number; z: number };
+
+  // VOB-only fields
+  vob?: Vob;
+  visualName?: string;
+  visualType?: string;
+  vobType?: number | undefined;
+  vobName?: string | undefined;
+
+  // Waypoint-only fields
+  waypoint?: WayPointData;
+  freePoint?: boolean;
 }
 
 interface FlattenedNode {
-  node: VOBNode;
+  node: TreeNode;
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;
@@ -25,23 +34,24 @@ interface FlattenedNode {
 interface VOBTreeProps {
   world: World | null;
   onVobClick?: (vob: Vob) => void;
+  onWaypointClick?: (waypoint: WayPointData) => void;
   selectedVob?: Vob | null;
 }
 
-function buildVOBTree(world: World): VOBNode[] {
+function buildVOBTree(world: World): TreeNode[] {
   if (!world) return [];
 
   const vobs = world.getVobs();
   const vobCount = vobs.size();
   const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
 
-  const buildNode = (vob: Vob, index: number, depth: number): VOBNode => {
+  const buildNode = (vob: Vob, index: number, depth: number): TreeNode => {
     const visualType = vob.visual?.type !== undefined ? vob.visual.type : -1;
     const visualTypeName = visualType >= 0 && visualType < typeNames.length 
       ? typeNames[visualType] 
       : `UNKNOWN(${visualType})`;
 
-    const children: VOBNode[] = [];
+    const children: TreeNode[] = [];
     const childCount = vob.children?.size() || 0;
     for (let i = 0; i < childCount; i++) {
       const childVob = vob.children.get(i);
@@ -57,6 +67,7 @@ function buildVOBTree(world: World): VOBNode[] {
 
     return {
       id: `vob_${depth}_${index}`,
+      kind: 'vob',
       vob,
       name: displayName,
       visualName: vob.visual?.name || '',
@@ -72,7 +83,7 @@ function buildVOBTree(world: World): VOBNode[] {
     };
   };
 
-  const rootNodes: VOBNode[] = [];
+  const rootNodes: TreeNode[] = [];
   for (let i = 0; i < vobCount; i++) {
     const vob = vobs.get(i);
     rootNodes.push(buildNode(vob, i, 0));
@@ -81,9 +92,49 @@ function buildVOBTree(world: World): VOBNode[] {
   return rootNodes;
 }
 
+function buildWaypointsTree(world: World): TreeNode[] {
+  if (!world) return [];
+
+  try {
+    const waypointsVector = world.getAllWaypoints() as any;
+    if (!waypointsVector || typeof waypointsVector.size !== 'function' || typeof waypointsVector.get !== 'function') {
+      return [];
+    }
+
+    const waypointCount = waypointsVector.size();
+    const nodes: TreeNode[] = [];
+
+    for (let i = 0; i < waypointCount; i++) {
+      const wp = waypointsVector.get(i) as WayPointData | null | undefined;
+      if (!wp) continue;
+
+      const name = wp.name || `Waypoint_${i}`;
+      nodes.push({
+        id: `wp_${name}`,
+        kind: 'waypoint',
+        name,
+        waypoint: wp,
+        freePoint: !!wp.free_point,
+        children: [],
+        position: {
+          x: wp.position?.x || 0,
+          y: wp.position?.y || 0,
+          z: wp.position?.z || 0,
+        },
+      });
+    }
+
+    nodes.sort((a, b) => a.name.localeCompare(b.name));
+    return nodes;
+  } catch (error) {
+    console.warn('Failed to load waypoints for tree:', error);
+    return [];
+  }
+}
+
 // Flatten tree into a list of visible nodes based on expanded state
 function flattenTree(
-  nodes: VOBNode[],
+  nodes: TreeNode[],
   expandedIds: Set<string>,
   depth: number = 0
 ): FlattenedNode[] {
@@ -109,7 +160,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -119,21 +170,40 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     return buildVOBTree(world);
   }, [world]);
 
-  const filterTree = (nodes: VOBNode[], searchTerm: string): VOBNode[] => {
+  const waypointTree = useMemo(() => {
+    if (!world) return [];
+    return buildWaypointsTree(world);
+  }, [world]);
+
+  const rootTree = useMemo<TreeNode[]>(() => {
+    if (!world) return [];
+    return [
+      {
+        id: 'group_waypoints',
+        kind: 'group',
+        name: 'Waypoints',
+        children: waypointTree,
+        position: { x: 0, y: 0, z: 0 },
+      },
+      ...vobTree,
+    ];
+  }, [world, waypointTree, vobTree]);
+
+  const filterTree = (nodes: TreeNode[], searchTerm: string): TreeNode[] => {
     if (!searchTerm) return nodes;
 
     const search = searchTerm.toLowerCase();
     
-    const filterNode = (node: VOBNode): VOBNode | null => {
+    const filterNode = (node: TreeNode): TreeNode | null => {
       const matches = 
         node.name.toLowerCase().includes(search) ||
-        node.visualName.toLowerCase().includes(search) ||
-        node.visualType.toLowerCase().includes(search) ||
-        node.vobName?.toLowerCase().includes(search) || false;
+        (node.visualName?.toLowerCase().includes(search) || false) ||
+        (node.visualType?.toLowerCase().includes(search) || false) ||
+        (node.vobName?.toLowerCase().includes(search) || false);
 
       const filteredChildren = node.children
         .map(child => filterNode(child))
-        .filter((child): child is VOBNode => child !== null);
+        .filter((child): child is TreeNode => child !== null);
 
       if (matches || filteredChildren.length > 0) {
         return {
@@ -147,22 +217,24 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
 
     return nodes
       .map(node => filterNode(node))
-      .filter((node): node is VOBNode => node !== null);
+      .filter((node): node is TreeNode => node !== null);
   };
 
   const filteredTree = useMemo(
-    () => filterTree(vobTree, searchTerm),
-    [vobTree, searchTerm]
+    () => filterTree(rootTree, searchTerm),
+    [rootTree, searchTerm]
   );
 
   const totalCount = useMemo(() => {
-    const countNodes = (nodes: VOBNode[]): number => {
+    const countNodes = (nodes: TreeNode[]): number => {
       return nodes.reduce((sum, node) => {
         return sum + 1 + countNodes(node.children);
       }, 0);
     };
     return countNodes(vobTree);
   }, [vobTree]);
+
+  const waypointCount = waypointTree.length;
 
   // Flatten the tree for virtual scrolling
   const flattenedItems = useMemo(
@@ -184,9 +256,9 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
   }, []);
 
   // Find VOB node in tree recursively
-  const findVobInTree = useCallback((vob: Vob, nodes: VOBNode[]): VOBNode | null => {
+  const findVobInTree = useCallback((vob: Vob, nodes: TreeNode[]): TreeNode | null => {
     for (const node of nodes) {
-      if (node.vob.id === vob.id) {
+      if (node.kind === 'vob' && node.vob?.id === vob.id) {
         return node;
       }
       const found = findVobInTree(vob, node.children);
@@ -227,9 +299,12 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     lastSelectedVobRef.current = selectedVob;
 
     // Find all parent nodes that need to be expanded
-    const findParents = (targetNode: VOBNode, nodes: VOBNode[], path: VOBNode[] = []): VOBNode[] => {
+    const findParents = (targetNode: TreeNode, nodes: TreeNode[], path: TreeNode[] = []): TreeNode[] => {
       for (const node of nodes) {
         if (node.id === targetNode.id) {
+          return path;
+        }
+        if (targetNode.kind !== 'vob' || !targetNode.vob) {
           return path;
         }
         const found = findVobInTree(targetNode.vob, [node]);
@@ -300,8 +375,11 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
   // Calculate item height - larger if it has visual name or vobName (for VOB spots)
   const getItemSize = useCallback((index: number) => {
     const item = flattenedItems[index];
-    const hasSecondaryText = (item?.node.visualName && item?.node.vobType !== 11) || 
-                             (item?.node.vobType === 11 && item?.node.vobName);
+    const hasSecondaryText =
+      item?.node.kind === 'waypoint' ||
+      (item?.node.kind === 'vob' &&
+        ((item?.node.visualName && item?.node.vobType !== 11) ||
+          (item?.node.vobType === 11 && item?.node.vobName)));
     return hasSecondaryText ? 48 : 32;
   }, [flattenedItems]);
 
@@ -311,7 +389,7 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
     if (!item) return <div style={style} />;
     
     const { node, depth, hasChildren, isExpanded } = item;
-    const isSelected = selectedVob && node.vob.id === selectedVob.id;
+    const isSelected = selectedVob && node.kind === 'vob' && node.vob?.id === selectedVob.id;
     
     return (
       <div
@@ -339,17 +417,24 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
             if (hasChildren) {
               toggleExpanded(node.id);
               // If MULTI_RES_MESH, also teleport to VOB position
-              if (node.visualType === 'MULTI_RES_MESH') {
+              if (node.kind === 'vob' && node.visualType === 'MULTI_RES_MESH' && node.vob) {
                 onVobClick?.(node.vob);
               }
             } else {
-              // If no children, teleport to VOB position
-              onVobClick?.(node.vob);
+              if (node.kind === 'vob' && node.vob) {
+                onVobClick?.(node.vob);
+              } else if (node.kind === 'waypoint' && node.waypoint) {
+                onWaypointClick?.(node.waypoint);
+              }
             }
           }}
           onDoubleClick={() => {
-            // Double-click always teleports, even for parent nodes
-            onVobClick?.(node.vob);
+            // Double-click always teleports, even for parent nodes (except groups)
+            if (node.kind === 'vob' && node.vob) {
+              onVobClick?.(node.vob);
+            } else if (node.kind === 'waypoint' && node.waypoint) {
+              onWaypointClick?.(node.waypoint);
+            }
           }}
           onMouseEnter={(e) => {
             if (!isSelected) {
@@ -384,13 +469,19 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
               {node.name}
             </div>
             {(() => {
-              const isVobSpot = node.vobType === 11;
               let secondaryText: string | null = null;
-              
-              if (isVobSpot && node.vobName) {
-                secondaryText = node.vobName;
-              } else if (!isVobSpot && node.visualName) {
-                secondaryText = `${node.visualType}: ${node.visualName}`;
+
+              if (node.kind === 'waypoint') {
+                const kindLabel = node.freePoint ? 'Free point' : 'Waypoint';
+                const p = node.position;
+                secondaryText = `${kindLabel} @ ${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}`;
+              } else if (node.kind === 'vob') {
+                const isVobSpot = node.vobType === 11;
+                if (isVobSpot && node.vobName) {
+                  secondaryText = node.vobName;
+                } else if (!isVobSpot && node.visualName) {
+                  secondaryText = `${node.visualType}: ${node.visualName}`;
+                }
               }
               
               return secondaryText ? (
@@ -481,6 +572,9 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
         <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.6)' }}>
           Total VOBs: {totalCount}
         </div>
+        <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.6)' }}>
+          Total Waypoints: {waypointCount}
+        </div>
         <div style={{ 
           fontSize: '10px', 
           color: 'rgba(150, 200, 255, 0.8)',
@@ -495,7 +589,7 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
       <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
         <input
           type="text"
-          placeholder="Search VOBs..."
+          placeholder="Search VOBs/Waypoints..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{
@@ -543,11 +637,10 @@ export function VOBTree({ world, onVobClick, selectedVob }: VOBTreeProps) {
             color: 'rgba(255, 255, 255, 0.5)',
             fontSize: '12px'
           }}>
-            {searchTerm ? 'No VOBs match your search' : 'No VOBs found'}
+            {searchTerm ? 'No items match your search' : 'No items found'}
           </div>
         )}
       </div>
     </div>
   );
 }
-

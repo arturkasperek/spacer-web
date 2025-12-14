@@ -12,7 +12,7 @@ import { NpcRenderer } from "./npc-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
-import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
+import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 
 // Create a ref to hold the main camera
@@ -173,6 +173,21 @@ export function App() {
     logVobDetails(vob);
   }, []);
 
+  const handleWaypointClick = useCallback((waypoint: WayPointData) => {
+    if (!waypoint?.position || !cameraControlsRef.current) return;
+
+    // Match renderer world space (flip X like VOBs/Waynet)
+    const target = new THREE.Vector3(-waypoint.position.x, waypoint.position.y, waypoint.position.z);
+    const offsetDirection = new THREE.Vector3(1, 0.5, 1).normalize();
+    const distance = 400;
+    const cameraPos = target.clone().add(offsetDirection.multiplyScalar(distance));
+
+    cameraControlsRef.current.setPose(
+      [cameraPos.x, cameraPos.y, cameraPos.z],
+      [target.x, target.y, target.z]
+    );
+  }, []);
+
   const handleVobClickFromScene = useCallback((vob: Vob) => {
     if (!vob) return;
     // Only select, don't move camera
@@ -219,7 +234,7 @@ export function App() {
   return (
     <>
       {/* VOB Tree - left side panel */}
-      <VOBTree world={world} onVobClick={handleVobClick} selectedVob={selectedVob} />
+      <VOBTree world={world} onVobClick={handleVobClick} onWaypointClick={handleWaypointClick} selectedVob={selectedVob} />
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (

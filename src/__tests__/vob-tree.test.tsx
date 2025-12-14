@@ -172,7 +172,7 @@ describe('VOBTree Component', () => {
       
       expect(screen.getByText('VOB Tree')).toBeInTheDocument();
       expect(screen.getByText(/Total VOBs:/)).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('Search VOBs...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search VOBs/Waypoints...')).toBeInTheDocument();
     });
 
     it('should display correct total VOB count', () => {
@@ -259,7 +259,7 @@ describe('VOBTree Component', () => {
       const world = createMockWorld(3);
       render(<VOBTree world={world} />);
       
-      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      const searchInput = screen.getByPlaceholderText('Search VOBs/Waypoints...');
       fireEvent.change(searchInput, { target: { value: 'VOB_0' } });
       
       expect(screen.getByText('VOB_0')).toBeInTheDocument();
@@ -271,7 +271,7 @@ describe('VOBTree Component', () => {
       const world = createMockWorld(3);
       render(<VOBTree world={world} />);
       
-      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      const searchInput = screen.getByPlaceholderText('Search VOBs/Waypoints...');
       fireEvent.change(searchInput, { target: { value: 'MESH' } });
       
       // All root VOBs have type MESH, so they should all be visible
@@ -283,17 +283,17 @@ describe('VOBTree Component', () => {
       const world = createMockWorld(3);
       render(<VOBTree world={world} />);
       
-      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      const searchInput = screen.getByPlaceholderText('Search VOBs/Waypoints...');
       fireEvent.change(searchInput, { target: { value: 'nonexistent' } });
       
-      expect(screen.getByText('No VOBs match your search')).toBeInTheDocument();
+      expect(screen.getByText('No items match your search')).toBeInTheDocument();
     });
 
     it('should show parent if child matches search', async () => {
       const world = createMockWorld(3);
       render(<VOBTree world={world} />);
       
-      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      const searchInput = screen.getByPlaceholderText('Search VOBs/Waypoints...');
       fireEvent.change(searchInput, { target: { value: 'Child_0' } });
       
       await waitFor(() => {
@@ -416,7 +416,7 @@ describe('VOBTree Component', () => {
   });
 
   describe('Empty States', () => {
-    it('should show "No VOBs found" when world has no VOBs', () => {
+    it('should still show Waypoints group when world has no VOBs', () => {
       const world: World = addWaypointMethods({
         getVobs: () => ({
           size: () => 0,
@@ -429,7 +429,8 @@ describe('VOBTree Component', () => {
       }) as unknown as World;
       
       render(<VOBTree world={world} />);
-      expect(screen.getByText('No VOBs found')).toBeInTheDocument();
+      expect(screen.getByText('Waypoints')).toBeInTheDocument();
+      expect(screen.getByText('Total VOBs: 0')).toBeInTheDocument();
     });
   });
 
@@ -475,9 +476,9 @@ describe('VOBTree Component', () => {
       const world = createMockWorld(3);
       render(<VOBTree world={world} />);
       
-      // Initially collapsed, should show only 3 root nodes
+      // Initially collapsed, should show Waypoints group + 3 root nodes
       const rows = screen.getAllByTestId(/^row-/);
-      expect(rows).toHaveLength(3);
+      expect(rows).toHaveLength(4);
     });
 
     it('should update flattened items when node is expanded', () => {
@@ -575,7 +576,7 @@ describe('VOBTree Component', () => {
 
       await waitFor(() => {
         expect(mockScrollToRow).toHaveBeenCalledWith({
-          index: 0,
+          index: 1,
           align: 'smart',
           behavior: 'auto',
         });
@@ -688,12 +689,12 @@ describe('VOBTree Component', () => {
       const { rerender } = render(<VOBTree world={world} selectedVob={rootVob} />);
 
       // Set a search term that filters everything out
-      const searchInput = screen.getByPlaceholderText('Search VOBs...');
+      const searchInput = screen.getByPlaceholderText('Search VOBs/Waypoints...');
       fireEvent.change(searchInput, { target: { value: 'nonexistent' } });
 
       // Wait for filter to apply
       await waitFor(() => {
-        expect(screen.getByText('No VOBs match your search')).toBeInTheDocument();
+        expect(screen.getByText('No items match your search')).toBeInTheDocument();
       });
 
       mockScrollToRow.mockClear();
@@ -725,8 +726,8 @@ describe('VOBTree Component', () => {
         // Should have scrolled to grandchild
         expect(mockScrollToRow).toHaveBeenCalled();
         const call = mockScrollToRow.mock.calls[0][0];
-        // Index should be 2 (root=0, child=1, grandchild=2)
-        expect(call.index).toBe(2);
+        // Index should be 3 (Waypoints=0, root=1, child=2, grandchild=3)
+        expect(call.index).toBe(3);
       });
 
       // Verify that both root and child are expanded (grandchild should be visible)
@@ -781,8 +782,8 @@ describe('VOBTree Component', () => {
       await waitFor(() => {
         expect(mockScrollToRow).toHaveBeenCalled();
         const call = mockScrollToRow.mock.calls[0][0];
-        // Index should be 1 (Root_0=0, Child_0=1) after Root_1 is collapsed
-        expect(call.index).toBe(1);
+        // Index should be 2 (Waypoints=0, Root_0=1, Child_0=2) after Root_1 is collapsed
+        expect(call.index).toBe(2);
       });
     });
 
@@ -993,4 +994,3 @@ describe('VOBTree Component', () => {
     });
   });
 });
-
