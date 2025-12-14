@@ -1,7 +1,15 @@
-import { render } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import { VOBRenderer } from '../vob-renderer';
 import * as THREE from 'three';
+import { useFrame, useThree } from '@react-three/fiber';
 import type { World, ZenKit, Vob } from '@kolarz3/zenkit';
+
+jest.mock('../mesh-utils', () => ({
+  loadMeshCached: jest.fn(),
+  buildThreeJSGeometryAndMaterials: jest.fn(),
+}));
+
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from '../mesh-utils';
 
 // Mock VOBBoundingBox component
 jest.mock('../vob-bounding-box', () => ({
@@ -34,6 +42,169 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockFetch.mockClear();
 });
+
+function configureThreeForVobRendererTests() {
+  // Ensure Vector3 stores components and can compute distances (needed for streaming + unload tests)
+  (THREE.Vector3 as unknown as jest.Mock).mockImplementation((x = 0, y = 0, z = 0) => {
+    const vector: any = {
+      x,
+      y,
+      z,
+      set: jest.fn(function set(nx: number, ny: number, nz: number) {
+        vector.x = nx;
+        vector.y = ny;
+        vector.z = nz;
+        return vector;
+      }),
+      clone: jest.fn(() => (THREE.Vector3 as any)(vector.x, vector.y, vector.z)),
+      copy: jest.fn((src: any) => {
+        vector.x = src.x;
+        vector.y = src.y;
+        vector.z = src.z;
+        return vector;
+      }),
+      lerp: jest.fn((other: any, t: number) => {
+        vector.x = vector.x + (other.x - vector.x) * t;
+        vector.y = vector.y + (other.y - vector.y) * t;
+        vector.z = vector.z + (other.z - vector.z) * t;
+        return vector;
+      }),
+      distanceTo: jest.fn((other: any) => {
+        const dx = vector.x - (other?.x ?? 0);
+        const dy = vector.y - (other?.y ?? 0);
+        const dz = vector.z - (other?.z ?? 0);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+      }),
+      addScaledVector: jest.fn((v: any, s: number) => {
+        vector.x += (v?.x ?? 0) * s;
+        vector.y += (v?.y ?? 0) * s;
+        vector.z += (v?.z ?? 0) * s;
+        return vector;
+      }),
+      length: jest.fn(() => Math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)),
+      lengthSq: jest.fn(() => vector.x * vector.x + vector.y * vector.y + vector.z * vector.z),
+      applyQuaternion: jest.fn(() => vector),
+      applyMatrix4: jest.fn(() => vector),
+      applyMatrix3: jest.fn(() => vector),
+      normalize: jest.fn(() => vector),
+      subVectors: jest.fn(() => vector),
+      crossVectors: jest.fn(() => vector),
+    };
+    return vector;
+  });
+
+  // Minimal Matrix4 needed for applyVobTransform and hierarchy transforms
+  (THREE.Matrix4 as unknown as jest.Mock).mockImplementation(() => {
+    const m: any = {
+      elements: new Array(16).fill(0),
+      set: jest.fn(function set(
+        n11: number, n12: number, n13: number, n14: number,
+        n21: number, n22: number, n23: number, n24: number,
+        n31: number, n32: number, n33: number, n34: number,
+        n41: number, n42: number, n43: number, n44: number
+      ) {
+        m.elements = [
+          n11, n21, n31, n41,
+          n12, n22, n32, n42,
+          n13, n23, n33, n43,
+          n14, n24, n34, n44,
+        ];
+        return m;
+      }),
+      clone: jest.fn(() => {
+        const copy = (THREE.Matrix4 as any)();
+        copy.elements = [...m.elements];
+        return copy;
+      }),
+      multiplyMatrices: jest.fn(() => m),
+      decompose: jest.fn((pos: any, quat: any, scl: any) => {
+        // Use translation column
+        pos.set(m.elements[12] ?? 0, m.elements[13] ?? 0, m.elements[14] ?? 0);
+        if (quat?.copy) quat.copy(quat);
+        if (scl?.set) scl.set(1, 1, 1);
+        return m;
+      }),
+    };
+    return m;
+  });
+
+  (THREE.Quaternion as unknown as jest.Mock).mockImplementation((x = 0, y = 0, z = 0, w = 1) => {
+    const q: any = {
+      x, y, z, w,
+      copy: jest.fn((src: any) => {
+        q.x = src.x; q.y = src.y; q.z = src.z; q.w = src.w;
+        return q;
+      }),
+      slerp: jest.fn(() => q),
+      normalize: jest.fn(() => q),
+    };
+    return q;
+  });
+
+  // Add missing constructors used by vob-renderer (not present in the global mock)
+  (THREE as any).Group = jest.fn(() => {
+    const group: any = {
+      type: 'Group',
+      children: [],
+      userData: {},
+      position: (THREE.Vector3 as any)(0, 0, 0),
+      quaternion: (THREE.Quaternion as any)(0, 0, 0, 1),
+      scale: (THREE.Vector3 as any)(1, 1, 1),
+      add: jest.fn((child: any) => {
+        group.children.push(child);
+      }),
+      applyMatrix4: jest.fn(),
+      updateMatrixWorld: jest.fn(),
+    };
+    return group;
+  });
+
+  (THREE.Mesh as unknown as jest.Mock).mockImplementation((_geometry?: any, _materials?: any) => {
+    const mesh: any = {
+      type: 'Mesh',
+      geometry: _geometry,
+      material: _materials,
+      userData: {},
+      children: [],
+      position: (THREE.Vector3 as any)(0, 0, 0),
+      quaternion: (THREE.Quaternion as any)(0, 0, 0, 1),
+      scale: (THREE.Vector3 as any)(1, 1, 1),
+      add: jest.fn((child: any) => mesh.children.push(child)),
+      applyMatrix4: jest.fn(),
+      updateMatrixWorld: jest.fn(),
+    };
+    return mesh;
+  });
+}
+
+function configureStableSceneForTest() {
+  const scene: any = { children: [] as any[] };
+  scene.add = jest.fn((obj: any) => scene.children.push(obj));
+  scene.remove = jest.fn((obj: any) => {
+    const idx = scene.children.indexOf(obj);
+    if (idx >= 0) scene.children.splice(idx, 1);
+  });
+
+  (useThree as unknown as jest.Mock).mockReturnValue({
+    camera: {
+      position: { set: jest.fn() },
+      lookAt: jest.fn(),
+      rotation: { order: 'YXZ' },
+      updateProjectionMatrix: jest.fn(),
+    },
+    gl: {
+      setSize: jest.fn(),
+      setPixelRatio: jest.fn(),
+      render: jest.fn(),
+    },
+    scene,
+    size: { width: 800, height: 600 },
+    viewport: { width: 800, height: 600 },
+    controls: { updateMouseState: jest.fn() },
+  });
+
+  return scene;
+}
 
 // Helper functions for creating mocks
 const createMockWorld = (): World => ({
@@ -341,6 +512,179 @@ describe('VOBRenderer', () => {
     expect(mockOnLoadingStatus).toHaveBeenCalledWith('🔧 Collecting VOBs...');
     // Component should render without crashing despite the error
     expect(true).toBe(true);
+  });
+
+  it('streams and loads mesh VOBs on frames and reports stats', async () => {
+    configureThreeForVobRendererTests();
+    const scene = configureStableSceneForTest();
+
+    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
+      geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+      materials: [],
+    });
+
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
+          id: 1,
+          type: 0,
+          showVisual: true,
+          visual: { type: 1, name: 'mesh.MSH' },
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { toArray: () => ({ size: () => 9, get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0 }) },
+          children: { size: () => 0, get: () => null as any },
+        }),
+      }),
+    }) as unknown as World;
+
+    const onVobStats = jest.fn();
+    const mockZenKit = createMockZenKit();
+    const cameraPosition = new THREE.Vector3(0, 0, 0);
+
+    render(
+      <VOBRenderer
+        world={mockWorld}
+        zenKit={mockZenKit}
+        cameraPosition={cameraPosition}
+        onLoadingStatus={mockOnLoadingStatus}
+        onVobStats={onVobStats}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const frameCb = (useFrame as unknown as jest.Mock).mock.calls[0][0] as () => void;
+
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => frameCb());
+
+    expect(scene.add).toHaveBeenCalled();
+    expect(scene.children.length).toBeGreaterThan(0);
+    expect(scene.children[0].userData?.vob?.id).toBe(1);
+    expect(onVobStats).toHaveBeenCalled();
+  });
+
+  it('renders helper visual VOBs even when showVisual is false', async () => {
+    configureThreeForVobRendererTests();
+    configureStableSceneForTest();
+
+    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
+      geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+      materials: [],
+    });
+
+    const helperVob = {
+      id: 2,
+      type: 10, // zCVobLight -> helper visual
+      showVisual: false,
+      visual: { type: 1, name: '' },
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { toArray: () => ({ size: () => 9, get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0 }) },
+      children: { size: () => 0, get: () => null as any },
+    };
+
+    const mockWorld = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => helperVob,
+      }),
+    }) as unknown as World;
+
+    const mockZenKit = createMockZenKit();
+    render(<VOBRenderer world={mockWorld} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const frameCb = (useFrame as unknown as jest.Mock).mock.calls[0][0] as () => void;
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadMeshCached).toHaveBeenCalledWith('/MESHES/_COMPILED/INVISIBLE_ZCVOBLIGHT.MRM', expect.anything(), expect.anything());
+  });
+
+  it('unloads loaded VOBs when camera moves beyond unload distance', async () => {
+    configureThreeForVobRendererTests();
+    const scene = configureStableSceneForTest();
+
+    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
+      geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+      materials: [],
+    });
+
+    const vob = {
+      id: 3,
+      type: 0,
+      showVisual: true,
+      visual: { type: 1, name: 'mesh.MSH' },
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { toArray: () => ({ size: () => 9, get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0 }) },
+      children: { size: () => 0, get: () => null as any },
+    };
+    const world = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => vob,
+      }),
+    }) as unknown as World;
+    const mockZenKit = createMockZenKit();
+
+    const { rerender } = render(
+      <VOBRenderer
+        world={world}
+        zenKit={mockZenKit}
+        cameraPosition={new THREE.Vector3(0, 0, 0)}
+        onLoadingStatus={mockOnLoadingStatus}
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const getLatestFrameCb = () => {
+      const calls = (useFrame as unknown as jest.Mock).mock.calls;
+      return calls[calls.length - 1][0] as () => void;
+    };
+
+    const frameCb = getLatestFrameCb();
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => frameCb());
+
+    expect(scene.add).toHaveBeenCalled();
+
+    rerender(
+      <VOBRenderer
+        world={world}
+        zenKit={mockZenKit}
+        cameraPosition={new THREE.Vector3(10000, 0, 0)}
+        onLoadingStatus={mockOnLoadingStatus}
+      />
+    );
+
+    const frameCbAfterRerender = getLatestFrameCb();
+
+    // Respect updateInterval default (10): advance enough frames to trigger an update.
+    for (let i = 0; i < 10; i++) {
+      act(() => frameCbAfterRerender());
+    }
+
+    expect(scene.remove).toHaveBeenCalled();
   });
 });
 
