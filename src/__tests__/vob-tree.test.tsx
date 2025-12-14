@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VOBTree } from '../vob-tree';
 import type { World, Vob, MeshData } from '@kolarz3/zenkit';
@@ -106,7 +106,7 @@ const addWaypointMethods = (world: Partial<World>): World => {
     getWaypointCount: () => 0,
     getWaypoint: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
     findWaypointByName: () => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' }),
-    getAllWaypoints: () => [],
+    getAllWaypoints: world.getAllWaypoints || (() => []),
     getWaypointEdgeCount: () => 0,
     getWaypointEdge: () => ({ success: false, data: { waypoint_a_index: 0, waypoint_b_index: 0 }, errorMessage: 'Not implemented' }),
     mesh: world.mesh || defaultMesh,
@@ -189,6 +189,101 @@ describe('VOBTree Component', () => {
       
       expect(screen.getByText('VOB_0')).toBeInTheDocument();
       expect(screen.getByText('VOB_1')).toBeInTheDocument();
+    });
+  });
+
+  describe('Waypoints', () => {
+    const createWaypointsVector = (items: any[]) => ({
+      size: () => items.length,
+      get: (index: number) => items[index],
+    });
+
+    it('should render Waypoints as the first root item', () => {
+      const world = createMockWorld(2);
+      render(<VOBTree world={world} />);
+
+      const firstRow = screen.getByTestId('row-0');
+      expect(within(firstRow).getByText('Waypoints')).toBeInTheDocument();
+    });
+
+    it('should show waypoint children (sorted) when Waypoints group is expanded', () => {
+      const wpB = { name: 'WP_B', position: { x: 10, y: 20, z: 30 }, free_point: false };
+      const wpA = { name: 'WP_A', position: { x: 1, y: 2, z: 3 }, free_point: true };
+
+      const world: World = addWaypointMethods({
+        getVobs: () => ({
+          size: () => 0,
+          get: () => createEmptyVob(),
+        }),
+        getAllWaypoints: () => createWaypointsVector([wpB, wpA]) as any,
+        loadFromArray: () => ({ success: true }),
+        isLoaded: true,
+        getLastError: () => '',
+        mesh: createMockMeshData(),
+      });
+
+      render(<VOBTree world={world} />);
+
+      const waypointsGroup = screen.getByText('Waypoints');
+      fireEvent.click(waypointsGroup.closest('div')!);
+
+      expect(screen.getByText('WP_A')).toBeInTheDocument();
+      expect(screen.getByText('WP_B')).toBeInTheDocument();
+
+      const rows = screen.getAllByTestId(/^row-/);
+      const renderedRowText = rows.map(r => r.textContent || '');
+      expect(renderedRowText.findIndex(t => t.includes('WP_A'))).toBeLessThan(renderedRowText.findIndex(t => t.includes('WP_B')));
+
+      expect(screen.getByText(/Free point @ 1, 2, 3/)).toBeInTheDocument();
+      expect(screen.getByText(/Waypoint @ 10, 20, 30/)).toBeInTheDocument();
+    });
+
+    it('should call onWaypointClick when clicking a waypoint leaf', () => {
+      const wp = { name: 'WP_TEST', position: { x: 5, y: 6, z: 7 }, free_point: false };
+      const onWaypointClick = jest.fn();
+
+      const world: World = addWaypointMethods({
+        getVobs: () => ({
+          size: () => 0,
+          get: () => createEmptyVob(),
+        }),
+        getAllWaypoints: () => createWaypointsVector([wp]) as any,
+        loadFromArray: () => ({ success: true }),
+        isLoaded: true,
+        getLastError: () => '',
+        mesh: createMockMeshData(),
+      });
+
+      render(<VOBTree world={world} onWaypointClick={onWaypointClick} />);
+
+      fireEvent.click(screen.getByText('Waypoints').closest('div')!);
+      fireEvent.click(screen.getByText('WP_TEST').closest('div')!);
+
+      expect(onWaypointClick).toHaveBeenCalledTimes(1);
+      expect(onWaypointClick).toHaveBeenCalledWith(wp);
+    });
+
+    it('should keep Waypoints group when searching by waypoint name', async () => {
+      const wp = { name: 'WP_SEARCH', position: { x: 0, y: 0, z: 0 }, free_point: false };
+      const world: World = addWaypointMethods({
+        getVobs: () => ({
+          size: () => 0,
+          get: () => createEmptyVob(),
+        }),
+        getAllWaypoints: () => createWaypointsVector([wp]) as any,
+        loadFromArray: () => ({ success: true }),
+        isLoaded: true,
+        getLastError: () => '',
+        mesh: createMockMeshData(),
+      });
+
+      render(<VOBTree world={world} />);
+
+      fireEvent.change(screen.getByPlaceholderText('Search VOBs/Waypoints...'), { target: { value: 'WP_SEARCH' } });
+
+      await waitFor(() => {
+        expect(screen.getByText('Waypoints')).toBeInTheDocument();
+      });
     });
   });
 
