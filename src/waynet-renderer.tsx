@@ -1,16 +1,18 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, ZenKit, WayPointData, WayEdgeData } from '@kolarz3/zenkit';
 import { getMeshPath } from './vob-utils';
 import { loadMeshCached, buildThreeJSGeometryAndMaterials } from './mesh-utils';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
+import { VOBBoundingBox } from "./vob-bounding-box";
 
 interface WaynetRendererProps {
   world: World | null;
   zenKit: ZenKit | null;
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
+  selectedWaypoint?: WayPointData | null;
 }
 
 /**
@@ -21,11 +23,12 @@ interface WaynetRendererProps {
  * - Renders waypoint edges as lines connecting waypoints
  * - Differentiates between free points and regular waypoints
  */
-export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }: WaynetRendererProps) {
+export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true, selectedWaypoint }: WaynetRendererProps) {
   const { scene } = useThree();
   const waypointsGroupRef = useRef<THREE.Group>(null);
   const edgesGroupRef = useRef<THREE.Group>(null);
   const hasLoadedRef = useRef(false);
+  const [selectedWaypointObject, setSelectedWaypointObject] = useState<THREE.Object3D | null>(null);
   
   // Distance-based streaming
   const loadedWaypointsRef = useRef(new Map<string, THREE.Group>()); // waypoint name -> THREE.Group
@@ -144,6 +147,7 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
     const group = new THREE.Group();
     group.position.set(-wp.position.x, wp.position.y, wp.position.z);
     group.userData.waypointName = wp.name;
+    group.userData.waypoint = wp;
     group.userData.freePoint = wp.free_point;
     group.userData.waypointIndex = index;
     
@@ -194,6 +198,7 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
     iconSphere.userData = {
       waypointIndex: index,
       waypointName: wp.name,
+      waypoint: wp,
       freePoint: wp.free_point,
       underWater: wp.under_water,
       waterDepth: wp.water_depth,
@@ -263,6 +268,9 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
 
       // Unload distant waypoints
       for (const wpName of toUnload) {
+        if (selectedWaypoint?.name && wpName === selectedWaypoint.name) {
+          continue; // keep selected waypoint loaded for selection/bounding box
+        }
         const mesh = loadedWaypointsRef.current.get(wpName);
         if (mesh && waypointsGroupRef.current) {
           waypointsGroupRef.current.remove(mesh);
@@ -294,6 +302,39 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
       updateWaypointStreaming();
     }
   });
+
+  // Ensure selected waypoint is loaded and track its object for bounding box rendering
+  useEffect(() => {
+    if (!enabled || !world || !selectedWaypoint?.name) {
+      setSelectedWaypointObject(null);
+      return;
+    }
+
+    const name = selectedWaypoint.name;
+    const alreadyLoaded = loadedWaypointsRef.current.get(name);
+    if (alreadyLoaded) {
+      setSelectedWaypointObject(alreadyLoaded);
+      return;
+    }
+
+    const wp = allWaypointsRef.current.find(w => w.name === name);
+    if (!wp) {
+      setSelectedWaypointObject(null);
+      return;
+    }
+
+    const waypointMesh = createWaypointMesh(wp, allWaypointsRef.current.indexOf(wp));
+    loadedWaypointsRef.current.set(wp.name, waypointMesh);
+
+    if (!waypointsGroupRef.current) {
+      const group = new THREE.Group();
+      group.name = 'Waypoints';
+      waypointsGroupRef.current = group;
+      scene.add(group);
+    }
+    waypointsGroupRef.current.add(waypointMesh);
+    setSelectedWaypointObject(waypointMesh);
+  }, [enabled, world, scene, selectedWaypoint?.name]);
 
   // Create edge lines (only for loaded waypoints)
   const edgeLines = useMemo(() => {
@@ -371,8 +412,7 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true }
     };
   }, [scene, edgeLines, enabled]);
 
-  // Component doesn't render anything directly (uses imperative scene manipulation)
-  return null;
+  return selectedWaypointObject ? (
+    <VOBBoundingBox vobObject={selectedWaypointObject} visible={true} color="#00aaff" lineWidth={3} />
+  ) : null;
 }
-
-

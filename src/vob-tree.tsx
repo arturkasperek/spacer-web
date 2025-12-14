@@ -36,6 +36,7 @@ interface VOBTreeProps {
   onVobClick?: (vob: Vob) => void;
   onWaypointClick?: (waypoint: WayPointData) => void;
   selectedVob?: Vob | null;
+  selectedWaypoint?: WayPointData | null;
 }
 
 function buildVOBTree(world: World): TreeNode[] {
@@ -45,7 +46,7 @@ function buildVOBTree(world: World): TreeNode[] {
   const vobCount = vobs.size();
   const typeNames = ['DECAL', 'MESH', 'MULTI_RES_MESH', 'PARTICLE', 'CAMERA', 'MODEL', 'MORPH_MESH', 'UNKNOWN'];
 
-  const buildNode = (vob: Vob, index: number, depth: number): TreeNode => {
+  const buildNode = (vob: Vob, depth: number, path: string): TreeNode => {
     const visualType = vob.visual?.type !== undefined ? vob.visual.type : -1;
     const visualTypeName = visualType >= 0 && visualType < typeNames.length 
       ? typeNames[visualType] 
@@ -55,7 +56,7 @@ function buildVOBTree(world: World): TreeNode[] {
     const childCount = vob.children?.size() || 0;
     for (let i = 0; i < childCount; i++) {
       const childVob = vob.children.get(i);
-      children.push(buildNode(childVob, i, depth + 1));
+      children.push(buildNode(childVob, depth + 1, `${path}.${i}`));
     }
 
     // Get VOB type name
@@ -66,7 +67,8 @@ function buildVOBTree(world: World): TreeNode[] {
     const displayName = vob.name || vobTypeName || 'Unnamed';
 
     return {
-      id: `vob_${depth}_${index}`,
+      // Must be unique across the whole tree (expandedIds + navigation rely on it).
+      id: `vob_${vob.id}_${path}`,
       kind: 'vob',
       vob,
       name: displayName,
@@ -86,7 +88,7 @@ function buildVOBTree(world: World): TreeNode[] {
   const rootNodes: TreeNode[] = [];
   for (let i = 0; i < vobCount; i++) {
     const vob = vobs.get(i);
-    rootNodes.push(buildNode(vob, i, 0));
+    rootNodes.push(buildNode(vob, 0, `${i}`));
   }
 
   return rootNodes;
@@ -160,7 +162,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob, selectedWaypoint }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -269,8 +271,36 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
     return null;
   }, []);
 
+  const findWaypointInTree = useCallback((waypointName: string, nodes: TreeNode[]): TreeNode | null => {
+    for (const node of nodes) {
+      if (node.kind === 'waypoint' && node.waypoint?.name === waypointName) {
+        return node;
+      }
+      const found = findWaypointInTree(waypointName, node.children);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }, []);
+
+  const findPathToNode = useCallback((targetNode: TreeNode, nodes: TreeNode[], path: TreeNode[] = []): TreeNode[] | null => {
+    for (const node of nodes) {
+      const nextPath = [...path, node];
+      if (node === targetNode) {
+        return nextPath;
+      }
+      const found = findPathToNode(targetNode, node.children, nextPath);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }, []);
+
   // Track last selected VOB to avoid re-navigating
   const lastSelectedVobRef = useRef<Vob | null>(null);
+  const lastSelectedWaypointNameRef = useRef<string | null>(null);
   const expandedIdsRef = useRef<Set<string>>(new Set());
 
   // Sync expandedIds to ref
@@ -278,49 +308,12 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
     expandedIdsRef.current = expandedIds;
   }, [expandedIds]);
 
-  // Navigate to selected VOB when it changes
-  useEffect(() => {
-    if (!selectedVob || !listRef.current || filteredTree.length === 0) {
-      return;
-    }
+  const navigateToNode = useCallback((foundNode: TreeNode) => {
+    const path = findPathToNode(foundNode, filteredTree);
+    if (!path || path.length === 0) return;
 
-    // Skip if this is the same VOB we already navigated to
-    if (lastSelectedVobRef.current?.id === selectedVob.id) {
-      return;
-    }
+    const parentsToExpand = path.slice(0, -1);
 
-    // Find the VOB in the tree
-    const foundNode = findVobInTree(selectedVob, filteredTree);
-    if (!foundNode) {
-      return;
-    }
-
-    // Mark as navigated
-    lastSelectedVobRef.current = selectedVob;
-
-    // Find all parent nodes that need to be expanded
-    const findParents = (targetNode: TreeNode, nodes: TreeNode[], path: TreeNode[] = []): TreeNode[] => {
-      for (const node of nodes) {
-        if (node.id === targetNode.id) {
-          return path;
-        }
-        if (targetNode.kind !== 'vob' || !targetNode.vob) {
-          return path;
-        }
-        const found = findVobInTree(targetNode.vob, [node]);
-        if (found) {
-          const newPath = [...path, node];
-          if (node.id !== targetNode.id && node.children.length > 0) {
-            return findParents(targetNode, node.children, newPath);
-          }
-          return newPath;
-        }
-      }
-      return path;
-    };
-
-    const parentsToExpand = findParents(foundNode, filteredTree);
-    
     // Create set of IDs that should be expanded (only the path to target)
     const idsToKeepExpanded = new Set<string>();
     for (const parent of parentsToExpand) {
@@ -353,14 +346,11 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
 
     // Wait for collapse/expansion to complete, then scroll to item
     const scrollTimeout = setTimeout(() => {
-      // Calculate the flattened list with only the path expanded
       const updatedFlattened = flattenTree(filteredTree, idsToKeepExpanded);
       const index = updatedFlattened.findIndex(item => item.node.id === foundNode.id);
-      
-      // Check if listRef is set and has scrollToRow method (react-window v2 API)
+
       if (index >= 0 && listRef.current) {
         const listInstance = listRef.current as any;
-        // react-window v2 uses scrollToRow instead of scrollToItem
         listInstance.scrollToRow({
           index: index,
           align: 'smart',
@@ -370,7 +360,49 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
     }, 200);
 
     return () => clearTimeout(scrollTimeout);
-  }, [selectedVob?.id, filteredTree, findVobInTree]);
+  }, [filteredTree, findPathToNode]);
+
+  // Navigate to selected VOB when it changes
+  useEffect(() => {
+    if (!selectedVob || !listRef.current || filteredTree.length === 0) {
+      return;
+    }
+
+    // Skip if this is the same VOB we already navigated to
+    if (lastSelectedVobRef.current?.id === selectedVob.id) {
+      return;
+    }
+
+    // Find the VOB in the tree
+    const foundNode = findVobInTree(selectedVob, filteredTree);
+    if (!foundNode) {
+      return;
+    }
+
+    // Mark as navigated
+    lastSelectedVobRef.current = selectedVob;
+    return navigateToNode(foundNode);
+  }, [selectedVob?.id, filteredTree, findVobInTree, navigateToNode]);
+
+  // Navigate to selected waypoint when it changes
+  useEffect(() => {
+    const selectedName = selectedWaypoint?.name;
+    if (!selectedName || !listRef.current || filteredTree.length === 0) {
+      return;
+    }
+
+    if (lastSelectedWaypointNameRef.current === selectedName) {
+      return;
+    }
+
+    const foundNode = findWaypointInTree(selectedName, filteredTree);
+    if (!foundNode) {
+      return;
+    }
+
+    lastSelectedWaypointNameRef.current = selectedName;
+    return navigateToNode(foundNode);
+  }, [selectedWaypoint?.name, filteredTree, findWaypointInTree, navigateToNode]);
 
   // Calculate item height - larger if it has visual name or vobName (for VOB spots)
   const getItemSize = useCallback((index: number) => {
@@ -389,7 +421,9 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
     if (!item) return <div style={style} />;
     
     const { node, depth, hasChildren, isExpanded } = item;
-    const isSelected = selectedVob && node.kind === 'vob' && node.vob?.id === selectedVob.id;
+    const isSelectedVob = selectedVob && node.kind === 'vob' && node.vob?.id === selectedVob.id;
+    const isSelectedWaypoint = selectedWaypoint?.name && node.kind === 'waypoint' && node.waypoint?.name === selectedWaypoint.name;
+    const isSelected = !!isSelectedVob || !!isSelectedWaypoint;
     
     return (
       <div
@@ -408,8 +442,16 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
             borderRadius: '4px',
             height: '100%',
             boxSizing: 'border-box',
-            backgroundColor: isSelected ? 'rgba(255, 255, 0, 0.3)' : 'transparent',
-            borderLeft: isSelected ? '3px solid #ffff00' : '3px solid transparent'
+            backgroundColor: isSelectedVob
+              ? 'rgba(255, 255, 0, 0.3)'
+              : isSelectedWaypoint
+                ? 'rgba(0, 170, 255, 0.25)'
+                : 'transparent',
+            borderLeft: isSelectedVob
+              ? '3px solid #ffff00'
+              : isSelectedWaypoint
+                ? '3px solid #00aaff'
+                : '3px solid transparent'
           }}
           onClick={(e) => {
             e.stopPropagation();
@@ -444,8 +486,10 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
           onMouseLeave={(e) => {
             if (!isSelected) {
               e.currentTarget.style.backgroundColor = 'transparent';
-            } else {
+            } else if (isSelectedVob) {
               e.currentTarget.style.backgroundColor = 'rgba(255, 255, 0, 0.3)'; // Keep yellow highlight
+            } else if (isSelectedWaypoint) {
+              e.currentTarget.style.backgroundColor = 'rgba(0, 170, 255, 0.25)'; // Keep blue highlight
             }
           }}
         >
@@ -509,7 +553,7 @@ export function VOBTree({ world, onVobClick, onWaypointClick, selectedVob }: VOB
         </div>
       </div>
     );
-  }, [flattenedItems, toggleExpanded, onVobClick, selectedVob]);
+  }, [flattenedItems, toggleExpanded, onVobClick, onWaypointClick, selectedVob, selectedWaypoint]);
 
   if (!world) {
     return (

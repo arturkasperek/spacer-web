@@ -287,6 +287,52 @@ describe('VOBTree Component', () => {
     });
   });
 
+  describe('Selected Waypoint Jump Logic', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const createWaypointsVector = (items: any[]) => ({
+      size: () => items.length,
+      get: (index: number) => items[index],
+    });
+
+    it('should expand Waypoints group and scroll to selected waypoint', async () => {
+      const wp = { name: 'WP_SELECTED', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false };
+
+      const world: World = addWaypointMethods({
+        getVobs: () => ({
+          size: () => 0,
+          get: () => createEmptyVob(),
+        }),
+        getAllWaypoints: () => createWaypointsVector([wp]) as any,
+        loadFromArray: () => ({ success: true }),
+        isLoaded: true,
+        getLastError: () => '',
+        mesh: createMockMeshData(),
+      });
+
+      render(<VOBTree world={world} selectedWaypoint={wp as any} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        expect(mockScrollToRow).toHaveBeenCalledWith({
+          index: 1, // Waypoints group at 0, selected waypoint at 1
+          align: 'smart',
+          behavior: 'auto',
+        });
+      });
+    });
+  });
+
   describe('Tree Structure', () => {
     it('should show child count for parent nodes', () => {
       const world = createMockWorld(3);
@@ -879,6 +925,70 @@ describe('VOBTree Component', () => {
         const call = mockScrollToRow.mock.calls[0][0];
         // Index should be 2 (Waypoints=0, Root_0=1, Child_0=2) after Root_1 is collapsed
         expect(call.index).toBe(2);
+      });
+    });
+
+    it('should scroll to the correct child when multiple nodes previously shared the same id', async () => {
+      // Previously, ids were based on depth+index, so both Child_0 and Child_1 would be "vob_1_0".
+      // Selecting Child_1 could incorrectly scroll to Child_0.
+      const child0: any = {
+        id: 10,
+        objectName: 'Child_0',
+        name: 'Child_0',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'child0.3ds' },
+        children: { size: () => 0, get: () => null as any },
+      };
+
+      const child1: any = {
+        id: 11,
+        objectName: 'Child_1',
+        name: 'Child_1',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'child1.3ds' },
+        children: { size: () => 0, get: () => null as any },
+      };
+
+      const root0: any = {
+        id: 0,
+        objectName: 'Root_0',
+        name: 'Root_0',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'root0.3ds' },
+        children: { size: () => 1, get: () => child0 },
+      };
+
+      const root1: any = {
+        id: 1,
+        objectName: 'Root_1',
+        name: 'Root_1',
+        position: { x: 0, y: 0, z: 0 },
+        visual: { type: 1, name: 'root1.3ds' },
+        children: { size: () => 1, get: () => child1 },
+      };
+
+      const world: World = addWaypointMethods({
+        getVobs: () => ({
+          size: () => 2,
+          get: (index: number) => (index === 0 ? root0 : root1),
+        }),
+        loadFromArray: () => ({ success: true }),
+        isLoaded: true,
+        getLastError: () => '',
+        mesh: createMockMeshData(),
+      });
+
+      render(<VOBTree world={world} selectedVob={child1 as Vob} />);
+
+      act(() => {
+        jest.advanceTimersByTime(250);
+      });
+
+      await waitFor(() => {
+        expect(mockScrollToRow).toHaveBeenCalled();
+        const call = mockScrollToRow.mock.calls[0][0];
+        // Waypoints=0, Root_0=1, Root_1=2, Child_1=3
+        expect(call.index).toBe(3);
       });
     });
 

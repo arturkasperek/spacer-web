@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { VobClickHandler } from '../vob-click-handler';
 import * as THREE from 'three';
-import type { Vob } from '@kolarz3/zenkit';
+import type { Vob, WayPointData } from '@kolarz3/zenkit';
 
 // Mock React Three Fiber hooks
 jest.mock('@react-three/fiber', () => ({
@@ -33,6 +33,7 @@ const mockUseThree = require('@react-three/fiber').useThree;
 
 describe('VobClickHandler', () => {
   let mockOnVobClick: jest.Mock;
+  let mockOnWaypointClick: jest.Mock;
   let mockCamera: any;
   let mockScene: any;
   let mockGl: any;
@@ -43,6 +44,7 @@ describe('VobClickHandler', () => {
     jest.useFakeTimers();
 
     mockOnVobClick = jest.fn();
+    mockOnWaypointClick = jest.fn();
 
     mockDomElement = document.createElement('canvas');
     mockDomElement.getBoundingClientRect = jest.fn(() => ({
@@ -96,6 +98,13 @@ describe('VobClickHandler', () => {
   it('adds click listener when onVobClick is provided', () => {
     const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
     render(<VobClickHandler onVobClick={mockOnVobClick} />);
+    expect(addEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function));
+    addEventListenerSpy.mockRestore();
+  });
+
+  it('adds click listener when onWaypointClick is provided', () => {
+    const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
+    render(<VobClickHandler onWaypointClick={mockOnWaypointClick} />);
     expect(addEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function));
     addEventListenerSpy.mockRestore();
   });
@@ -284,6 +293,54 @@ describe('VobClickHandler', () => {
     jest.restoreAllMocks();
   });
 
+  it('calls onWaypointClick when clicking on object with waypoint reference', () => {
+    const mockWaypoint: WayPointData = {
+      name: 'WP_TEST',
+      position: { x: 1, y: 2, z: 3 },
+      direction: { x: 0, y: 0, z: 0 },
+      water_depth: 0,
+      under_water: false,
+      free_point: false,
+    } as any;
+
+    const mockMesh: any = new THREE.Mesh();
+    mockMesh.userData = { waypoint: mockWaypoint };
+    mockScene.children = [mockMesh];
+
+    const mockIntersect = {
+      object: mockMesh,
+      distance: 10,
+      point: { x: 0, y: 0, z: 0 },
+      face: null,
+      faceIndex: 0,
+      uv: { x: 0, y: 0 },
+    };
+
+    const mockRaycaster = {
+      setFromCamera: jest.fn(),
+      intersectObjects: jest.fn(() => [mockIntersect]),
+    };
+
+    jest.spyOn(THREE, 'Raycaster').mockImplementation(() => mockRaycaster as any);
+
+    const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
+    render(<VobClickHandler onWaypointClick={mockOnWaypointClick} />);
+    const clickHandler = addEventListenerSpy.mock.calls.find(call => call[0] === 'click')?.[1] as (e: MouseEvent) => void;
+
+    const clickEvent = new MouseEvent('click', {
+      button: 0,
+      clientX: 400,
+      clientY: 300,
+    });
+
+    clickHandler(clickEvent);
+
+    expect(mockOnWaypointClick).toHaveBeenCalledWith(mockWaypoint);
+
+    addEventListenerSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
   it('calculates mouse coordinates correctly', () => {
     const mockVob: Vob = {
       id: 789,
@@ -342,4 +399,3 @@ describe('VobClickHandler', () => {
     jest.restoreAllMocks();
   });
 });
-

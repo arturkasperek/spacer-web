@@ -40,7 +40,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, onVobClickFromScene, npcs, onNpcSpawn }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, npcs, onNpcSpawn }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -52,7 +52,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
+  selectedWaypoint: WayPointData | null;
   onVobClickFromScene?: (vob: Vob) => void;
+  onWaypointClickFromScene?: (waypoint: WayPointData) => void;
   npcs: Map<number, NpcData>;
   onNpcSpawn: NpcSpawnCallback;
 }>) {
@@ -89,7 +91,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       />
 
       {/* VOB Click Handler */}
-      {onVobClickFromScene && <VobClickHandler onVobClick={onVobClickFromScene} />}
+      {(onVobClickFromScene || onWaypointClickFromScene) && (
+        <VobClickHandler onVobClick={onVobClickFromScene} onWaypointClick={onWaypointClickFromScene} />
+      )}
 
       {/* VOB Renderer */}
       {world && zenKit && (
@@ -105,7 +109,15 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       )}
 
       {/* Waynet Renderer */}
-      {world && zenKit && <WaynetRenderer world={world} zenKit={zenKit} cameraPosition={cameraPosition} enabled={true} />}
+      {world && zenKit && (
+        <WaynetRenderer
+          world={world}
+          zenKit={zenKit}
+          cameraPosition={cameraPosition}
+          enabled={true}
+          selectedWaypoint={selectedWaypoint}
+        />
+      )}
 
       {/* NPC Renderer */}
       {world && zenKit && <NpcRenderer world={world} zenKit={zenKit} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
@@ -161,6 +173,7 @@ export function App() {
   }, []);
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
+  const [selectedWaypoint, setSelectedWaypoint] = useState<WayPointData | null>(null);
   const shouldUpdateCameraRef = useRef(false);
 
   // NPC state management
@@ -169,12 +182,15 @@ export function App() {
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
     shouldUpdateCameraRef.current = true;
+    setSelectedWaypoint(null);
     setSelectedVob(vob);
     logVobDetails(vob);
   }, []);
 
   const handleWaypointClick = useCallback((waypoint: WayPointData) => {
     if (!waypoint?.position || !cameraControlsRef.current) return;
+    setSelectedVob(null);
+    setSelectedWaypoint(waypoint);
 
     // Match renderer world space (flip X like VOBs/Waynet)
     const target = new THREE.Vector3(-waypoint.position.x, waypoint.position.y, waypoint.position.z);
@@ -191,9 +207,15 @@ export function App() {
   const handleVobClickFromScene = useCallback((vob: Vob) => {
     if (!vob) return;
     // Only select, don't move camera
+    setSelectedWaypoint(null);
     setSelectedVob(vob);
     logVobDetails(vob);
   }, []);
+
+  const handleWaypointClickFromScene = useCallback((waypoint: WayPointData) => {
+    // From scene: match tree behavior (select + move camera)
+    handleWaypointClick(waypoint);
+  }, [handleWaypointClick]);
 
   const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {
     if (size.length() === 0 || !shouldUpdateCameraRef.current || !cameraControlsRef.current) {
@@ -234,7 +256,13 @@ export function App() {
   return (
     <>
       {/* VOB Tree - left side panel */}
-      <VOBTree world={world} onVobClick={handleVobClick} onWaypointClick={handleWaypointClick} selectedVob={selectedVob} />
+      <VOBTree
+        world={world}
+        onVobClick={handleVobClick}
+        onWaypointClick={handleWaypointClick}
+        selectedVob={selectedVob}
+        selectedWaypoint={selectedWaypoint}
+      />
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
@@ -291,7 +319,9 @@ export function App() {
           onVobStats={handleVobStats}
           selectedVob={selectedVob}
           onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+          selectedWaypoint={selectedWaypoint}
           onVobClickFromScene={handleVobClickFromScene}
+          onWaypointClickFromScene={handleWaypointClickFromScene}
           npcs={npcs}
           onNpcSpawn={handleNpcSpawn}
         />

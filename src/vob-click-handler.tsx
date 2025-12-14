@@ -1,17 +1,18 @@
 import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import type { Vob } from '@kolarz3/zenkit';
+import type { Vob, WayPointData } from '@kolarz3/zenkit';
 
 interface VobClickHandlerProps {
   onVobClick?: (vob: Vob) => void;
+  onWaypointClick?: (waypoint: WayPointData) => void;
 }
 
-export function VobClickHandler({ onVobClick }: VobClickHandlerProps) {
+export function VobClickHandler({ onVobClick, onWaypointClick }: VobClickHandlerProps) {
   const { camera, scene, gl } = useThree();
 
   useEffect(() => {
-    if (!onVobClick) return;
+    if (!onVobClick && !onWaypointClick) return;
 
     const raycaster = new THREE.Raycaster();
 
@@ -39,7 +40,12 @@ export function VobClickHandler({ onVobClick }: VobClickHandlerProps) {
         while (obj) {
           if (obj.userData.vob) {
             const vob = obj.userData.vob as Vob;
-            onVobClick(vob);
+            onVobClick?.(vob);
+            return;
+          }
+          if (obj.userData.waypoint) {
+            const waypoint = obj.userData.waypoint as WayPointData;
+            onWaypointClick?.(waypoint);
             return;
           }
           obj = obj.parent;
@@ -52,8 +58,7 @@ export function VobClickHandler({ onVobClick }: VobClickHandlerProps) {
     return () => {
       gl.domElement.removeEventListener('click', handleClick);
     };
-  }, [camera, scene, gl, onVobClick]);
+  }, [camera, scene, gl, onVobClick, onWaypointClick]);
 
   return null;
 }
-
