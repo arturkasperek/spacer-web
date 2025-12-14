@@ -453,6 +453,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           }
 
           if (dist <= move.arriveDistance) {
+            // Snap to the waypoint so we don't stop short due to the arrival threshold.
+            npcGroup.position.copy(target);
+            const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
+            if (entry) entry.position.copy(npcGroup.position);
+
             move.nextIndex += 1;
             if (move.nextIndex >= move.route.length) {
               move.done = true;
