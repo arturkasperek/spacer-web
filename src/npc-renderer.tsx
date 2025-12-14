@@ -157,6 +157,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         animationName: 't_dance_01',
         loop: true,
         mirrorX: true,
+        rootMotionTarget: "self",
         align: 'ground',
         bodyMesh: visual?.bodyMesh,
         bodyTex: visual?.bodyTex,

@@ -30,6 +30,8 @@ export async function createHumanCharacterInstance(params: {
   animationName?: string;
   loop?: boolean;
   mirrorX?: boolean;
+  rootMotion?: boolean;
+  rootMotionTarget?: "self" | "parent";
   align?: "center" | "ground";
   bodyMesh?: string;
   bodyTex?: number;
@@ -46,6 +48,8 @@ export async function createHumanCharacterInstance(params: {
     animationName = "t_dance_01",
     loop = true,
     mirrorX = true,
+    rootMotion = true,
+    rootMotionTarget = "parent",
     align = "ground",
     bodyMesh,
     bodyTex = 0,
@@ -57,9 +61,13 @@ export async function createHumanCharacterInstance(params: {
   } = params;
   void _armorInst;
 
+  const root = new THREE.Group();
+  root.name = "npc-character";
+  parent.add(root);
+
   const group = new THREE.Group();
-  group.name = "npc-character";
-  parent.add(group);
+  group.name = "npc-character-model";
+  root.add(group);
 
   try {
     const mdhPath = `/ANIMS/_COMPILED/HUMANS.MDH`;
@@ -174,13 +182,48 @@ export async function createHumanCharacterInstance(params: {
 
     const sequence = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", animationName);
     let currentTimeMs = 0;
+    const rootMotionPos = new THREE.Vector3();
+    const lastRootMotionPos = new THREE.Vector3();
+    const rootMotionDelta = new THREE.Vector3();
+    let hasLastRootMotionPos = false;
+    let lastPoseTimeMs = 0;
 
     const update = (deltaSeconds: number) => {
       if (!sequence) return;
       currentTimeMs += deltaSeconds * 1000;
 
-      const ok = evaluatePose(skeleton, sequence, currentTimeMs, loop);
+      const ok = evaluatePose(skeleton, sequence, currentTimeMs, loop, {
+        extractRootMotion: rootMotion,
+        outRootMotionPos: rootMotionPos,
+      });
       if (!ok) return;
+
+      if (rootMotion) {
+        const totalTimeMs = sequence.totalTimeMs;
+        const poseTimeMs = loop
+          ? ((currentTimeMs % totalTimeMs) + totalTimeMs) % totalTimeMs
+          : Math.max(0, Math.min(totalTimeMs, currentTimeMs));
+
+        if (!hasLastRootMotionPos) {
+          lastRootMotionPos.copy(rootMotionPos);
+          hasLastRootMotionPos = true;
+          lastPoseTimeMs = poseTimeMs;
+        } else if (loop && poseTimeMs < lastPoseTimeMs) {
+          lastRootMotionPos.copy(rootMotionPos);
+          lastPoseTimeMs = poseTimeMs;
+        } else {
+          rootMotionDelta.subVectors(rootMotionPos, lastRootMotionPos);
+          lastRootMotionPos.copy(rootMotionPos);
+          lastPoseTimeMs = poseTimeMs;
+
+          if (mirrorX) rootMotionDelta.x *= -1;
+
+          const target = rootMotionTarget === "parent" ? parent : root;
+          if (rootMotionDelta.x) target.translateX(rootMotionDelta.x);
+          if (rootMotionDelta.y) target.translateY(rootMotionDelta.y);
+          if (rootMotionDelta.z) target.translateZ(rootMotionDelta.z);
+        }
+      }
 
       for (let i = 0; i < skinningDataList.length; i++) {
         applyCpuSkinning(skeleton.animWorld, skinningDataList[i]);
@@ -188,15 +231,15 @@ export async function createHumanCharacterInstance(params: {
     };
 
     const dispose = () => {
-      parent.remove(group);
-      disposeObject3D(group);
+      parent.remove(root);
+      disposeObject3D(root);
     };
 
-    return { object: group, update, dispose };
+    return { object: root, update, dispose };
   } catch (error) {
     console.warn("Failed to create human character instance:", error);
-    parent.remove(group);
-    disposeObject3D(group);
+    parent.remove(root);
+    disposeObject3D(root);
     return null;
   }
 }

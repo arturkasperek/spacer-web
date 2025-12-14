@@ -19,6 +19,12 @@ export type AnimationSequence = {
 
 export type AnimationCache = Map<string, AnimationSequence>;
 
+export type EvaluatePoseOptions = {
+  extractRootMotion?: boolean;
+  rootNodeIndex?: number;
+  outRootMotionPos?: THREE.Vector3;
+};
+
 export async function loadAnimationSequence(
   zenKit: ZenKit,
   binaryCache: BinaryCache,
@@ -89,11 +95,16 @@ export function evaluatePose(
   skeleton: { nodes: Array<{ parent: number }>; bindLocal: THREE.Matrix4[]; animWorld: THREE.Matrix4[]; bones?: THREE.Bone[]; rootNodes?: number[] },
   sequence: AnimationSequence,
   nowMs: number,
-  loop: boolean
+  loop: boolean,
+  options?: EvaluatePoseOptions
 ): boolean {
   const nodeCount = skeleton.nodes.length;
   const nodeIndexCount = sequence.nodeIndex.length;
   if (nodeCount === 0 || nodeIndexCount === 0 || sequence.totalTimeMs <= 0) return false;
+
+  const extractRootMotion = Boolean(options?.extractRootMotion);
+  const rootNodeIndex = options?.rootNodeIndex ?? skeleton.rootNodes?.[0] ?? 0;
+  if (extractRootMotion && options?.outRootMotionPos) options.outRootMotionPos.set(0, 0, 0);
 
   const timeMs = loop ? ((nowMs % sequence.totalTimeMs) + sequence.totalTimeMs) % sequence.totalTimeMs : Math.max(0, Math.min(sequence.totalTimeMs, nowMs));
   const frameFloat = (timeMs / 1000.0) * sequence.fpsRate;
@@ -128,7 +139,15 @@ export function evaluatePose(
     q1 = new THREE.Quaternion(-q1.x, -q1.y, -q1.z, q1.w);
 
     const rot = q0.slerp(q1, t).normalize();
-    animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+
+    if (extractRootMotion && nodeId === rootNodeIndex) {
+      if (options?.outRootMotionPos) options.outRootMotionPos.copy(pos);
+      const bind = skeleton.bindLocal[nodeId];
+      const bindPos = new THREE.Vector3(bind.elements[12], bind.elements[13], bind.elements[14]);
+      animLocal[nodeId] = new THREE.Matrix4().compose(bindPos, rot, new THREE.Vector3(1, 1, 1));
+    } else {
+      animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
+    }
   }
 
   for (let i = 0; i < nodeCount; i++) {

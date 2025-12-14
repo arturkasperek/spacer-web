@@ -74,6 +74,74 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
     expect(skeleton.animWorld[0].elements[12]).toBeCloseTo(5);
   });
 
+  it("evaluatePose can extract root motion and zero out root translation", () => {
+    jest.resetModules();
+    jest.unmock("three");
+
+    const THREE = require("three");
+    const { evaluatePose } = require("../animation");
+
+    const skeleton = {
+      nodes: [{ parent: -1 }],
+      bindLocal: [new THREE.Matrix4().identity()],
+      animWorld: [new THREE.Matrix4().identity()],
+      rootNodes: [0],
+    };
+
+    const seq = {
+      name: "test",
+      nodeIndex: [0],
+      numFrames: 2,
+      fpsRate: 1,
+      totalTimeMs: 2000,
+      samples: [
+        { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+        { position: { x: 10, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+      ],
+    };
+
+    const outRoot = new THREE.Vector3();
+    const ok = evaluatePose(skeleton, seq, 500, true, { extractRootMotion: true, outRootMotionPos: outRoot });
+    expect(ok).toBe(true);
+    expect(outRoot.x).toBeCloseTo(5);
+    expect(outRoot.y).toBeCloseTo(0);
+    expect(outRoot.z).toBeCloseTo(0);
+    expect(skeleton.animWorld[0].elements[12]).toBeCloseTo(0);
+  });
+
+  it("evaluatePose preserves bind root translation when extracting root motion", () => {
+    jest.resetModules();
+    jest.unmock("three");
+
+    const THREE = require("three");
+    const { evaluatePose } = require("../animation");
+
+    const skeleton = {
+      nodes: [{ parent: -1 }],
+      bindLocal: [new THREE.Matrix4().makeTranslation(0, 80, 0)],
+      animWorld: [new THREE.Matrix4().identity()],
+      rootNodes: [0],
+    };
+
+    const seq = {
+      name: "test",
+      nodeIndex: [0],
+      numFrames: 2,
+      fpsRate: 1,
+      totalTimeMs: 2000,
+      samples: [
+        { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+        { position: { x: 10, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+      ],
+    };
+
+    const outRoot = new THREE.Vector3();
+    const ok = evaluatePose(skeleton, seq, 500, true, { extractRootMotion: true, outRootMotionPos: outRoot });
+    expect(ok).toBe(true);
+    expect(outRoot.x).toBeCloseTo(5);
+    expect(skeleton.animWorld[0].elements[13]).toBeCloseTo(80);
+  });
+
   it("applyCpuSkinning writes base data when no weights and transforms when weights exist", () => {
     jest.resetModules();
     jest.unmock("three");
