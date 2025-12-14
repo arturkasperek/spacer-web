@@ -43,7 +43,7 @@ export async function createHumanCharacterInstance(params: {
     zenKit,
     caches,
     parent,
-    animationName = "S_RUN",
+    animationName = "t_dance_01",
     loop = true,
     mirrorX = true,
     align = "ground",

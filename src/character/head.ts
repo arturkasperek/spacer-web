@@ -41,7 +41,11 @@ export async function loadHeadMesh(params: {
   const teethTex = params.teethTex ?? 0;
 
   for (const headName of headNames) {
-    const normalized = headName.trim().replace(/\.(MMS|MMB)$/i, "").toUpperCase();
+    const normalized = headName
+      .trim()
+      .replace(/\.(MMS|MMB)$/i, "")
+      .replace(/\.+$/, "")
+      .toUpperCase();
     if (!normalized) continue;
     const path = `/ANIMS/_COMPILED/${normalized}.MMB`;
     let bytes: Uint8Array;

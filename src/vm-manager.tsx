@@ -136,7 +136,11 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
 
   const normalizeVisualName = (name: string): string => {
     if (!name) return '';
-    return name.trim().replace(/\.(ASC|MDM|MDH|MDL|MMS|MMB)$/i, '').toUpperCase();
+    return name
+      .trim()
+      .replace(/\.(ASC|MDM|MDH|MDL|MMS|MMB)$/i, '')
+      .replace(/\.+$/, '')
+      .toUpperCase();
   };
 
   const registerMdlSetVisualBody = (name: string) => {

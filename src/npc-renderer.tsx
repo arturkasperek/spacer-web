@@ -154,7 +154,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         zenKit,
         caches: characterCachesRef.current,
         parent: npcGroup,
-        animationName: 'S_RUN',
+        animationName: 't_dance_01',
         loop: true,
         mirrorX: true,
         align: 'ground',
