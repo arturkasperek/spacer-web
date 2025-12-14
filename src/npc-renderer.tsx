@@ -217,7 +217,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       route,
       nextIndex: 1,
       speed: 140,
-      arriveDistance: 60,
+      arriveDistance: 5,
       done: false,
     });
   };
@@ -405,6 +405,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (!cameraPos) return;
 
     const tmpToTarget = new THREE.Vector3();
+    const tmpToTargetHoriz = new THREE.Vector3();
     const tmpDesiredQuat = new THREE.Quaternion();
     const tmpUp = new THREE.Vector3(0, 1, 0);
     const TURN_SPEED = 10;
@@ -442,31 +443,32 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const target = move.route[move.nextIndex];
         if (target) {
           tmpToTarget.subVectors(target, npcGroup.position);
-          tmpToTarget.y = 0;
           const dist = tmpToTarget.length();
 
           if (dist > 0) {
-            const yaw = Math.atan2(tmpToTarget.x, tmpToTarget.z);
+            tmpToTargetHoriz.copy(tmpToTarget);
+            tmpToTargetHoriz.y = 0;
+            const yaw = Math.atan2(tmpToTargetHoriz.x, tmpToTargetHoriz.z);
             tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
             const t = 1 - Math.exp(-TURN_SPEED * delta);
             npcGroup.quaternion.slerp(tmpDesiredQuat, t);
           }
 
-          if (dist <= move.arriveDistance) {
-            // Snap to the waypoint so we don't stop short due to the arrival threshold.
-            npcGroup.position.copy(target);
-            const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
-            if (entry) entry.position.copy(npcGroup.position);
+          if (dist > 0) {
+            const maxStep = move.speed * delta;
+            const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
 
-            move.nextIndex += 1;
-            if (move.nextIndex >= move.route.length) {
-              move.done = true;
-              npcGroup.userData.isScriptControlled = true;
+            if (shouldSnap) {
+              npcGroup.position.copy(target);
+              move.nextIndex += 1;
+              if (move.nextIndex >= move.route.length) {
+                move.done = true;
+                npcGroup.userData.isScriptControlled = true;
+              }
+            } else {
+              tmpToTarget.multiplyScalar(1 / dist);
+              npcGroup.position.addScaledVector(tmpToTarget, maxStep);
             }
-          } else if (dist > 0) {
-            const step = Math.min(dist, move.speed * delta);
-            tmpToTarget.multiplyScalar(1 / dist);
-            npcGroup.position.addScaledVector(tmpToTarget, step);
 
             // Keep the streaming source of truth updated so we don't snap back.
             const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
