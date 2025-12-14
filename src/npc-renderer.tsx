@@ -405,6 +405,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (!cameraPos) return;
 
     const tmpToTarget = new THREE.Vector3();
+    const tmpDesiredQuat = new THREE.Quaternion();
+    const tmpUp = new THREE.Vector3(0, 1, 0);
+    const TURN_SPEED = 10;
 
     for (const npcGroup of loadedNpcsRef.current.values()) {
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
@@ -439,7 +442,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const target = move.route[move.nextIndex];
         if (target) {
           tmpToTarget.subVectors(target, npcGroup.position);
+          tmpToTarget.y = 0;
           const dist = tmpToTarget.length();
+
+          if (dist > 0) {
+            const yaw = Math.atan2(tmpToTarget.x, tmpToTarget.z);
+            tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
+            const t = 1 - Math.exp(-TURN_SPEED * delta);
+            npcGroup.quaternion.slerp(tmpDesiredQuat, t);
+          }
+
           if (dist <= move.arriveDistance) {
             move.nextIndex += 1;
             if (move.nextIndex >= move.route.length) {
