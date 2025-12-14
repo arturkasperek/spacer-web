@@ -20,6 +20,7 @@ export type CharacterCaches = {
 export type CharacterInstance = {
   object: THREE.Group;
   update: (deltaSeconds: number) => void;
+  setAnimation: (animationName: string, options?: { loop?: boolean; resetTime?: boolean; fallbackNames?: string[] }) => void;
   dispose: () => void;
 };
 
@@ -31,6 +32,7 @@ export async function createHumanCharacterInstance(params: {
   loop?: boolean;
   mirrorX?: boolean;
   rootMotion?: boolean;
+  applyRootMotion?: boolean;
   rootMotionTarget?: "self" | "parent";
   align?: "center" | "ground";
   bodyMesh?: string;
@@ -49,6 +51,7 @@ export async function createHumanCharacterInstance(params: {
     loop = true,
     mirrorX = true,
     rootMotion = true,
+    applyRootMotion = true,
     rootMotionTarget = "parent",
     align = "ground",
     bodyMesh,
@@ -181,26 +184,92 @@ export async function createHumanCharacterInstance(params: {
     group.position.sub(offsetLocal);
 
     const sequence = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", animationName);
+    let currentSequence = sequence;
+    let currentAnimationName = animationName;
+    let currentLoop = loop;
     let currentTimeMs = 0;
+    const failedAnis = new Set<string>();
+    let pendingLoad: { name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
+    let loadingPromise: Promise<void> | null = null;
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
     const rootMotionDelta = new THREE.Vector3();
     let hasLastRootMotionPos = false;
     let lastPoseTimeMs = 0;
 
+    const ensureLoaderRunning = () => {
+      if (loadingPromise) return;
+      loadingPromise = (async () => {
+        while (pendingLoad) {
+          const next = pendingLoad;
+          pendingLoad = null;
+
+          const candidates = [next.name, ...(next.fallbackNames || [])].filter(Boolean);
+          let loaded: { seq: any; name: string } | null = null;
+
+          for (const cand of candidates) {
+            const key = cand.toUpperCase();
+            if (failedAnis.has(key)) continue;
+            const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", cand);
+            if (seq) {
+              loaded = { seq, name: cand };
+              break;
+            }
+            failedAnis.add(key);
+          }
+
+          if (loaded) {
+            currentSequence = loaded.seq;
+            currentAnimationName = loaded.name;
+            currentLoop = next.loop;
+            if (next.resetTime) currentTimeMs = 0;
+            hasLastRootMotionPos = false;
+            lastPoseTimeMs = 0;
+          } else {
+            currentLoop = next.loop;
+          }
+        }
+      })().finally(() => {
+        loadingPromise = null;
+        if (pendingLoad) ensureLoaderRunning();
+      });
+    };
+
+    const tryLoadAnimation = (req: { name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
+      const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
+      for (const n of names) failedAnis.delete(n.toUpperCase());
+      pendingLoad = req;
+      ensureLoaderRunning();
+    };
+
+    const setAnimation: CharacterInstance["setAnimation"] = (nextName, options) => {
+      const name = (nextName || "").trim();
+      if (!name) return;
+      const nextLoop = options?.loop ?? currentLoop;
+      const resetTime = options?.resetTime ?? false;
+
+      if (name.toUpperCase() === (currentAnimationName || "").toUpperCase()) {
+        currentLoop = nextLoop;
+        if (resetTime) currentTimeMs = 0;
+        return;
+      }
+
+      tryLoadAnimation({ name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
+    };
+
     const update = (deltaSeconds: number) => {
-      if (!sequence) return;
+      if (!currentSequence) return;
       currentTimeMs += deltaSeconds * 1000;
 
-      const ok = evaluatePose(skeleton, sequence, currentTimeMs, loop, {
+      const ok = evaluatePose(skeleton, currentSequence, currentTimeMs, currentLoop, {
         extractRootMotion: rootMotion,
         outRootMotionPos: rootMotionPos,
       });
       if (!ok) return;
 
-      if (rootMotion) {
-        const totalTimeMs = sequence.totalTimeMs;
-        const poseTimeMs = loop
+      if (rootMotion && applyRootMotion) {
+        const totalTimeMs = currentSequence.totalTimeMs;
+        const poseTimeMs = currentLoop
           ? ((currentTimeMs % totalTimeMs) + totalTimeMs) % totalTimeMs
           : Math.max(0, Math.min(totalTimeMs, currentTimeMs));
 
@@ -235,7 +304,7 @@ export async function createHumanCharacterInstance(params: {
       disposeObject3D(root);
     };
 
-    return { object: root, update, dispose };
+    return { object: root, update, setAnimation, dispose };
   } catch (error) {
     console.warn("Failed to create human character instance:", error);
     parent.remove(root);

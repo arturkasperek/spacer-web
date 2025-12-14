@@ -248,6 +248,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         loop: true,
         mirrorX: true,
         rootMotionTarget: "self",
+        applyRootMotion: false,
         align: 'ground',
         bodyMesh: visual?.bodyMesh,
         bodyTex: visual?.bodyTex,
@@ -274,7 +275,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isLares = (npcData.symbolName || '').trim().toUpperCase() === 'LARES' || (npcData.name || '').trim().toLowerCase() === 'lares';
       if (isLares && !laresMoveStartedRef.current) {
         laresMoveStartedRef.current = true;
-        startMoveToWaypointOnce(npcId, npcGroup, 'NW_CITY_HABOUR_HUT_08');
+        startMoveToWaypointOnce(npcId, npcGroup, 'NW_CITY_PATH_HABOUR_04');
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -403,6 +404,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const cameraPos = cameraPosition || (camera ? camera.position : undefined);
     if (!cameraPos) return;
 
+    const tmpToTarget = new THREE.Vector3();
+
     for (const npcGroup of loadedNpcsRef.current.values()) {
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
@@ -418,11 +421,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
       const move = activeScriptMovesRef.current.get(npcId);
+      const isMoving = Boolean(move && !move.done);
+
+      if (instance) {
+        const desired = isMoving ? "s_WalkL" : "t_dance_01";
+        if (npcGroup.userData.desiredAnimation !== desired) {
+          npcGroup.userData.desiredAnimation = desired;
+          instance.setAnimation(desired, {
+            loop: true,
+            resetTime: true,
+            fallbackNames: isMoving ? ["s_Walk", "s_Run"] : undefined,
+          });
+        }
+      }
+
       if (move && !move.done) {
         const target = move.route[move.nextIndex];
         if (target) {
-          const toTarget = new THREE.Vector3().subVectors(target, npcGroup.position);
-          const dist = toTarget.length();
+          tmpToTarget.subVectors(target, npcGroup.position);
+          const dist = tmpToTarget.length();
           if (dist <= move.arriveDistance) {
             move.nextIndex += 1;
             if (move.nextIndex >= move.route.length) {
@@ -431,8 +448,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             }
           } else if (dist > 0) {
             const step = Math.min(dist, move.speed * delta);
-            toTarget.multiplyScalar(1 / dist);
-            npcGroup.position.addScaledVector(toTarget, step);
+            tmpToTarget.multiplyScalar(1 / dist);
+            npcGroup.position.addScaledVector(tmpToTarget, step);
 
             // Keep the streaming source of truth updated so we don't snap back.
             const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
