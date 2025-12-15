@@ -427,7 +427,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
       if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
         hardcodedCavalornMoveStartedRef.current = true;
-        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_BANDITS_05");
+        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_IN1_28");
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');

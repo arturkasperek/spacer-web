@@ -70,4 +70,30 @@ describe("npc locomotion controller", () => {
       })
     );
   });
+
+  it("switches between walk and run without playing stop animations", () => {
+    const controller = createLocomotionController({
+      idle: { name: "IDLE", loop: true },
+      walkStart: { name: "WALK_START", loop: false },
+      walkLoop: { name: "WALK_LOOP", loop: true },
+      walkStop: { name: "WALK_STOP", loop: false },
+      runStart: { name: "RUN_START", loop: false },
+      runLoop: { name: "RUN_LOOP", loop: true },
+      runStop: { name: "RUN_STOP", loop: false },
+    });
+
+    const setAnimation = jest.fn();
+    const instance: any = { setAnimation };
+
+    controller.update(instance, "idle");
+    controller.update(instance, "walk");
+    controller.update(instance, "run");
+    controller.update(instance, "walk");
+
+    const calls = setAnimation.mock.calls.map(c => c[0]);
+    expect(calls).toContain("WALK_START");
+    expect(calls).toContain("RUN_START");
+    expect(calls).not.toContain("WALK_STOP");
+    expect(calls).not.toContain("RUN_STOP");
+  });
 });

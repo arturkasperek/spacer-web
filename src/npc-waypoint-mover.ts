@@ -144,21 +144,20 @@ export function createWaypointMover(world: World): WaypointMover {
           npcGroup.quaternion.slerp(tmpDesiredQuat, t);
         }
 
-        if (dist > 0) {
-          const maxStep = move.speed * dt;
-          const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
+        const maxStep = move.speed * dt;
+        const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
 
-          if (shouldSnap) {
-            npcGroup.position.x = target.x;
-            npcGroup.position.z = target.z;
-            move.nextIndex += 1;
-            if (move.nextIndex >= move.route.length) {
-              move.done = true;
-            }
-          } else {
-            tmpToTargetHoriz.multiplyScalar(1 / dist);
-            npcGroup.position.addScaledVector(tmpToTargetHoriz, maxStep);
+        if (shouldSnap) {
+          npcGroup.position.x = target.x;
+          npcGroup.position.z = target.z;
+          move.nextIndex += 1;
+          if (move.nextIndex >= move.route.length) {
+            move.done = true;
           }
+        } else {
+          // `shouldSnap === false` implies `dist > 0`.
+          tmpToTargetHoriz.multiplyScalar(1 / dist);
+          npcGroup.position.addScaledVector(tmpToTargetHoriz, maxStep);
         }
 
         moved = true;

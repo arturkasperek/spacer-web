@@ -84,4 +84,48 @@ describe("npc waypoint mover", () => {
     const started = mover.startMoveToWaypoint("npc-1", group, "C");
     expect(started).toBe(false);
   });
+
+  it("does not get stuck when already at the next waypoint position (dist=0)", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        { name: "B", position: { x: 10, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    // Force the NPC exactly onto the target XZ (the mover only advances the route when it decides to "snap").
+    group.position.set(-10, 0, 0);
+
+    const tick = mover.update("npc-1", group, 0.016);
+    expect(tick.moved).toBe(true);
+    expect(tick.mode).toBe("idle");
+    expect(group.position.x).toBeCloseTo(-10, 6);
+  });
+
+  it("clear() stops an in-progress move", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        { name: "B", position: { x: 10, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 10, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(mover.update("npc-1", group, 0.016).moved).toBe(true);
+
+    mover.clear();
+    expect(mover.update("npc-1", group, 0.016)).toEqual({ moved: false, mode: "idle" });
+  });
 });
