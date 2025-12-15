@@ -12,6 +12,19 @@ export type SetOnFloorOptions = {
    * Useful when multiple surfaces exist above/below (e.g. bridges/ceilings).
    */
   preferClosestToY?: number;
+  /**
+   * Optional Raycaster instance to reuse between calls (avoids per-call allocations).
+   */
+  raycaster?: THREE.Raycaster;
+  /**
+   * Whether to recurse into children for raycasts (default: true).
+   */
+  recursive?: boolean;
+  /**
+   * Hint for BVH-accelerated raycasts: return only the closest hit.
+   * Ignored by Three.js default raycast.
+   */
+  firstHitOnly?: boolean;
 };
 
 export function findWorldMesh(scene: unknown): THREE.Object3D | null {
@@ -30,14 +43,10 @@ export function setObjectOriginOnFloor(object: THREE.Object3D, ground: THREE.Obj
   object.updateMatrixWorld(true);
   ground.updateMatrixWorld(true);
 
-  const maxDownDistance = options?.maxDownDistance ?? 10000;
-  const rayStartAbove = options?.rayStartAbove ?? 1000;
-  const clearance = options?.clearance ?? 4;
-
   const objWorldPos = new THREE.Vector3();
   object.getWorldPosition(objWorldPos);
 
-  const targetY = getGroundHitY(objWorldPos, ground, { maxDownDistance, rayStartAbove, clearance });
+  const targetY = getGroundHitY(objWorldPos, ground, options);
   if (targetY == null) return false;
   const desiredWorldPos = objWorldPos.clone();
   desiredWorldPos.y = targetY;
@@ -63,12 +72,23 @@ export function getGroundHitY(worldPos: THREE.Vector3, ground: THREE.Object3D, o
   const clearance = options?.clearance ?? 4;
   const minHitNormalY = options?.minHitNormalY;
   const preferClosestToY = options?.preferClosestToY;
+  const recursive = options?.recursive ?? true;
+  const firstHitOnly = options?.firstHitOnly ?? false;
 
-  const rayOrigin = worldPos.clone();
-  rayOrigin.y = worldPos.y + rayStartAbove;
-  const raycaster = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0, -1, 0), 0, rayStartAbove + maxDownDistance);
+  const raycaster = options?.raycaster ?? new THREE.Raycaster();
+  const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+  if (firstHitOnly) {
+    (raycaster as any).firstHitOnly = true;
+  }
+  raycaster.ray.origin.set(worldPos.x, worldPos.y + rayStartAbove, worldPos.z);
+  raycaster.ray.direction.set(0, -1, 0);
+  raycaster.near = 0;
+  raycaster.far = rayStartAbove + maxDownDistance;
   ground.updateMatrixWorld(true);
-  const hits = raycaster.intersectObject(ground, true);
+  const hits = raycaster.intersectObject(ground, recursive);
+  if (firstHitOnly) {
+    (raycaster as any).firstHitOnly = prevFirstHitOnly;
+  }
   if (!hits.length) return null;
 
   const pickClosest = (candidateHits: typeof hits) => {
@@ -117,6 +137,11 @@ export function setObjectOnFloor(object: THREE.Object3D, ground: THREE.Object3D,
   const rayStartAbove = options?.rayStartAbove ?? 1000;
   const clearance = options?.clearance ?? 4;
   const minHitNormalY = options?.minHitNormalY;
+  const recursive = options?.recursive ?? true;
+  const firstHitOnly = options?.firstHitOnly ?? false;
+  const raycaster = options?.raycaster ?? new THREE.Raycaster();
+  const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+  if (firstHitOnly) (raycaster as any).firstHitOnly = true;
 
   const bbox = new THREE.Box3().setFromObject(object);
   const objWorldPos = new THREE.Vector3();
@@ -126,10 +151,14 @@ export function setObjectOnFloor(object: THREE.Object3D, ground: THREE.Object3D,
 
   const rayOrigin = objWorldPos.clone();
   rayOrigin.y += rayStartAbove;
-  const raycaster = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0, -1, 0), 0, rayStartAbove + maxDownDistance);
+  raycaster.ray.origin.copy(rayOrigin);
+  raycaster.ray.direction.set(0, -1, 0);
+  raycaster.near = 0;
+  raycaster.far = rayStartAbove + maxDownDistance;
 
   ground.updateMatrixWorld(true);
-  const hits = raycaster.intersectObject(ground, true);
+  const hits = raycaster.intersectObject(ground, recursive);
+  if (firstHitOnly) (raycaster as any).firstHitOnly = prevFirstHitOnly;
   if (!hits.length) return false;
 
   let hitY: number | null = null;

@@ -43,6 +43,12 @@ interface NpcRendererProps {
 export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
+  const tmpObjWorldPos = useMemo(() => new THREE.Vector3(), []);
+  const tmpDesiredWorldPos = useMemo(() => new THREE.Vector3(), []);
+  const tmpLocalBefore = useMemo(() => new THREE.Vector3(), []);
+  const tmpLocalAfter = useMemo(() => new THREE.Vector3(), []);
+  const tmpGroundSampleWorldPos = useMemo(() => new THREE.Vector3(), []);
+  const groundRaycasterRef = useRef<THREE.Raycaster | null>(null);
   const characterCachesRef = useRef<CharacterCaches>({
     binary: new Map(),
     textures: new Map(),
@@ -59,6 +65,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3 }>>([]); // All NPC data
+  const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3 }>());
+  const allNpcsByInstanceIndexRef = useRef(new Map<number, { npcData: NpcData; position: THREE.Vector3 }>());
+  const npcItemsRef = useRef<Array<{ id: string; position: THREE.Vector3 }>>([]);
   const NPC_LOAD_DISTANCE = 5000; // Load NPCs within this distance
   const NPC_UNLOAD_DISTANCE = 6000; // Unload NPCs beyond this distance
 
@@ -140,6 +149,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Store NPCs with positions for streaming
   useEffect(() => {
     allNpcsRef.current = npcsWithPositions;
+    const byId = new Map<string, { npcData: NpcData; position: THREE.Vector3 }>();
+    const byIdx = new Map<number, { npcData: NpcData; position: THREE.Vector3 }>();
+    const items: Array<{ id: string; position: THREE.Vector3 }> = [];
+    for (const entry of npcsWithPositions) {
+      const id = `npc-${entry.npcData.instanceIndex}`;
+      byId.set(id, entry);
+      byIdx.set(entry.npcData.instanceIndex, entry);
+      items.push({ id, position: entry.position });
+    }
+    allNpcsByIdRef.current = byId;
+    allNpcsByInstanceIndexRef.current = byIdx;
+    npcItemsRef.current = items;
   }, [npcsWithPositions]);
 
   useEffect(() => {
@@ -166,25 +187,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const persistNpcPosition = (npcGroup: THREE.Group) => {
     const npcData = npcGroup.userData.npcData as NpcData | undefined;
     if (!npcData) return;
-    const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
+    const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
     if (entry) entry.position.copy(npcGroup.position);
   };
 
-  const setWorldY = (object: THREE.Object3D, desiredWorldY: number) => {
-    const objWorldPos = new THREE.Vector3();
-    object.getWorldPosition(objWorldPos);
-    const desiredWorldPos = objWorldPos.clone();
-    desiredWorldPos.y = desiredWorldY;
+  const setWorldYFromWorldPos = (object: THREE.Object3D, objWorldPos: THREE.Vector3, desiredWorldY: number) => {
+    tmpDesiredWorldPos.copy(objWorldPos);
+    tmpDesiredWorldPos.y = desiredWorldY;
 
     if (!object.parent) {
-      object.position.y = desiredWorldPos.y;
+      object.position.y = desiredWorldY;
       return;
     }
 
-    const localBefore = object.parent.worldToLocal(objWorldPos.clone());
-    const localAfter = object.parent.worldToLocal(desiredWorldPos.clone());
-    const localDelta = localAfter.sub(localBefore);
-    object.position.add(localDelta);
+    tmpLocalBefore.copy(objWorldPos);
+    object.parent.worldToLocal(tmpLocalBefore);
+    tmpLocalAfter.copy(tmpDesiredWorldPos);
+    object.parent.worldToLocal(tmpLocalAfter);
+    tmpLocalAfter.sub(tmpLocalBefore);
+    object.position.add(tmpLocalAfter);
   };
 
   const smoothWorldY = (object: THREE.Object3D, targetWorldY: number, deltaSeconds: number) => {
@@ -192,26 +213,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     // We treat uphill differently to prevent the character from lagging behind the terrain and clipping into it.
     const SMOOTH_UP = 30; // snappier uphill
     const SMOOTH_DOWN = 14; // gentler downhill
-    const objWorldPos = new THREE.Vector3();
-    object.getWorldPosition(objWorldPos);
+    object.getWorldPosition(tmpObjWorldPos);
 
     const dt = Math.min(Math.max(0, deltaSeconds), 0.05);
-    const dyToTarget = targetWorldY - objWorldPos.y;
+    const dyToTarget = targetWorldY - tmpObjWorldPos.y;
     const smooth = dyToTarget >= 0 ? SMOOTH_UP : SMOOTH_DOWN;
     const alpha = 1 - Math.exp(-smooth * dt);
-    const desired = objWorldPos.y + dyToTarget * alpha;
+    const desired = tmpObjWorldPos.y + dyToTarget * alpha;
 
     // Clamp vertical speed to avoid popping on steep terrain / noisy hits.
     const maxUp = 4500 * dt;
     const maxDown = 1500 * dt;
     const maxDy = dyToTarget >= 0 ? maxUp : maxDown;
-    let clamped = objWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - objWorldPos.y));
+    let clamped = tmpObjWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - tmpObjWorldPos.y));
 
     // Never allow significant penetration below the sampled ground height (helps uphill clipping).
     const PENETRATION_ALLOW = 2;
     clamped = Math.max(clamped, targetWorldY - PENETRATION_ALLOW);
 
-    setWorldY(object, clamped);
+    setWorldYFromWorldPos(object, tmpObjWorldPos, clamped);
   };
 
   const snapNpcToGroundOrDefer = (npcGroup: THREE.Group, reason: string) => {
@@ -225,12 +245,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return false;
     }
 
+    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
+
     const beforeY = npcGroup.position.y;
     // Prefer a short ray from just above the NPC to avoid snapping to roofs/terrain above interior spaces.
     // Fallback to a longer ray only if needed.
     const ok =
-      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 }) ||
-      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000 });
+      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000, raycaster: groundRaycasterRef.current, recursive: false, firstHitOnly: true }) ||
+      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000, raycaster: groundRaycasterRef.current, recursive: false, firstHitOnly: true });
     if (!ok) {
       pendingGroundSnapRef.current.push(npcGroup);
     } else {
@@ -375,18 +397,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     if (shouldUpdate) {
       // Convert NPCs to streamable items with positions for distance checking
-      const npcItems = allNpcsRef.current.map(npc => ({
-        id: `npc-${npc.npcData.instanceIndex}`,
-        position: npc.position,
-      }));
+      const npcItems = npcItemsRef.current;
 
       // Keep already-loaded NPCs in sync with their latest computed positions
-      for (const npc of allNpcsRef.current) {
-        const id = `npc-${npc.npcData.instanceIndex}`;
-        const npcGroup = loadedNpcsRef.current.get(id);
-        if (npcGroup) {
-          npcGroup.position.copy(npc.position);
-        }
+      for (const [id, npcGroup] of loadedNpcsRef.current.entries()) {
+        const entry = allNpcsByIdRef.current.get(id);
+        if (entry) npcGroup.position.copy(entry.position);
       }
 
       // Find NPCs to load/unload using shared utility
@@ -399,7 +415,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // Load new NPCs
       for (const item of toLoad) {
-        const npc = allNpcsRef.current.find(n => `npc-${n.npcData.instanceIndex}` === item.id);
+        const npc = allNpcsByIdRef.current.get(item.id);
         if (!npc) continue;
 
         // Create NPC mesh imperatively
@@ -448,12 +464,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (pendingGroundSnapRef.current.length > 0 && ensureWorldMesh()) {
       const batch = pendingGroundSnapRef.current.splice(0, 8);
       const ground = worldMeshRef.current!;
+      if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
+      const raycaster = groundRaycasterRef.current;
       for (const g of batch) {
         if (!g || g.userData.isDisposed) continue;
         const beforeY = g.position.y;
         const ok =
-          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 }) ||
-          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000 });
+          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000, raycaster, recursive: false, firstHitOnly: true }) ||
+          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000, raycaster, recursive: false, firstHitOnly: true });
         if (!ok) {
           pendingGroundSnapRef.current.push(g);
         } else {
@@ -496,6 +514,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
         const ground = ensureWorldMesh();
         if (ground) {
+          if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
+
           const SAMPLE_INTERVAL = 0.05; // seconds (moving NPCs only; keeps uphill stable)
           const lastSample = (npcGroup.userData.lastGroundSampleAt as number | undefined) ?? 0;
           const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
@@ -503,20 +523,21 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
           if (now - lastSample >= SAMPLE_INTERVAL) {
             npcGroup.userData.lastGroundSampleAt = now;
-            const worldPos = new THREE.Vector3();
-            npcGroup.getWorldPosition(worldPos);
-            const targetY = getGroundHitY(worldPos, ground, {
+            npcGroup.getWorldPosition(tmpGroundSampleWorldPos);
+            const targetY = getGroundHitY(tmpGroundSampleWorldPos, ground, {
               clearance: 4,
               rayStartAbove: 50,
               maxDownDistance: 5000,
               // Prefer the hit closest to our current height so bridges/ceilings don't "steal" the ray.
-              preferClosestToY: worldPos.y,
+              preferClosestToY: tmpGroundSampleWorldPos.y,
+              raycaster: groundRaycasterRef.current,
+              recursive: false,
             });
             if (targetY != null) {
               // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
               const MAX_STEP_UP = 250;
               const MAX_STEP_DOWN = 800;
-              const dy = targetY - worldPos.y;
+              const dy = targetY - tmpGroundSampleWorldPos.y;
               if (dy <= MAX_STEP_UP && dy >= -MAX_STEP_DOWN) {
                 const prev = npcGroup.userData.groundYTarget as number | undefined;
                 if (typeof prev === "number") {
@@ -535,7 +556,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             smoothWorldY(npcGroup, targetY, delta);
           }
         }
-        const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
+        const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
       }
     }

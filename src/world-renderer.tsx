@@ -120,6 +120,21 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         threeMesh.name = 'WORLD_MESH';
         threeMesh.scale.x = -1; // Fix mirrored world
 
+        // Speed up frequent raycasts (NPC ground sampling, picking, etc.) by building a BVH once for the world mesh.
+        // If the dependency isn't available for some reason, we fall back to Three.js' default raycast.
+        try {
+          const bvhMod = await import("three-mesh-bvh");
+          const MeshBVH = (bvhMod as any).MeshBVH as any;
+          const acceleratedRaycast = (bvhMod as any).acceleratedRaycast as any;
+          if (MeshBVH && acceleratedRaycast) {
+            (geometry as any).boundsTree = new MeshBVH(geometry, { maxLeafTris: 3 });
+            (threeMesh as any).raycast = acceleratedRaycast;
+            console.log("[World] BVH built for WORLD_MESH raycasts");
+          }
+        } catch {
+          // Optional optimization only.
+        }
+
         setWorldMesh(threeMesh);
         onLoadingStatus('World loaded successfully!');
 
