@@ -9,7 +9,7 @@ import { findVobByName } from './vob-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
 import { buildWaynetGraph, findNearestWaypointIndex, findRouteAStar, findWaypointIndexByName, type WaynetGraph, type WaynetWaypoint, type WaynetEdge } from './waynet-pathfinding';
 import { preloadAnimationSequences } from "./character/animation.js";
-import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController } from "./npc-locomotion";
+import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 
 interface NpcRendererProps {
   world: World | null;
@@ -61,6 +61,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         nextIndex: number;
         speed: number;
         arriveDistance: number;
+        locomotionMode?: "walk" | "run";
         done: boolean;
       }
     >()
@@ -236,6 +237,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       nextIndex: 1,
       speed: 140,
       arriveDistance: 5,
+      locomotionMode: "walk",
       done: false,
     });
   };
@@ -448,11 +450,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
       const move = activeScriptMovesRef.current.get(npcId);
-      const isMoving = Boolean(move && !move.done);
+      const locomotionMode: LocomotionMode = move && !move.done ? (move.locomotionMode ?? "walk") : "idle";
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
-        locomotion?.update(instance, isMoving);
+        locomotion?.update(instance, locomotionMode);
       }
 
       if (move && !move.done) {
