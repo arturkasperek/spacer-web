@@ -59,18 +59,29 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onNpcSpawn: NpcSpawnCallback;
 }>) {
   const { camera } = useThree();
+  const didInitCameraRef = useRef(false);
 
   // Store the camera reference
   cameraRef.current = camera;
 
-  // Set initial camera orientation to match zen-viewer.html
+  // Set initial camera pose
   useEffect(() => {
-    camera.lookAt(-1, 0, 0); // Look along positive X axis
     camera.rotation.order = 'YXZ';
     camera.updateProjectionMatrix();
-    if (cameraControlsRef.current) {
-      cameraControlsRef.current.updateMouseState(0, 0);
-    }
+
+    if (didInitCameraRef.current) return;
+    const controls = cameraControlsRef.current;
+    if (!controls) return;
+
+    const pos: [number, number, number] = [-24675.45, 3322.9, -21834.6];
+    const yaw = 2.4152;
+    const lookAt: [number, number, number] = [
+      pos[0] + -Math.sin(yaw),
+      pos[1],
+      pos[2] + -Math.cos(yaw),
+    ];
+    controls.setPose(pos, lookAt);
+    didInitCameraRef.current = true;
   }, [camera, cameraControlsRef]);
 
   return (

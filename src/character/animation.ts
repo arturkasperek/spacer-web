@@ -25,6 +25,25 @@ export type EvaluatePoseOptions = {
   outRootMotionPos?: THREE.Vector3;
 };
 
+export async function preloadAnimationSequences(
+  zenKit: ZenKit,
+  binaryCache: BinaryCache,
+  animationCache: AnimationCache,
+  baseName: string,
+  animationNames: string[]
+): Promise<void> {
+  const unique = Array.from(
+    new Set(
+      (animationNames || [])
+        .map(s => (s || "").trim())
+        .filter(Boolean)
+        .map(s => s.toUpperCase())
+    )
+  );
+
+  await Promise.allSettled(unique.map(name => loadAnimationSequence(zenKit, binaryCache, animationCache, baseName, name)));
+}
+
 export async function loadAnimationSequence(
   zenKit: ZenKit,
   binaryCache: BinaryCache,

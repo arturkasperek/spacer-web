@@ -8,6 +8,8 @@ import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils
 import { findVobByName } from './vob-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
 import { buildWaynetGraph, findNearestWaypointIndex, findRouteAStar, findWaypointIndexByName, type WaynetGraph, type WaynetWaypoint, type WaynetEdge } from './waynet-pathfinding';
+import { preloadAnimationSequences } from "./character/animation.js";
+import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController } from "./npc-locomotion";
 
 interface NpcRendererProps {
   world: World | null;
@@ -46,6 +48,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     materials: new Map(),
     animations: new Map(),
   });
+  const didPreloadAnimationsRef = useRef(false);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -63,7 +66,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     >()
   );
   const waynetGraphRef = useRef<WaynetGraph | null>(null);
-  const laresMoveStartedRef = useRef(false);
+  const scriptMoveStartedRef = useRef(false);
   const NPC_LOAD_DISTANCE = 5000; // Load NPCs within this distance
   const NPC_UNLOAD_DISTANCE = 6000; // Unload NPCs beyond this distance
 
@@ -149,9 +152,24 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   useEffect(() => {
     waynetGraphRef.current = null;
-    laresMoveStartedRef.current = false;
+    scriptMoveStartedRef.current = false;
     activeScriptMovesRef.current.clear();
   }, [world]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (!zenKit) return;
+    if (didPreloadAnimationsRef.current) return;
+    didPreloadAnimationsRef.current = true;
+
+    void preloadAnimationSequences(
+      zenKit,
+      characterCachesRef.current.binary,
+      characterCachesRef.current.animations,
+      "HUMANS",
+      HUMAN_LOCOMOTION_PRELOAD_ANIS
+    );
+  }, [enabled, zenKit]);
 
   const ensureWaynetGraph = (): WaynetGraph | null => {
     if (!world) return null;
@@ -244,7 +262,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         zenKit,
         caches: characterCachesRef.current,
         parent: npcGroup,
-        animationName: 't_dance_01',
+        animationName: 's_Run',
         loop: true,
         mirrorX: true,
         rootMotionTarget: "self",
@@ -266,16 +284,21 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
 
       npcGroup.userData.characterInstance = instance;
+      npcGroup.userData.locomotion = createHumanLocomotionController();
       (npcGroup.userData.characterInstance as CharacterInstance).update(0);
       if (npcGroup.userData.isDisposed) return;
 
-      // One-shot scripted movement test: move Lares to a specific waypoint.
+      const symbolName = (npcData.symbolName || "").trim().toUpperCase();
+      const displayName = (npcData.name || "").trim().toLowerCase();
+      const isCavalorn = symbolName === "CAVALORN" || displayName === "cavalorn";
+      npcGroup.userData.isCavalorn = isCavalorn;
+
+      // One-shot scripted movement test: move Cavalorn to a specific waypoint.
       // Later we can generalize this and hook it to VM/AI routines.
       const npcId = `npc-${npcData.instanceIndex}`;
-      const isLares = (npcData.symbolName || '').trim().toUpperCase() === 'LARES' || (npcData.name || '').trim().toLowerCase() === 'lares';
-      if (isLares && !laresMoveStartedRef.current) {
-        laresMoveStartedRef.current = true;
-        startMoveToWaypointOnce(npcId, npcGroup, 'NW_CITY_PATH_HABOUR_04');
+      if (isCavalorn && !scriptMoveStartedRef.current) {
+        scriptMoveStartedRef.current = true;
+        startMoveToWaypointOnce(npcId, npcGroup, "NW_XARDAS_TOWER_VIEW_03_01");
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -428,26 +451,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isMoving = Boolean(move && !move.done);
 
       if (instance) {
-        const wasMoving = Boolean(npcGroup.userData.wasMoving);
-        if (isMoving && !wasMoving) {
-          instance.setAnimation("t_Walk_2_WalkL", {
-            loop: false,
-            resetTime: true,
-            fallbackNames: ["s_WalkL"],
-            next: { animationName: "s_WalkL", loop: true, resetTime: true, fallbackNames: ["s_WalkL", "s_RunL", "s_Run"] },
-          });
-        } else if (!isMoving && wasMoving) {
-          instance.setAnimation("t_WalkL_2_Walk", {
-            loop: false,
-            resetTime: true,
-            fallbackNames: ["s_Run"],
-            next: { animationName: "s_Run", loop: true, resetTime: true, fallbackNames: ["t_dance_01"] },
-          });
-        } else if (!isMoving && npcGroup.userData.hasIdleAni !== true) {
-          npcGroup.userData.hasIdleAni = true;
-          instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["t_dance_01"] });
-        }
-        npcGroup.userData.wasMoving = isMoving;
+        const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
+        locomotion?.update(instance, isMoving);
       }
 
       if (move && !move.done) {
