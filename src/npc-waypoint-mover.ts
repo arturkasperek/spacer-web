@@ -116,41 +116,55 @@ export function createWaypointMover(world: World): WaypointMover {
       const move = moves.get(npcId);
       if (!move || move.done) return { moved: false, mode: "idle" };
 
-      const target = move.route[move.nextIndex];
-      if (!target) {
-        move.done = true;
-        return { moved: false, mode: "idle" };
-      }
+      const MAX_DT = 0.05;
+      const MAX_STEPS = 8;
+      let remaining = Math.max(0, deltaSeconds);
+      let moved = false;
 
-      tmpToTarget.subVectors(target, npcGroup.position);
-      const dist = tmpToTarget.length();
+      for (let step = 0; step < MAX_STEPS && remaining > 0 && !move.done; step++) {
+        const dt = Math.min(remaining, MAX_DT);
+        remaining -= dt;
 
-      if (dist > 0) {
+        const target = move.route[move.nextIndex];
+        if (!target) {
+          move.done = true;
+          break;
+        }
+
+        tmpToTarget.subVectors(target, npcGroup.position);
+        // Movement is driven in the horizontal plane; Y is handled separately (ground snapping).
         tmpToTargetHoriz.copy(tmpToTarget);
         tmpToTargetHoriz.y = 0;
-        const yaw = Math.atan2(tmpToTargetHoriz.x, tmpToTargetHoriz.z);
-        tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
-        const t = 1 - Math.exp(-TURN_SPEED * deltaSeconds);
-        npcGroup.quaternion.slerp(tmpDesiredQuat, t);
-      }
+        const dist = tmpToTargetHoriz.length();
 
-      if (dist > 0) {
-        const maxStep = move.speed * deltaSeconds;
-        const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
-
-        if (shouldSnap) {
-          npcGroup.position.copy(target);
-          move.nextIndex += 1;
-          if (move.nextIndex >= move.route.length) {
-            move.done = true;
-          }
-        } else {
-          tmpToTarget.multiplyScalar(1 / dist);
-          npcGroup.position.addScaledVector(tmpToTarget, maxStep);
+        if (dist > 0) {
+          const yaw = Math.atan2(tmpToTargetHoriz.x, tmpToTargetHoriz.z);
+          tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
+          const t = 1 - Math.exp(-TURN_SPEED * dt);
+          npcGroup.quaternion.slerp(tmpDesiredQuat, t);
         }
+
+        if (dist > 0) {
+          const maxStep = move.speed * dt;
+          const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
+
+          if (shouldSnap) {
+            npcGroup.position.x = target.x;
+            npcGroup.position.z = target.z;
+            move.nextIndex += 1;
+            if (move.nextIndex >= move.route.length) {
+              move.done = true;
+            }
+          } else {
+            tmpToTargetHoriz.multiplyScalar(1 / dist);
+            npcGroup.position.addScaledVector(tmpToTargetHoriz, maxStep);
+          }
+        }
+
+        moved = true;
       }
 
-      return { moved: true, mode: move.done ? "idle" : move.locomotionMode };
+      return { moved, mode: move.done ? "idle" : move.locomotionMode };
     },
 
     clear: () => {

@@ -31,15 +31,10 @@ export function setObjectOriginOnFloor(object: THREE.Object3D, ground: THREE.Obj
   const objWorldPos = new THREE.Vector3();
   object.getWorldPosition(objWorldPos);
 
-  const rayOrigin = objWorldPos.clone();
-  rayOrigin.y += rayStartAbove;
-  const raycaster = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0, -1, 0), 0, rayStartAbove + maxDownDistance);
-  const hits = raycaster.intersectObject(ground, true);
-  if (!hits.length) return false;
-
-  const hitY = hits[0].point.y;
+  const targetY = getGroundHitY(objWorldPos, ground, { maxDownDistance, rayStartAbove, clearance });
+  if (targetY == null) return false;
   const desiredWorldPos = objWorldPos.clone();
-  desiredWorldPos.y = hitY + clearance;
+  desiredWorldPos.y = targetY;
 
   if (!object.parent) {
     object.position.y = desiredWorldPos.y;
@@ -51,6 +46,23 @@ export function setObjectOriginOnFloor(object: THREE.Object3D, ground: THREE.Obj
   const localDelta = localAfter.sub(localBefore);
   object.position.add(localDelta);
   return true;
+}
+
+export function getGroundHitY(worldPos: THREE.Vector3, ground: THREE.Object3D, options?: SetOnFloorOptions): number | null {
+  const AnyTHREE: any = THREE as any;
+  if (!AnyTHREE.Raycaster) return null;
+
+  const maxDownDistance = options?.maxDownDistance ?? 10000;
+  const rayStartAbove = options?.rayStartAbove ?? 1000;
+  const clearance = options?.clearance ?? 4;
+
+  const rayOrigin = worldPos.clone();
+  rayOrigin.y = worldPos.y + rayStartAbove;
+  const raycaster = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0, -1, 0), 0, rayStartAbove + maxDownDistance);
+  ground.updateMatrixWorld(true);
+  const hits = raycaster.intersectObject(ground, true);
+  if (!hits.length) return null;
+  return hits[0].point.y + clearance;
 }
 
 export function setObjectOnFloor(object: THREE.Object3D, ground: THREE.Object3D, options?: SetOnFloorOptions): boolean {

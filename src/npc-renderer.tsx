@@ -10,7 +10,7 @@ import { createHumanCharacterInstance, type CharacterCaches, type CharacterInsta
 import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
-import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
+import { WORLD_MESH_NAME, getGroundHitY, setObjectOriginOnFloor } from "./ground-snap";
 
 interface NpcRendererProps {
   world: World | null;
@@ -168,6 +168,37 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (!npcData) return;
     const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
     if (entry) entry.position.copy(npcGroup.position);
+  };
+
+  const setWorldY = (object: THREE.Object3D, desiredWorldY: number) => {
+    const objWorldPos = new THREE.Vector3();
+    object.getWorldPosition(objWorldPos);
+    const desiredWorldPos = objWorldPos.clone();
+    desiredWorldPos.y = desiredWorldY;
+
+    if (!object.parent) {
+      object.position.y = desiredWorldPos.y;
+      return;
+    }
+
+    const localBefore = object.parent.worldToLocal(objWorldPos.clone());
+    const localAfter = object.parent.worldToLocal(desiredWorldPos.clone());
+    const localDelta = localAfter.sub(localBefore);
+    object.position.add(localDelta);
+  };
+
+  const smoothWorldY = (object: THREE.Object3D, targetWorldY: number, deltaSeconds: number) => {
+    const SMOOTH = 18; // higher = snappier
+    const objWorldPos = new THREE.Vector3();
+    object.getWorldPosition(objWorldPos);
+
+    const alpha = 1 - Math.exp(-SMOOTH * Math.max(0, deltaSeconds));
+    const desired = objWorldPos.y + (targetWorldY - objWorldPos.y) * alpha;
+
+    // Clamp vertical speed to avoid popping on steep terrain / noisy hits.
+    const maxDy = 800 * deltaSeconds;
+    const clamped = objWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - objWorldPos.y));
+    setWorldY(object, clamped);
   };
 
   const snapNpcToGroundOrDefer = (npcGroup: THREE.Group, reason: string) => {
@@ -452,13 +483,22 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
         const ground = ensureWorldMesh();
         if (ground) {
-          const SNAP_INTERVAL = 0.25; // seconds
-          const lastSnap = (npcGroup.userData.lastGroundSnapAt as number | undefined) ?? 0;
+          const SAMPLE_INTERVAL = 0.25; // seconds
+          const lastSample = (npcGroup.userData.lastGroundSampleAt as number | undefined) ?? 0;
           const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
           npcGroup.userData._clock = now;
-          if (now - lastSnap >= SNAP_INTERVAL) {
-            npcGroup.userData.lastGroundSnapAt = now;
-            setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 });
+
+          if (now - lastSample >= SAMPLE_INTERVAL) {
+            npcGroup.userData.lastGroundSampleAt = now;
+            const worldPos = new THREE.Vector3();
+            npcGroup.getWorldPosition(worldPos);
+            const targetY = getGroundHitY(worldPos, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 });
+            if (targetY != null) npcGroup.userData.groundYTarget = targetY;
+          }
+
+          const targetY = npcGroup.userData.groundYTarget as number | undefined;
+          if (typeof targetY === "number") {
+            smoothWorldY(npcGroup, targetY, delta);
           }
         }
         const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
