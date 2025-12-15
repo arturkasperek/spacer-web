@@ -20,7 +20,15 @@ export type CharacterCaches = {
 export type CharacterInstance = {
   object: THREE.Group;
   update: (deltaSeconds: number) => void;
-  setAnimation: (animationName: string, options?: { loop?: boolean; resetTime?: boolean; fallbackNames?: string[] }) => void;
+  setAnimation: (
+    animationName: string,
+    options?: {
+      loop?: boolean;
+      resetTime?: boolean;
+      fallbackNames?: string[];
+      next?: { animationName: string; loop?: boolean; resetTime?: boolean; fallbackNames?: string[] };
+    }
+  ) => void;
   dispose: () => void;
 };
 
@@ -191,6 +199,9 @@ export async function createHumanCharacterInstance(params: {
     const failedAnis = new Set<string>();
     let pendingLoad: { name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
     let loadingPromise: Promise<void> | null = null;
+    let nextAfterNonLoop:
+      | { animationName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
+      | null = null;
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
     const rootMotionDelta = new THREE.Vector3();
@@ -251,7 +262,19 @@ export async function createHumanCharacterInstance(params: {
       if (name.toUpperCase() === (currentAnimationName || "").toUpperCase()) {
         currentLoop = nextLoop;
         if (resetTime) currentTimeMs = 0;
+        if (currentLoop) nextAfterNonLoop = null;
         return;
+      }
+
+      if (!nextLoop && options?.next) {
+        nextAfterNonLoop = {
+          animationName: options.next.animationName,
+          loop: options.next.loop ?? true,
+          resetTime: options.next.resetTime ?? true,
+          fallbackNames: options.next.fallbackNames,
+        };
+      } else {
+        nextAfterNonLoop = null;
       }
 
       tryLoadAnimation({ name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
@@ -266,6 +289,16 @@ export async function createHumanCharacterInstance(params: {
         outRootMotionPos: rootMotionPos,
       });
       if (!ok) return;
+
+      if (!currentLoop && nextAfterNonLoop && currentTimeMs >= currentSequence.totalTimeMs) {
+        const next = nextAfterNonLoop;
+        nextAfterNonLoop = null;
+        setAnimation(next.animationName, {
+          loop: next.loop,
+          resetTime: next.resetTime,
+          fallbackNames: next.fallbackNames,
+        });
+      }
 
       if (rootMotion && applyRootMotion) {
         const totalTimeMs = currentSequence.totalTimeMs;

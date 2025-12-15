@@ -428,15 +428,26 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isMoving = Boolean(move && !move.done);
 
       if (instance) {
-        const desired = isMoving ? "s_WalkL" : "t_dance_01";
-        if (npcGroup.userData.desiredAnimation !== desired) {
-          npcGroup.userData.desiredAnimation = desired;
-          instance.setAnimation(desired, {
-            loop: true,
+        const wasMoving = Boolean(npcGroup.userData.wasMoving);
+        if (isMoving && !wasMoving) {
+          instance.setAnimation("t_Walk_2_WalkL", {
+            loop: false,
             resetTime: true,
-            fallbackNames: isMoving ? ["s_Walk", "s_Run"] : undefined,
+            fallbackNames: ["s_WalkL"],
+            next: { animationName: "s_WalkL", loop: true, resetTime: true, fallbackNames: ["s_WalkL", "s_RunL", "s_Run"] },
           });
+        } else if (!isMoving && wasMoving) {
+          instance.setAnimation("t_WalkL_2_Walk", {
+            loop: false,
+            resetTime: true,
+            fallbackNames: ["s_Run"],
+            next: { animationName: "s_Run", loop: true, resetTime: true, fallbackNames: ["t_dance_01"] },
+          });
+        } else if (!isMoving && npcGroup.userData.hasIdleAni !== true) {
+          npcGroup.userData.hasIdleAni = true;
+          instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["t_dance_01"] });
         }
+        npcGroup.userData.wasMoving = isMoving;
       }
 
       if (move && !move.done) {
