@@ -10,7 +10,8 @@ import { createHumanCharacterInstance, type CharacterCaches, type CharacterInsta
 import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
-import { WORLD_MESH_NAME, getGroundHitY, setObjectOriginOnFloor } from "./ground-snap";
+import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
+import { getNpcDebugMark, getNpcDebugRequestSeq, setNpcDebugMark } from "./npc-debug-tools";
 
 interface NpcRendererProps {
   world: World | null;
@@ -49,6 +50,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const tmpLocalAfter = useMemo(() => new THREE.Vector3(), []);
   const tmpGroundSampleWorldPos = useMemo(() => new THREE.Vector3(), []);
   const groundRaycasterRef = useRef<THREE.Raycaster | null>(null);
+  const debugSeqRef = useRef<{ markSeq: number; dumpSeq: number }>({ markSeq: 0, dumpSeq: 0 });
+  const tmpDebugNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
+  const tmpDebugNormal = useMemo(() => new THREE.Vector3(), []);
+  const tmpMoveNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
+  const tmpMoveNormal = useMemo(() => new THREE.Vector3(), []);
+  const tmpMoveHitPoint = useMemo(() => new THREE.Vector3(), []);
   const characterCachesRef = useRef<CharacterCaches>({
     binary: new Map(),
     textures: new Map(),
@@ -184,6 +191,71 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     return null;
   };
 
+  const findCavalornGroup = (): THREE.Group | null => {
+    for (const npcGroup of loadedNpcsRef.current.values()) {
+      const npcData = npcGroup.userData.npcData as NpcData | undefined;
+      if (!npcData) continue;
+      const symbolName = (npcData.symbolName || "").trim().toUpperCase();
+      const displayName = (npcData.name || "").trim().toUpperCase();
+      if (symbolName.includes("CAVALORN") || displayName === "CAVALORN") return npcGroup;
+    }
+    return null;
+  };
+
+  const logNpcDebugJson = (event: string, data: unknown) => {
+    try {
+      console.log("[NPCDebugJSON]" + JSON.stringify({ event, t: Date.now(), data }));
+    } catch (e) {
+      console.log("[NPCDebugJSON]" + JSON.stringify({ event, t: Date.now(), error: String(e) }));
+    }
+  };
+
+  const debugRaycastDown = (label: string, worldPos: THREE.Vector3) => {
+    const ground = ensureWorldMesh();
+    if (!ground) {
+      logNpcDebugJson("raycast", { label, error: "no WORLD_MESH" });
+      return;
+    }
+    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
+    const raycaster = groundRaycasterRef.current;
+    const rayStartAbove = 50;
+    const maxDownDistance = 5000;
+    raycaster.ray.origin.set(worldPos.x, worldPos.y + rayStartAbove, worldPos.z);
+    raycaster.ray.direction.set(0, -1, 0);
+    raycaster.near = 0;
+    raycaster.far = rayStartAbove + maxDownDistance;
+    const hits = raycaster.intersectObject(ground, false);
+    const compact = hits.slice(0, 12).map(h => {
+      const faceNormal = h.face?.normal;
+      let normalY: number | null = null;
+      let normalYCorrected: number | null = null;
+      let det: number | null = null;
+      if (faceNormal) {
+        tmpDebugNormal.copy(faceNormal);
+        tmpDebugNormalMatrix.getNormalMatrix(h.object.matrixWorld);
+        tmpDebugNormal.applyMatrix3(tmpDebugNormalMatrix).normalize();
+        normalY = tmpDebugNormal.y;
+        det = h.object.matrixWorld.determinant();
+        normalYCorrected = det < 0 ? -normalY : normalY;
+      }
+      return {
+        y: Number(h.point.y.toFixed(2)),
+        yPlus4: Number((h.point.y + 4).toFixed(2)),
+        d: Number(h.distance.toFixed(2)),
+        nY: normalY != null ? Number(normalY.toFixed(3)) : null,
+        nYc: normalYCorrected != null ? Number(normalYCorrected.toFixed(3)) : null,
+        det: det != null ? Number(det.toFixed(6)) : null,
+        faceIndex: (h as any).faceIndex ?? null,
+      };
+    });
+    logNpcDebugJson("raycast", {
+      label,
+      origin: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
+      hits: compact,
+      hitCount: hits.length,
+    });
+  };
+
   const persistNpcPosition = (npcGroup: THREE.Group) => {
     const npcData = npcGroup.userData.npcData as NpcData | undefined;
     if (!npcData) return;
@@ -229,9 +301,101 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     // Never allow significant penetration below the sampled ground height (helps uphill clipping).
     const PENETRATION_ALLOW = 2;
-    clamped = Math.max(clamped, targetWorldY - PENETRATION_ALLOW);
+    const minY = targetWorldY - PENETRATION_ALLOW;
+    if (clamped < minY) {
+      // Avoid hard snapping to the ground target (causes visible stepping on steep slopes).
+      // Instead, converge quickly but smoothly when we are below the desired ground height.
+      const below = minY - clamped;
+      const recoverAlpha = 1 - Math.exp(-40 * dt);
+      clamped = Math.min(minY, clamped + below * recoverAlpha);
+    }
 
     setWorldYFromWorldPos(object, tmpObjWorldPos, clamped);
+  };
+
+  const sampleGroundHitForMove = (
+    worldPos: THREE.Vector3,
+    ground: THREE.Object3D,
+    options: {
+      clearance: number;
+      rayStartAbove: number;
+      maxDownDistance: number;
+      preferClosestToY: number;
+      minHitNormalY?: number;
+    }
+  ): { targetY: number; point: THREE.Vector3; normal: THREE.Vector3 } | null => {
+    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
+    const raycaster = groundRaycasterRef.current;
+    const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+    // We need the full hit list to pick the best surface when multiple intersections exist.
+    (raycaster as any).firstHitOnly = false;
+    raycaster.ray.origin.set(worldPos.x, worldPos.y + options.rayStartAbove, worldPos.z);
+    raycaster.ray.direction.set(0, -1, 0);
+    raycaster.near = 0;
+    raycaster.far = options.rayStartAbove + options.maxDownDistance;
+    const hits = raycaster.intersectObject(ground, false);
+    (raycaster as any).firstHitOnly = prevFirstHitOnly;
+    if (!hits.length) return null;
+
+    let best: THREE.Intersection | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    let bestNormalY = -Infinity;
+
+    for (const hit of hits) {
+      const faceNormal = hit.face?.normal;
+      let normalY: number | null = null;
+      if (faceNormal) {
+        tmpMoveNormal.copy(faceNormal);
+        tmpMoveNormalMatrix.getNormalMatrix(hit.object.matrixWorld);
+        tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
+        // Flip only when we're likely hitting the back-face of a floor (surface at/below the query point).
+        if (tmpMoveNormal.y < 0 && hit.point.y <= worldPos.y + 0.01) tmpMoveNormal.multiplyScalar(-1);
+        normalY = tmpMoveNormal.y;
+        if (typeof options.minHitNormalY === "number" && normalY < options.minHitNormalY) continue;
+      }
+
+      const y = hit.point.y + options.clearance;
+      const score = Math.abs(y - options.preferClosestToY);
+      if (score < bestScore - 1e-6) {
+        best = hit;
+        bestScore = score;
+        bestNormalY = normalY ?? bestNormalY;
+      } else if (Math.abs(score - bestScore) <= 1e-6 && (normalY ?? -Infinity) > bestNormalY) {
+        // Tie-breaker: prefer the more "up-facing" normal to reduce noisy steep faces.
+        best = hit;
+        bestScore = score;
+        bestNormalY = normalY ?? bestNormalY;
+      }
+    }
+
+    if (!best) return null;
+
+    const faceNormal = best.face?.normal;
+    if (faceNormal) {
+      tmpMoveNormal.copy(faceNormal);
+      tmpMoveNormalMatrix.getNormalMatrix(best.object.matrixWorld);
+      tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
+      if (tmpMoveNormal.y < 0 && best.point.y <= worldPos.y + 0.01) tmpMoveNormal.multiplyScalar(-1);
+    } else {
+      tmpMoveNormal.set(0, 1, 0);
+    }
+
+    tmpMoveHitPoint.copy(best.point);
+    return { targetY: best.point.y + options.clearance, point: tmpMoveHitPoint, normal: tmpMoveNormal };
+  };
+
+  const predictGroundYFromPlane = (
+    plane: { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number },
+    x: number,
+    z: number
+  ): number | null => {
+    const ny = plane.ny;
+    if (!Number.isFinite(ny) || Math.abs(ny) < 1e-5) return null;
+    const dx = x - plane.px;
+    const dz = z - plane.pz;
+    const y = plane.py - (plane.nx * dx + plane.nz * dz) / ny;
+    if (!Number.isFinite(y)) return null;
+    return y + plane.clearance;
   };
 
   const snapNpcToGroundOrDefer = (npcGroup: THREE.Group, reason: string) => {
@@ -339,7 +503,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
       if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
         hardcodedCavalornMoveStartedRef.current = true;
-        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_05");
+        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_BANDITS_05");
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -521,32 +685,47 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
           npcGroup.userData._clock = now;
 
+          // Between raycasts, predict the ground height from the last triangle plane.
+          // This makes the target change continuously on slopes instead of in 50ms steps (main source of jitter).
+          const plane = npcGroup.userData.groundPlane as
+            | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
+            | undefined;
+          if (plane) {
+            const predicted = predictGroundYFromPlane(plane, npcGroup.position.x, npcGroup.position.z);
+            if (predicted != null) {
+              npcGroup.userData.groundYTarget = predicted;
+            }
+          }
+
           if (now - lastSample >= SAMPLE_INTERVAL) {
             npcGroup.userData.lastGroundSampleAt = now;
             npcGroup.getWorldPosition(tmpGroundSampleWorldPos);
-            const targetY = getGroundHitY(tmpGroundSampleWorldPos, ground, {
+            const hit = sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
               clearance: 4,
               rayStartAbove: 50,
               maxDownDistance: 5000,
-              // Prefer the hit closest to our current height so bridges/ceilings don't "steal" the ray.
               preferClosestToY: tmpGroundSampleWorldPos.y,
-              raycaster: groundRaycasterRef.current,
-              recursive: false,
+              minHitNormalY: 0.05,
             });
-            if (targetY != null) {
+            if (hit) {
+              const targetY = hit.targetY;
               // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
               const MAX_STEP_UP = 250;
               const MAX_STEP_DOWN = 800;
               const dy = targetY - tmpGroundSampleWorldPos.y;
               if (dy <= MAX_STEP_UP && dy >= -MAX_STEP_DOWN) {
-                const prev = npcGroup.userData.groundYTarget as number | undefined;
-                if (typeof prev === "number") {
-                  // Reduce jitter but don't lag behind when walking uphill.
-                  const blend = targetY >= prev ? 0.85 : 0.35;
-                  npcGroup.userData.groundYTarget = prev + (targetY - prev) * blend;
-                } else {
-                  npcGroup.userData.groundYTarget = targetY;
-                }
+                npcGroup.userData.groundPlane = {
+                  nx: hit.normal.x,
+                  ny: hit.normal.y,
+                  nz: hit.normal.z,
+                  px: hit.point.x,
+                  py: hit.point.y,
+                  pz: hit.point.z,
+                  clearance: 4,
+                };
+
+                // Keep target in sync with the sampled hit (plane prediction will carry it between samples).
+                npcGroup.userData.groundYTarget = targetY;
               }
             }
           }
@@ -558,6 +737,65 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
         const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
+      }
+    }
+
+    // Debug tools (opt-in via UI): capture a mark and/or dump one-frame logs on demand.
+    const { markSeq, dumpSeq } = getNpcDebugRequestSeq();
+    if (markSeq !== debugSeqRef.current.markSeq) {
+      debugSeqRef.current.markSeq = markSeq;
+      const cavalorn = findCavalornGroup();
+      if (!cavalorn) {
+        console.warn("[NPCDebug] Mark requested but Cavalorn is not loaded");
+      } else {
+        const npcData = cavalorn.userData.npcData as NpcData;
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        cavalorn.getWorldPosition(worldPos);
+        cavalorn.getWorldQuaternion(worldQuat);
+        const mark = {
+          capturedAtMs: Date.now(),
+          npcId: `npc-${npcData.instanceIndex}`,
+          instanceIndex: npcData.instanceIndex,
+          symbolName: npcData.symbolName || "",
+          displayName: npcData.name || npcData.symbolName || "CAVALORN",
+          worldPos: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
+          worldQuat: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w },
+          cameraPos: cameraPos ? { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z } : undefined,
+          groundYTarget: cavalorn.userData.groundYTarget as number | undefined,
+        };
+        setNpcDebugMark(mark);
+        logNpcDebugJson("mark", mark);
+        debugRaycastDown("mark", worldPos);
+      }
+    }
+
+    if (dumpSeq !== debugSeqRef.current.dumpSeq) {
+      debugSeqRef.current.dumpSeq = dumpSeq;
+      const mark = getNpcDebugMark();
+      const cavalorn = findCavalornGroup();
+      const cPos = new THREE.Vector3();
+      const cQuat = new THREE.Quaternion();
+      if (cavalorn) {
+        cavalorn.getWorldPosition(cPos);
+        cavalorn.getWorldQuaternion(cQuat);
+      }
+      logNpcDebugJson("dump", {
+        dt: Number(delta.toFixed(4)),
+        marked: mark,
+        cavalornLoaded: Boolean(cavalorn),
+        cavalornWorldPos: cavalorn ? { x: cPos.x, y: cPos.y, z: cPos.z } : null,
+        cavalornWorldQuat: cavalorn ? { x: cQuat.x, y: cQuat.y, z: cQuat.z, w: cQuat.w } : null,
+        groundYTarget: cavalorn ? (cavalorn.userData.groundYTarget as number | undefined) : undefined,
+        lastSampleAt: cavalorn ? (cavalorn.userData.lastGroundSampleAt as number | undefined) : undefined,
+      });
+
+      if (mark) {
+        const p = new THREE.Vector3(mark.worldPos.x, mark.worldPos.y, mark.worldPos.z);
+        debugRaycastDown("dump@mark", p);
+      }
+      if (cavalorn) {
+        debugRaycastDown("dump@cavalorn", cPos);
       }
     }
   });

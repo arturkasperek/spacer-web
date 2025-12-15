@@ -79,6 +79,27 @@ describe("ground-snap", () => {
     expect(yFiltered).toBeCloseTo(14, 5); // uses floor
   });
 
+  it("treats normals correctly for mirrored world meshes (negative determinant)", () => {
+    const scene = new THREE.Scene();
+    const worldMesh = new THREE.Group();
+    worldMesh.name = mod.WORLD_MESH_NAME;
+
+    const ground = createGroundPlane(10);
+    // Mirror the ground like the app does for WORLD_MESH (scale.x = -1).
+    ground.scale.x = -1;
+    ground.updateMatrixWorld(true);
+    worldMesh.add(ground);
+    scene.add(worldMesh);
+
+    const y = mod.getGroundHitY(new THREE.Vector3(0, 20, 0), worldMesh, {
+      clearance: 4,
+      rayStartAbove: 50,
+      maxDownDistance: 5000,
+      minHitNormalY: 0.2,
+    });
+    expect(y).toBeCloseTo(14, 5);
+  });
+
   it("snaps object so its bbox bottom is on ground + clearance", () => {
     const scene = new THREE.Scene();
     const worldMesh = new THREE.Group();

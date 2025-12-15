@@ -118,6 +118,9 @@ export function getGroundHitY(worldPos: THREE.Vector3, ground: THREE.Object3D, o
       const n = faceNormal.clone();
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
       n.applyMatrix3(normalMatrix).normalize();
+      // Flip only when we likely hit the back-face of a floor (surface at/below the query point).
+      // This preserves the ability to ignore ceilings (surfaces above the query point) using minHitNormalY.
+      if (n.y < 0 && hit.point.y <= worldPos.y + 0.01) n.multiplyScalar(-1);
       if (n.y >= minHitNormalY) candidates.push(hit);
     }
     const best = pickClosest(candidates);
@@ -172,6 +175,7 @@ export function setObjectOnFloor(object: THREE.Object3D, ground: THREE.Object3D,
       const n = faceNormal.clone();
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
       n.applyMatrix3(normalMatrix).normalize();
+      if (n.y < 0 && hit.point.y <= objWorldPos.y + 0.01) n.multiplyScalar(-1);
       if (n.y >= minHitNormalY) {
         hitY = hit.point.y;
         break;
