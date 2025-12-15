@@ -7,9 +7,9 @@ import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
 import { findVobByName } from './vob-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
-import { buildWaynetGraph, findNearestWaypointIndex, findRouteAStar, findWaypointIndexByName, type WaynetGraph, type WaynetWaypoint, type WaynetEdge } from './waynet-pathfinding';
 import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
+import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 
 interface NpcRendererProps {
   world: World | null;
@@ -49,25 +49,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     animations: new Map(),
   });
   const didPreloadAnimationsRef = useRef(false);
+  const waypointMoverRef = useRef<WaypointMover | null>(null);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3 }>>([]); // All NPC data
-  const activeScriptMovesRef = useRef(
-    new Map<
-      string,
-      {
-        route: THREE.Vector3[];
-        nextIndex: number;
-        speed: number;
-        arriveDistance: number;
-        locomotionMode?: "walk" | "run";
-        done: boolean;
-      }
-    >()
-  );
-  const waynetGraphRef = useRef<WaynetGraph | null>(null);
-  const scriptMoveStartedRef = useRef(false);
   const NPC_LOAD_DISTANCE = 5000; // Load NPCs within this distance
   const NPC_UNLOAD_DISTANCE = 6000; // Unload NPCs beyond this distance
 
@@ -152,9 +138,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   }, [npcsWithPositions]);
 
   useEffect(() => {
-    waynetGraphRef.current = null;
-    scriptMoveStartedRef.current = false;
-    activeScriptMovesRef.current.clear();
+    waypointMoverRef.current = world ? createWaypointMover(world) : null;
   }, [world]);
 
   useEffect(() => {
@@ -171,76 +155,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       HUMAN_LOCOMOTION_PRELOAD_ANIS
     );
   }, [enabled, zenKit]);
-
-  const ensureWaynetGraph = (): WaynetGraph | null => {
-    if (!world) return null;
-    if (waynetGraphRef.current) return waynetGraphRef.current;
-
-    try {
-      const waypointsVector = world.getAllWaypoints() as any;
-      const waypoints: WaynetWaypoint[] = [];
-      const waypointCount = waypointsVector.size();
-      for (let i = 0; i < waypointCount; i++) {
-        const wp = waypointsVector.get(i);
-        if (!wp) continue;
-        waypoints.push({
-          name: wp.name,
-          position: {
-            x: -wp.position.x,
-            y: wp.position.y,
-            z: wp.position.z,
-          },
-        });
-      }
-
-      const edges: WaynetEdge[] = [];
-      const edgeCount = world.getWaypointEdgeCount();
-      for (let i = 0; i < edgeCount; i++) {
-        const edgeResult = world.getWaypointEdge(i);
-        if (edgeResult.success && edgeResult.data) {
-          edges.push(edgeResult.data);
-        }
-      }
-
-      waynetGraphRef.current = buildWaynetGraph(waypoints, edges);
-      return waynetGraphRef.current;
-    } catch (error) {
-      console.warn('[NPC] Failed to build waynet graph:', error);
-      return null;
-    }
-  };
-
-  const startMoveToWaypointOnce = (npcId: string, npcGroup: THREE.Group, targetWaypointName: string) => {
-    if (!world) return;
-    if (activeScriptMovesRef.current.has(npcId)) return;
-
-    const graph = ensureWaynetGraph();
-    if (!graph) return;
-
-    const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
-    const goalIndex = findWaypointIndexByName(graph, targetWaypointName);
-    const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
-    if (routeIdx.length < 2) {
-      console.warn(`[NPC] No route for ${npcId} to ${targetWaypointName}`);
-      return;
-    }
-
-    const route = routeIdx.map(i => {
-      const p = graph.waypoints[i].position;
-      return new THREE.Vector3(p.x, p.y, p.z);
-    });
-
-    // Future: extend with wall/chasm avoidance + special actions (jump, ladder interaction).
-    npcGroup.userData.isScriptControlled = true;
-    activeScriptMovesRef.current.set(npcId, {
-      route,
-      nextIndex: 1,
-      speed: 140,
-      arriveDistance: 5,
-      locomotionMode: "walk",
-      done: false,
-    });
-  };
 
   const loadNpcCharacter = async (npcGroup: THREE.Group, npcData: NpcData) => {
     if (!zenKit) return;
@@ -290,18 +204,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       (npcGroup.userData.characterInstance as CharacterInstance).update(0);
       if (npcGroup.userData.isDisposed) return;
 
-      const symbolName = (npcData.symbolName || "").trim().toUpperCase();
-      const displayName = (npcData.name || "").trim().toLowerCase();
-      const isCavalorn = symbolName === "CAVALORN" || displayName === "cavalorn";
-      npcGroup.userData.isCavalorn = isCavalorn;
-
-      // One-shot scripted movement test: move Cavalorn to a specific waypoint.
-      // Later we can generalize this and hook it to VM/AI routines.
       const npcId = `npc-${npcData.instanceIndex}`;
-      if (isCavalorn && !scriptMoveStartedRef.current) {
-        scriptMoveStartedRef.current = true;
-        startMoveToWaypointOnce(npcId, npcGroup, "NW_XARDAS_TOWER_VIEW_03_01");
-      }
+      npcGroup.userData.startMoveToWaypoint = (targetWaypointName: string, options?: any) => {
+        return waypointMoverRef.current?.startMoveToWaypoint(npcId, npcGroup, targetWaypointName, options) ?? false;
+      };
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
       if (placeholder) {
@@ -429,12 +335,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const cameraPos = cameraPosition || (camera ? camera.position : undefined);
     if (!cameraPos) return;
 
-    const tmpToTarget = new THREE.Vector3();
-    const tmpToTargetHoriz = new THREE.Vector3();
-    const tmpDesiredQuat = new THREE.Quaternion();
-    const tmpUp = new THREE.Vector3(0, 1, 0);
-    const TURN_SPEED = 10;
-
     for (const npcGroup of loadedNpcsRef.current.values()) {
       const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
@@ -449,50 +349,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
-      const move = activeScriptMovesRef.current.get(npcId);
-      const locomotionMode: LocomotionMode = move && !move.done ? (move.locomotionMode ?? "walk") : "idle";
+      const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
+      const locomotionMode: LocomotionMode = moveResult?.mode ?? "idle";
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         locomotion?.update(instance, locomotionMode);
       }
 
-      if (move && !move.done) {
-        const target = move.route[move.nextIndex];
-        if (target) {
-          tmpToTarget.subVectors(target, npcGroup.position);
-          const dist = tmpToTarget.length();
-
-          if (dist > 0) {
-            tmpToTargetHoriz.copy(tmpToTarget);
-            tmpToTargetHoriz.y = 0;
-            const yaw = Math.atan2(tmpToTargetHoriz.x, tmpToTargetHoriz.z);
-            tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
-            const t = 1 - Math.exp(-TURN_SPEED * delta);
-            npcGroup.quaternion.slerp(tmpDesiredQuat, t);
-          }
-
-          if (dist > 0) {
-            const maxStep = move.speed * delta;
-            const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
-
-            if (shouldSnap) {
-              npcGroup.position.copy(target);
-              move.nextIndex += 1;
-              if (move.nextIndex >= move.route.length) {
-                move.done = true;
-                npcGroup.userData.isScriptControlled = true;
-              }
-            } else {
-              tmpToTarget.multiplyScalar(1 / dist);
-              npcGroup.position.addScaledVector(tmpToTarget, maxStep);
-            }
-
-            // Keep the streaming source of truth updated so we don't snap back.
-            const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
-            if (entry) entry.position.copy(npcGroup.position);
-          }
-        }
+      if (moveResult?.moved) {
+        const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
+        if (entry) entry.position.copy(npcGroup.position);
       }
     }
   });
