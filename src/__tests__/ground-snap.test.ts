@@ -13,9 +13,9 @@ describe("ground-snap", () => {
 
   const createGroundPlane = (y: number) => {
     const geom = new THREE.PlaneGeometry(1000, 1000);
-    const mat = new THREE.MeshBasicMaterial();
+    // Match app behavior: world mesh materials are effectively double-sided for ray tests.
+    const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
     const ground = new THREE.Mesh(geom, mat);
-    ground.name = mod.WORLD_MESH_NAME;
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = y;
     ground.updateMatrixWorld(true);
@@ -24,7 +24,10 @@ describe("ground-snap", () => {
 
   it("snaps object origin to ground hit + clearance", () => {
     const scene = new THREE.Scene();
-    scene.add(createGroundPlane(10));
+    const worldMesh = new THREE.Group();
+    worldMesh.name = mod.WORLD_MESH_NAME;
+    worldMesh.add(createGroundPlane(10));
+    scene.add(worldMesh);
 
     const obj = new THREE.Group();
     obj.position.set(0, 100, 0);
@@ -35,9 +38,53 @@ describe("ground-snap", () => {
     expect(obj.position.y).toBeCloseTo(14, 5);
   });
 
+  it("can ignore downward-facing hits (ceilings) using minHitNormalY", () => {
+    const scene = new THREE.Scene();
+    const worldMesh = new THREE.Group();
+    worldMesh.name = mod.WORLD_MESH_NAME;
+
+    // Floor (normal up)
+    worldMesh.add(createGroundPlane(10));
+
+    // Ceiling (normal down), placed above the floor
+    const ceiling = createGroundPlane(30);
+    ceiling.rotation.x = Math.PI / 2; // flip to face downward
+    ceiling.updateMatrixWorld(true);
+    worldMesh.add(ceiling);
+    scene.add(worldMesh);
+
+    const obj = new THREE.Group();
+    obj.position.set(0, 20, 0);
+    scene.add(obj);
+
+    const ground = worldMesh;
+
+    const yNoFilter = mod.getGroundHitY(new THREE.Vector3(0, 20, 0), ground!, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 });
+    expect(yNoFilter).toBeCloseTo(34, 5); // hits ceiling first
+
+    const yPreferred = mod.getGroundHitY(new THREE.Vector3(0, 20, 0), ground!, {
+      clearance: 4,
+      rayStartAbove: 50,
+      maxDownDistance: 5000,
+      preferClosestToY: 20,
+    });
+    expect(yPreferred).toBeCloseTo(14, 5); // prefers the floor (closest to current height)
+
+    const yFiltered = mod.getGroundHitY(new THREE.Vector3(0, 20, 0), ground!, {
+      clearance: 4,
+      rayStartAbove: 50,
+      maxDownDistance: 5000,
+      minHitNormalY: 0.2,
+    });
+    expect(yFiltered).toBeCloseTo(14, 5); // uses floor
+  });
+
   it("snaps object so its bbox bottom is on ground + clearance", () => {
     const scene = new THREE.Scene();
-    scene.add(createGroundPlane(10));
+    const worldMesh = new THREE.Group();
+    worldMesh.name = mod.WORLD_MESH_NAME;
+    worldMesh.add(createGroundPlane(10));
+    scene.add(worldMesh);
 
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 10, 1), new THREE.MeshBasicMaterial());
     mesh.position.set(0, 100, 0);
@@ -52,7 +99,10 @@ describe("ground-snap", () => {
 
   it("handles parented objects by applying a local-space delta", () => {
     const scene = new THREE.Scene();
-    scene.add(createGroundPlane(10));
+    const worldMesh = new THREE.Group();
+    worldMesh.name = mod.WORLD_MESH_NAME;
+    worldMesh.add(createGroundPlane(10));
+    scene.add(worldMesh);
 
     const parent = new THREE.Group();
     parent.position.set(0, 200, 0);
@@ -69,4 +119,3 @@ describe("ground-snap", () => {
     expect(child.position.y).toBeCloseTo(-186, 5);
   });
 });
-

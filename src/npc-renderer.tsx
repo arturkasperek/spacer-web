@@ -188,16 +188,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   };
 
   const smoothWorldY = (object: THREE.Object3D, targetWorldY: number, deltaSeconds: number) => {
-    const SMOOTH = 18; // higher = snappier
+    // Inspired by ZenGin's surface-alignment smoothing: keep motion continuous and avoid hard snaps.
+    // We treat uphill differently to prevent the character from lagging behind the terrain and clipping into it.
+    const SMOOTH_UP = 30; // snappier uphill
+    const SMOOTH_DOWN = 14; // gentler downhill
     const objWorldPos = new THREE.Vector3();
     object.getWorldPosition(objWorldPos);
 
-    const alpha = 1 - Math.exp(-SMOOTH * Math.max(0, deltaSeconds));
-    const desired = objWorldPos.y + (targetWorldY - objWorldPos.y) * alpha;
+    const dt = Math.min(Math.max(0, deltaSeconds), 0.05);
+    const dyToTarget = targetWorldY - objWorldPos.y;
+    const smooth = dyToTarget >= 0 ? SMOOTH_UP : SMOOTH_DOWN;
+    const alpha = 1 - Math.exp(-smooth * dt);
+    const desired = objWorldPos.y + dyToTarget * alpha;
 
     // Clamp vertical speed to avoid popping on steep terrain / noisy hits.
-    const maxDy = 800 * deltaSeconds;
-    const clamped = objWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - objWorldPos.y));
+    const maxUp = 4500 * dt;
+    const maxDown = 1500 * dt;
+    const maxDy = dyToTarget >= 0 ? maxUp : maxDown;
+    let clamped = objWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - objWorldPos.y));
+
+    // Never allow significant penetration below the sampled ground height (helps uphill clipping).
+    const PENETRATION_ALLOW = 2;
+    clamped = Math.max(clamped, targetWorldY - PENETRATION_ALLOW);
+
     setWorldY(object, clamped);
   };
 
@@ -304,7 +317,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
       if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
         hardcodedCavalornMoveStartedRef.current = true;
-        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_PATH_FARM1_10");
+        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_05");
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -483,7 +496,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
         const ground = ensureWorldMesh();
         if (ground) {
-          const SAMPLE_INTERVAL = 0.25; // seconds
+          const SAMPLE_INTERVAL = 0.05; // seconds (moving NPCs only; keeps uphill stable)
           const lastSample = (npcGroup.userData.lastGroundSampleAt as number | undefined) ?? 0;
           const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
           npcGroup.userData._clock = now;
@@ -492,8 +505,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             npcGroup.userData.lastGroundSampleAt = now;
             const worldPos = new THREE.Vector3();
             npcGroup.getWorldPosition(worldPos);
-            const targetY = getGroundHitY(worldPos, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 });
-            if (targetY != null) npcGroup.userData.groundYTarget = targetY;
+            const targetY = getGroundHitY(worldPos, ground, {
+              clearance: 4,
+              rayStartAbove: 50,
+              maxDownDistance: 5000,
+              // Prefer the hit closest to our current height so bridges/ceilings don't "steal" the ray.
+              preferClosestToY: worldPos.y,
+            });
+            if (targetY != null) {
+              // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
+              const MAX_STEP_UP = 250;
+              const MAX_STEP_DOWN = 800;
+              const dy = targetY - worldPos.y;
+              if (dy <= MAX_STEP_UP && dy >= -MAX_STEP_DOWN) {
+                const prev = npcGroup.userData.groundYTarget as number | undefined;
+                if (typeof prev === "number") {
+                  // Reduce jitter but don't lag behind when walking uphill.
+                  const blend = targetY >= prev ? 0.85 : 0.35;
+                  npcGroup.userData.groundYTarget = prev + (targetY - prev) * blend;
+                } else {
+                  npcGroup.userData.groundYTarget = targetY;
+                }
+              }
+            }
           }
 
           const targetY = npcGroup.userData.groundYTarget as number | undefined;
