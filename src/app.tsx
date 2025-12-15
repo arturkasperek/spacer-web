@@ -14,7 +14,6 @@ import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
-import { NpcDebugPanel } from "./npc-debug-panel.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -346,7 +345,6 @@ export function App() {
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
-      <NpcDebugPanel />
     </>
   );
 }

@@ -11,7 +11,6 @@ import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
-import { getNpcDebugMark, getNpcDebugRequestSeq, setNpcDebugMark } from "./npc-debug-tools";
 
 interface NpcRendererProps {
   world: World | null;
@@ -50,9 +49,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const tmpLocalAfter = useMemo(() => new THREE.Vector3(), []);
   const tmpGroundSampleWorldPos = useMemo(() => new THREE.Vector3(), []);
   const groundRaycasterRef = useRef<THREE.Raycaster | null>(null);
-  const debugSeqRef = useRef<{ markSeq: number; dumpSeq: number }>({ markSeq: 0, dumpSeq: 0 });
-  const tmpDebugNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
-  const tmpDebugNormal = useMemo(() => new THREE.Vector3(), []);
   const tmpMoveNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
   const tmpMoveNormal = useMemo(() => new THREE.Vector3(), []);
   const tmpMoveHitPoint = useMemo(() => new THREE.Vector3(), []);
@@ -185,75 +181,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const found = scene.getObjectByName(WORLD_MESH_NAME);
     if (found) {
       worldMeshRef.current = found;
-      console.log(`[NPC] Found world mesh "${WORLD_MESH_NAME}"`);
       return found;
     }
     return null;
-  };
-
-  const findCavalornGroup = (): THREE.Group | null => {
-    for (const npcGroup of loadedNpcsRef.current.values()) {
-      const npcData = npcGroup.userData.npcData as NpcData | undefined;
-      if (!npcData) continue;
-      const symbolName = (npcData.symbolName || "").trim().toUpperCase();
-      const displayName = (npcData.name || "").trim().toUpperCase();
-      if (symbolName.includes("CAVALORN") || displayName === "CAVALORN") return npcGroup;
-    }
-    return null;
-  };
-
-  const logNpcDebugJson = (event: string, data: unknown) => {
-    try {
-      console.log("[NPCDebugJSON]" + JSON.stringify({ event, t: Date.now(), data }));
-    } catch (e) {
-      console.log("[NPCDebugJSON]" + JSON.stringify({ event, t: Date.now(), error: String(e) }));
-    }
-  };
-
-  const debugRaycastDown = (label: string, worldPos: THREE.Vector3) => {
-    const ground = ensureWorldMesh();
-    if (!ground) {
-      logNpcDebugJson("raycast", { label, error: "no WORLD_MESH" });
-      return;
-    }
-    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
-    const raycaster = groundRaycasterRef.current;
-    const rayStartAbove = 50;
-    const maxDownDistance = 5000;
-    raycaster.ray.origin.set(worldPos.x, worldPos.y + rayStartAbove, worldPos.z);
-    raycaster.ray.direction.set(0, -1, 0);
-    raycaster.near = 0;
-    raycaster.far = rayStartAbove + maxDownDistance;
-    const hits = raycaster.intersectObject(ground, false);
-    const compact = hits.slice(0, 12).map(h => {
-      const faceNormal = h.face?.normal;
-      let normalY: number | null = null;
-      let normalYCorrected: number | null = null;
-      let det: number | null = null;
-      if (faceNormal) {
-        tmpDebugNormal.copy(faceNormal);
-        tmpDebugNormalMatrix.getNormalMatrix(h.object.matrixWorld);
-        tmpDebugNormal.applyMatrix3(tmpDebugNormalMatrix).normalize();
-        normalY = tmpDebugNormal.y;
-        det = h.object.matrixWorld.determinant();
-        normalYCorrected = det < 0 ? -normalY : normalY;
-      }
-      return {
-        y: Number(h.point.y.toFixed(2)),
-        yPlus4: Number((h.point.y + 4).toFixed(2)),
-        d: Number(h.distance.toFixed(2)),
-        nY: normalY != null ? Number(normalY.toFixed(3)) : null,
-        nYc: normalYCorrected != null ? Number(normalYCorrected.toFixed(3)) : null,
-        det: det != null ? Number(det.toFixed(6)) : null,
-        faceIndex: (h as any).faceIndex ?? null,
-      };
-    });
-    logNpcDebugJson("raycast", {
-      label,
-      origin: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
-      hits: compact,
-      hitCount: hits.length,
-    });
   };
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
@@ -398,12 +328,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     return y + plane.clearance;
   };
 
-  const snapNpcToGroundOrDefer = (npcGroup: THREE.Group, reason: string) => {
+  const snapNpcToGroundOrDefer = (npcGroup: THREE.Group) => {
     const ground = ensureWorldMesh();
     if (!ground) {
       if (!warnedNoWorldMeshRef.current) {
         warnedNoWorldMeshRef.current = true;
-        console.warn(`[NPC] World mesh not ready; deferring NPC ground snap (${reason})`);
       }
       pendingGroundSnapRef.current.push(npcGroup);
       return false;
@@ -411,7 +340,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
 
-    const beforeY = npcGroup.position.y;
     // Prefer a short ray from just above the NPC to avoid snapping to roofs/terrain above interior spaces.
     // Fallback to a longer ray only if needed.
     const ok =
@@ -422,10 +350,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     } else {
       npcGroup.userData.groundSnapped = true;
       persistNpcPosition(npcGroup);
-      const dy = npcGroup.position.y - beforeY;
-      if (Math.abs(dy) > 0.01) {
-        console.log(`[NPC] Ground-snapped (${reason}) dy=${dy.toFixed(2)}`);
-      }
     }
     return ok;
   };
@@ -594,7 +518,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           scene.add(group);
         }
         npcsGroupRef.current.add(npcGroup);
-        snapNpcToGroundOrDefer(npcGroup, "spawn");
+        snapNpcToGroundOrDefer(npcGroup);
 
         // Load real model asynchronously (replaces placeholder)
         void loadNpcCharacter(npcGroup, npc.npcData);
@@ -632,7 +556,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const raycaster = groundRaycasterRef.current;
       for (const g of batch) {
         if (!g || g.userData.isDisposed) continue;
-        const beforeY = g.position.y;
         const ok =
           setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000, raycaster, recursive: false, firstHitOnly: true }) ||
           setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000, raycaster, recursive: false, firstHitOnly: true });
@@ -641,10 +564,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         } else {
           g.userData.groundSnapped = true;
           persistNpcPosition(g);
-          const dy = g.position.y - beforeY;
-          if (Math.abs(dy) > 0.01) {
-            console.log(`[NPC] Ground-snapped (deferred) dy=${dy.toFixed(2)}`);
-          }
         }
       }
     }
@@ -737,65 +656,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
         const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
-      }
-    }
-
-    // Debug tools (opt-in via UI): capture a mark and/or dump one-frame logs on demand.
-    const { markSeq, dumpSeq } = getNpcDebugRequestSeq();
-    if (markSeq !== debugSeqRef.current.markSeq) {
-      debugSeqRef.current.markSeq = markSeq;
-      const cavalorn = findCavalornGroup();
-      if (!cavalorn) {
-        console.warn("[NPCDebug] Mark requested but Cavalorn is not loaded");
-      } else {
-        const npcData = cavalorn.userData.npcData as NpcData;
-        const worldPos = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        cavalorn.getWorldPosition(worldPos);
-        cavalorn.getWorldQuaternion(worldQuat);
-        const mark = {
-          capturedAtMs: Date.now(),
-          npcId: `npc-${npcData.instanceIndex}`,
-          instanceIndex: npcData.instanceIndex,
-          symbolName: npcData.symbolName || "",
-          displayName: npcData.name || npcData.symbolName || "CAVALORN",
-          worldPos: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
-          worldQuat: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w },
-          cameraPos: cameraPos ? { x: cameraPos.x, y: cameraPos.y, z: cameraPos.z } : undefined,
-          groundYTarget: cavalorn.userData.groundYTarget as number | undefined,
-        };
-        setNpcDebugMark(mark);
-        logNpcDebugJson("mark", mark);
-        debugRaycastDown("mark", worldPos);
-      }
-    }
-
-    if (dumpSeq !== debugSeqRef.current.dumpSeq) {
-      debugSeqRef.current.dumpSeq = dumpSeq;
-      const mark = getNpcDebugMark();
-      const cavalorn = findCavalornGroup();
-      const cPos = new THREE.Vector3();
-      const cQuat = new THREE.Quaternion();
-      if (cavalorn) {
-        cavalorn.getWorldPosition(cPos);
-        cavalorn.getWorldQuaternion(cQuat);
-      }
-      logNpcDebugJson("dump", {
-        dt: Number(delta.toFixed(4)),
-        marked: mark,
-        cavalornLoaded: Boolean(cavalorn),
-        cavalornWorldPos: cavalorn ? { x: cPos.x, y: cPos.y, z: cPos.z } : null,
-        cavalornWorldQuat: cavalorn ? { x: cQuat.x, y: cQuat.y, z: cQuat.z, w: cQuat.w } : null,
-        groundYTarget: cavalorn ? (cavalorn.userData.groundYTarget as number | undefined) : undefined,
-        lastSampleAt: cavalorn ? (cavalorn.userData.lastGroundSampleAt as number | undefined) : undefined,
-      });
-
-      if (mark) {
-        const p = new THREE.Vector3(mark.worldPos.x, mark.worldPos.y, mark.worldPos.z);
-        debugRaycastDown("dump@mark", p);
-      }
-      if (cavalorn) {
-        debugRaycastDown("dump@cavalorn", cPos);
       }
     }
   });
