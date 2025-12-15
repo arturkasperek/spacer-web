@@ -10,6 +10,7 @@ import { createHumanCharacterInstance, type CharacterCaches, type CharacterInsta
 import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
+import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 
 interface NpcRendererProps {
   world: World | null;
@@ -51,6 +52,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
   const hardcodedCavalornMoveStartedRef = useRef(false);
+  const worldMeshRef = useRef<THREE.Object3D | null>(null);
+  const warnedNoWorldMeshRef = useRef(false);
+  const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -143,6 +147,60 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   }, [world]);
 
   useEffect(() => {
+    worldMeshRef.current = null;
+    pendingGroundSnapRef.current = [];
+    warnedNoWorldMeshRef.current = false;
+  }, [world]);
+
+  const ensureWorldMesh = (): THREE.Object3D | null => {
+    if (worldMeshRef.current) return worldMeshRef.current;
+    const found = scene.getObjectByName(WORLD_MESH_NAME);
+    if (found) {
+      worldMeshRef.current = found;
+      console.log(`[NPC] Found world mesh "${WORLD_MESH_NAME}"`);
+      return found;
+    }
+    return null;
+  };
+
+  const persistNpcPosition = (npcGroup: THREE.Group) => {
+    const npcData = npcGroup.userData.npcData as NpcData | undefined;
+    if (!npcData) return;
+    const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
+    if (entry) entry.position.copy(npcGroup.position);
+  };
+
+  const snapNpcToGroundOrDefer = (npcGroup: THREE.Group, reason: string) => {
+    const ground = ensureWorldMesh();
+    if (!ground) {
+      if (!warnedNoWorldMeshRef.current) {
+        warnedNoWorldMeshRef.current = true;
+        console.warn(`[NPC] World mesh not ready; deferring NPC ground snap (${reason})`);
+      }
+      pendingGroundSnapRef.current.push(npcGroup);
+      return false;
+    }
+
+    const beforeY = npcGroup.position.y;
+    // Prefer a short ray from just above the NPC to avoid snapping to roofs/terrain above interior spaces.
+    // Fallback to a longer ray only if needed.
+    const ok =
+      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 }) ||
+      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000 });
+    if (!ok) {
+      pendingGroundSnapRef.current.push(npcGroup);
+    } else {
+      npcGroup.userData.groundSnapped = true;
+      persistNpcPosition(npcGroup);
+      const dy = npcGroup.position.y - beforeY;
+      if (Math.abs(dy) > 0.01) {
+        console.log(`[NPC] Ground-snapped (${reason}) dy=${dy.toFixed(2)}`);
+      }
+    }
+    return ok;
+  };
+
+  useEffect(() => {
     if (!enabled) return;
     if (!zenKit) return;
     if (didPreloadAnimationsRef.current) return;
@@ -215,7 +273,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
       if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
         hardcodedCavalornMoveStartedRef.current = true;
-        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_VIEW_03_01");
+        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_PATH_FARM1_10");
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -312,6 +370,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           scene.add(group);
         }
         npcsGroupRef.current.add(npcGroup);
+        snapNpcToGroundOrDefer(npcGroup, "spawn");
 
         // Load real model asynchronously (replaces placeholder)
         void loadNpcCharacter(npcGroup, npc.npcData);
@@ -341,6 +400,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     if (!enabled || loadedNpcsRef.current.size === 0) return;
 
+    // If the world mesh arrives after NPCs were spawned, snap any pending NPCs in small batches.
+    if (pendingGroundSnapRef.current.length > 0 && ensureWorldMesh()) {
+      const batch = pendingGroundSnapRef.current.splice(0, 8);
+      const ground = worldMeshRef.current!;
+      for (const g of batch) {
+        if (!g || g.userData.isDisposed) continue;
+        const beforeY = g.position.y;
+        const ok =
+          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 }) ||
+          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000 });
+        if (!ok) {
+          pendingGroundSnapRef.current.push(g);
+        } else {
+          g.userData.groundSnapped = true;
+          persistNpcPosition(g);
+          const dy = g.position.y - beforeY;
+          if (Math.abs(dy) > 0.01) {
+            console.log(`[NPC] Ground-snapped (deferred) dy=${dy.toFixed(2)}`);
+          }
+        }
+      }
+    }
+
     const cameraPos = cameraPosition || (camera ? camera.position : undefined);
     if (!cameraPos) return;
 
@@ -367,6 +449,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
 
       if (moveResult?.moved) {
+        // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
+        const ground = ensureWorldMesh();
+        if (ground) {
+          const SNAP_INTERVAL = 0.25; // seconds
+          const lastSnap = (npcGroup.userData.lastGroundSnapAt as number | undefined) ?? 0;
+          const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
+          npcGroup.userData._clock = now;
+          if (now - lastSnap >= SNAP_INTERVAL) {
+            npcGroup.userData.lastGroundSnapAt = now;
+            setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000 });
+          }
+        }
         const entry = allNpcsRef.current.find(n => n.npcData.instanceIndex === npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
       }

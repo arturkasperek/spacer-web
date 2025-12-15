@@ -117,6 +117,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
 
         // Create mesh with materials array
         const threeMesh = new THREE.Mesh(geometry, materialArray);
+        threeMesh.name = 'WORLD_MESH';
         threeMesh.scale.x = -1; // Fix mirrored world
 
         setWorldMesh(threeMesh);
