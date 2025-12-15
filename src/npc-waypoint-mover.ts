@@ -91,6 +91,7 @@ export function createWaypointMover(world: World): WaypointMover {
 
       const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
       const goalIndex = findWaypointIndexByName(graph, targetWaypointName);
+      if (goalIndex < 0) return false;
       const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
       if (routeIdx.length < 2) return false;
 

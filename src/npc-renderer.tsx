@@ -50,6 +50,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   });
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
+  const hardcodedCavalornMoveStartedRef = useRef(false);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -208,6 +209,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.userData.startMoveToWaypoint = (targetWaypointName: string, options?: any) => {
         return waypointMoverRef.current?.startMoveToWaypoint(npcId, npcGroup, targetWaypointName, options) ?? false;
       };
+
+      const symbolName = (npcData.symbolName || "").trim().toUpperCase();
+      const displayName = (npcData.name || "").trim().toUpperCase();
+      const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
+      if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
+        hardcodedCavalornMoveStartedRef.current = true;
+        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_VIEW_03_01");
+      }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
       if (placeholder) {
