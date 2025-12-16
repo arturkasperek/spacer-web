@@ -135,41 +135,6 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         (threeMesh.geometry as any).userData.materialIds = materialIds;
         (threeMesh as any).userData.noCollDetByMaterialId = noCollDetByMaterialId;
 
-        // Temporary visual debug: render non-collidable materials as a red wireframe overlay
-        // so it's easy to verify `noCollDet` parsing. We'll remove this later.
-        {
-          const overlayMats: THREE.MeshBasicMaterial[] = [];
-          for (let mi = 0; mi < matCount; mi++) {
-            if (noCollDetByMaterialId[mi]) {
-              overlayMats.push(
-                new THREE.MeshBasicMaterial({
-                  color: 0xff0000,
-                  wireframe: true,
-                  transparent: true,
-                  opacity: 1,
-                  depthWrite: false,
-                })
-              );
-            } else {
-              overlayMats.push(
-                new THREE.MeshBasicMaterial({
-                  transparent: true,
-                  opacity: 0,
-                  depthWrite: false,
-                  depthTest: true,
-                })
-              );
-            }
-          }
-
-          const overlay = new THREE.Mesh(geometry, overlayMats);
-          overlay.name = "WORLD_MESH_NO_COLLDET_DEBUG";
-          overlay.renderOrder = 1;
-          // Ensure this debug overlay never affects raycasts / collision queries.
-          (overlay as any).raycast = () => {};
-          threeMesh.add(overlay);
-        }
-
         // Speed up frequent raycasts (NPC ground sampling, picking, etc.) by building a BVH once for the world mesh.
         // If the dependency isn't available for some reason, we fall back to Three.js' default raycast.
         try {
