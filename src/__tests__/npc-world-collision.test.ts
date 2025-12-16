@@ -3,6 +3,7 @@ describe("npc world collision", () => {
   let applyNpcWorldCollisionXZ: typeof import("../npc-world-collision").applyNpcWorldCollisionXZ;
   let createNpcWorldCollisionContext: typeof import("../npc-world-collision").createNpcWorldCollisionContext;
   let updateNpcSlopeSlideXZ: typeof import("../npc-world-collision").updateNpcSlopeSlideXZ;
+  let updateNpcFallY: typeof import("../npc-world-collision").updateNpcFallY;
   let MeshBVH: any;
 
   beforeAll(async () => {
@@ -11,7 +12,7 @@ describe("npc world collision", () => {
     jest.unmock("three-mesh-bvh");
     THREE = await import("three");
     ({ MeshBVH } = await import("three-mesh-bvh"));
-    ({ applyNpcWorldCollisionXZ, createNpcWorldCollisionContext, updateNpcSlopeSlideXZ } = await import("../npc-world-collision"));
+    ({ applyNpcWorldCollisionXZ, createNpcWorldCollisionContext, updateNpcSlopeSlideXZ, updateNpcFallY } = await import("../npc-world-collision"));
   });
 
   it("blocks uphill moves when the predicted step is too high", () => {
@@ -243,6 +244,42 @@ describe("npc world collision", () => {
     const r = updateNpcSlopeSlideXZ(ctx, npc, worldMesh, 0.05, config);
     expect(r.active).toBe(true);
     expect(r.mode).toBe("slideBack");
+  });
+
+  it("starts falling when aboveFloor > stepHeight and lands when close enough", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(0, 200, 0);
+    npc.userData.groundYTarget = 200;
+
+    const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+    floorGeo.rotateX(-Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    floor.updateMatrixWorld(true);
+
+    const config = {
+      radius: 35,
+      scanHeight: 110,
+      stepHeight: 60,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(45),
+      maxSlideAngleRad: THREE.MathUtils.degToRad(70),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+      landHeight: 10,
+      fallGravity: 981,
+    };
+
+    // First call should start falling (ground is far below).
+    const r0 = updateNpcFallY(ctx, npc, floor, 0.016, config);
+    expect(Boolean(npc.userData.isFalling)).toBe(true);
+    expect(r0.active).toBe(true);
+
+    // Simulate until we land.
+    for (let i = 0; i < 400 && Boolean(npc.userData.isFalling); i++) {
+      updateNpcFallY(ctx, npc, floor, 0.016, config);
+    }
+    expect(Boolean(npc.userData.isFalling)).toBe(false);
+    expect(npc.position.y).toBeCloseTo(4, 1); // clearance=4 on top of plane at y=0
   });
 
 });

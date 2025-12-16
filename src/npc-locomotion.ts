@@ -1,6 +1,6 @@
 import type { CharacterInstance } from "./character/human-character.js";
 
-export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack";
+export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack" | "fallDown" | "fall" | "fallBack";
 
 export type LocomotionAnimationSpec = {
   name: string;
@@ -21,6 +21,10 @@ export type LocomotionSpec = {
 
   slide: LocomotionAnimationSpec;
   slideBack: LocomotionAnimationSpec;
+
+  fallDown: LocomotionAnimationSpec;
+  fall: LocomotionAnimationSpec;
+  fallBack: LocomotionAnimationSpec;
 };
 
 export type LocomotionController = {
@@ -56,6 +60,9 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
         else if (mode === "run") play(instance, spec.runStart, spec.runLoop);
         else if (mode === "slide") play(instance, spec.slide);
         else if (mode === "slideBack") play(instance, spec.slideBack);
+        else if (mode === "fallDown") play(instance, spec.fallDown);
+        else if (mode === "fall") play(instance, spec.fall);
+        else if (mode === "fallBack") play(instance, spec.fallBack);
         else play(instance, spec.idle);
         return;
       }
@@ -70,6 +77,12 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
         play(instance, spec.slide);
       } else if (mode === "slideBack") {
         play(instance, spec.slideBack);
+      } else if (mode === "fallDown") {
+        play(instance, spec.fallDown);
+      } else if (mode === "fall") {
+        play(instance, spec.fall);
+      } else if (mode === "fallBack") {
+        play(instance, spec.fallBack);
       } else {
         if (lastMode === "walk") play(instance, spec.walkStop, spec.idle);
         else if (lastMode === "run") play(instance, spec.runStop, spec.idle);
@@ -88,6 +101,7 @@ export const HUMAN_LOCOMOTION_SPEC: LocomotionSpec = {
   // - run start:  t_Run_2_RunL  -> s_RunL
   // - run stop:   t_RunL_2_Run  -> s_Run (idle/breath)
   // - slide:      s_Slide / s_SlideB
+  // - falling:    s_FallDn, s_Fall / s_FallB
   idle: { name: "s_Run", loop: true, fallbackNames: ["t_dance_01"] },
 
   walkStart: { name: "t_Walk_2_WalkL", loop: false, fallbackNames: ["s_WalkL"] },
@@ -100,6 +114,10 @@ export const HUMAN_LOCOMOTION_SPEC: LocomotionSpec = {
 
   slide: { name: "s_Slide", loop: true, fallbackNames: ["s_SlideB", "s_Run"] },
   slideBack: { name: "s_SlideB", loop: true, fallbackNames: ["s_Slide", "s_Run"] },
+
+  fallDown: { name: "s_FallDn", loop: true, fallbackNames: ["s_Fall", "s_Run"] },
+  fall: { name: "s_Fall", loop: true, fallbackNames: ["s_FallB", "s_Run"] },
+  fallBack: { name: "s_FallB", loop: true, fallbackNames: ["s_Fall", "s_Run"] },
 };
 
 export function collectLocomotionAnimationNames(spec: LocomotionSpec): string[] {
@@ -117,6 +135,9 @@ export function collectLocomotionAnimationNames(spec: LocomotionSpec): string[] 
   push(spec.runStop);
   push(spec.slide);
   push(spec.slideBack);
+  push(spec.fallDown);
+  push(spec.fall);
+  push(spec.fallBack);
   return Array.from(new Set(out.map(s => (s || "").trim()).filter(Boolean)));
 }
 

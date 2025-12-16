@@ -15,6 +15,7 @@ import {
   collectNpcWorldCollisionDebugSnapshot,
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
+  updateNpcFallY,
   updateNpcSlopeSlideXZ,
   type NpcMoveConstraintResult,
   type NpcWorldCollisionConfig,
@@ -849,6 +850,31 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let locomotionMode: LocomotionMode = "idle";
       let tryingToMoveThisFrame = false;
 
+      // Falling has priority over everything else (no locomotion, no ground glue).
+      const groundForNpc = ensureWorldMesh();
+      if (groundForNpc && Boolean(npcGroup.userData.isFalling)) {
+        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, delta, collisionConfig);
+        if (fall.active) {
+          movedThisFrame = movedThisFrame || fall.moved;
+          locomotionMode = fall.mode;
+          tryingToMoveThisFrame = true;
+        } else if (fall.landed) {
+          movedThisFrame = true;
+          locomotionMode = "idle";
+          tryingToMoveThisFrame = false;
+        }
+      }
+
+      if (Boolean(npcGroup.userData.isFalling)) {
+        if (instance) {
+          const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
+          locomotion?.update(instance, locomotionMode);
+        }
+        const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
+        if (entry) entry.position.copy(npcGroup.position);
+        continue;
+      }
+
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
       if (isManualCavalorn) {
         const MAX_DT = 0.05;
@@ -899,6 +925,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         tryingToMoveThisFrame = locomotionMode !== "idle";
       }
 
+      // Start falling if we stepped off a ledge (ZenGin-style).
+      if (groundForNpc) {
+        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, 0, collisionConfig);
+        if (fall.active) {
+          movedThisFrame = movedThisFrame || fall.moved;
+          locomotionMode = fall.mode;
+          tryingToMoveThisFrame = true;
+        }
+      }
+
       // ZenGin-like slope sliding:
       // if the ground is steeper than `maxGroundAngleRad`, the character can't walk up and will slip down,
       // playing `s_Slide` / `s_SlideB` while the slide is active.
@@ -906,9 +942,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const shouldConsiderSlide =
           isManualCavalorn || Boolean(npcGroup.userData.isScriptControlled) || tryingToMoveThisFrame || Boolean(npcGroup.userData.isSliding);
         if (shouldConsiderSlide) {
-          const ground = ensureWorldMesh();
-          if (ground) {
-            const s = updateNpcSlopeSlideXZ(collisionCtx, npcGroup, ground, delta, collisionConfig);
+          if (groundForNpc) {
+            const s = updateNpcSlopeSlideXZ(collisionCtx, npcGroup, groundForNpc, delta, collisionConfig);
             if (s.active) {
               movedThisFrame = movedThisFrame || s.moved;
               tryingToMoveThisFrame = true;
@@ -925,10 +960,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // Keep NPCs glued to the ground while moving, and also while *trying* to move:
       // if we get blocked on stairs/walls, Y can otherwise stay stale (and we never recover).
-      if (movedThisFrame || tryingToMoveThisFrame) {
+      if ((movedThisFrame || tryingToMoveThisFrame) && !Boolean(npcGroup.userData.isFalling)) {
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
-        const ground = ensureWorldMesh();
-        if (ground) {
+        if (groundForNpc) {
           if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
 
           const SAMPLE_INTERVAL = 0.05; // seconds (moving NPCs only; keeps uphill stable)
@@ -954,7 +988,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             const minWalkableNy = Math.cos(collisionConfig.maxGroundAngleRad);
             const minSlideNy = Math.cos(collisionConfig.maxSlideAngleRad);
             const hit =
-              sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
+              sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
                 clearance: 4,
                 rayStartAbove: 50,
                 maxDownDistance: 5000,
@@ -965,7 +999,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               // If no walkable surface exists, accept steeper "ground" up to slide2 threshold so the NPC
               // can transition into slope sliding instead of getting stuck with a stale floor plane.
               (minSlideNy < minWalkableNy
-                ? sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
+                ? sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
                     clearance: 4,
                     rayStartAbove: 50,
                     maxDownDistance: 5000,
@@ -992,6 +1026,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
                 // Keep target in sync with the sampled hit (plane prediction will carry it between samples).
                 npcGroup.userData.groundYTarget = targetY;
+              } else if (dy < -MAX_STEP_DOWN) {
+                // Big drop: start falling physics (ZenGin uses `aboveFloor > stepHeight`).
+                npcGroup.userData.isFalling = true;
+                npcGroup.userData.fallStartY = npcGroup.userData.groundYTarget ?? tmpGroundSampleWorldPos.y;
+                npcGroup.userData.fallVelY = 0;
+                npcGroup.userData.isSliding = false;
+                npcGroup.userData.slideVelXZ = { x: 0, z: 0 };
               }
             }
           }

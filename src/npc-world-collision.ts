@@ -78,6 +78,10 @@ export type NpcWorldCollisionConfig = {
   slideGravity?: number;
   slideFriction?: number;
   maxSlideSpeed?: number;
+
+  landHeight?: number;
+  fallGravity?: number;
+  maxFallSpeed?: number;
 };
 
 export type NpcWorldCollisionContext = {
@@ -870,4 +874,115 @@ export function updateNpcSlopeSlideXZ(
   }
 
   return { moved: r.moved, active: true, mode };
+}
+
+export type NpcFallMode = "fallDown" | "fall" | "fallBack";
+
+export type NpcFallResult = {
+  moved: boolean;
+  active: boolean;
+  landed: boolean;
+  mode: NpcFallMode;
+  fallDistanceY: number;
+};
+
+const getPlanarForwardXZ = (ctx: NpcWorldCollisionContext, q: THREE.Quaternion): { x: number; z: number } => {
+  ctx.tmpDir.set(0, 0, 1).applyQuaternion(q);
+  ctx.tmpDir.y = 0;
+  const len2 = ctx.tmpDir.lengthSq();
+  if (len2 < 1e-10) return { x: 0, z: 1 };
+  ctx.tmpDir.multiplyScalar(1 / Math.sqrt(len2));
+  return { x: ctx.tmpDir.x, z: ctx.tmpDir.z };
+};
+
+export function updateNpcFallY(
+  ctx: NpcWorldCollisionContext,
+  npcGroup: THREE.Object3D,
+  worldMesh: THREE.Object3D,
+  deltaSeconds: number,
+  config: NpcWorldCollisionConfig
+): NpcFallResult {
+  const dt = Math.min(Math.max(0, deltaSeconds), 0.05);
+  const gravity = config.fallGravity ?? 981;
+  const landHeight = config.landHeight ?? 10;
+  const maxFallSpeed = config.maxFallSpeed ?? 8000;
+  const minFloorNy = Math.cos(config.maxSlideAngleRad);
+  const clearance = 4;
+
+  const isFalling = Boolean((npcGroup.userData as any).isFalling);
+  const groundYTarget = (npcGroup.userData as any).groundYTarget as number | undefined;
+
+  // Sample floor below the NPC. We accept slopes up to slide2 angle (anything steeper is treated as a wall).
+  const startY = npcGroup.position.y + 50;
+  const floor = sampleFloorAt(ctx, worldMesh, npcGroup.position.x, npcGroup.position.z, startY, 20000, minFloorNy);
+
+  const floorTargetY = floor ? floor.y + clearance : null;
+  const contactY = typeof groundYTarget === "number" ? groundYTarget : npcGroup.position.y;
+  const seemsGrounded = Math.abs(npcGroup.position.y - contactY) <= 20;
+  const aboveFloor = floorTargetY != null ? contactY - floorTargetY : 0;
+
+  if (!isFalling) {
+    if (floorTargetY == null) {
+      return { moved: false, active: false, landed: false, mode: "fallDown", fallDistanceY: 0 };
+    }
+
+    // ZenGin: if the character is more than stepHeight above the floor, start falling physics (unless stairs).
+    // We don't have stair classification, so we approximate based on distance to floor only.
+    if (seemsGrounded && aboveFloor > config.stepHeight) {
+      (npcGroup.userData as any).isFalling = true;
+      (npcGroup.userData as any).fallStartY = contactY;
+      (npcGroup.userData as any).fallVelY = 0;
+    } else {
+      return { moved: false, active: false, landed: false, mode: "fallDown", fallDistanceY: 0 };
+    }
+  }
+
+  // Integrate fall.
+  const beforeY = npcGroup.position.y;
+  let vy = ((npcGroup.userData as any).fallVelY as number | undefined) ?? 0;
+  vy -= gravity * dt;
+  vy = Math.max(-maxFallSpeed, Math.min(maxFallSpeed, vy));
+  npcGroup.position.y += vy * dt;
+  (npcGroup.userData as any).fallVelY = vy;
+
+  const fallStartY = ((npcGroup.userData as any).fallStartY as number | undefined) ?? beforeY;
+  const fallDistanceY = Math.max(0, fallStartY - npcGroup.position.y);
+
+  // Land if we reached the floor (within landHeight).
+  if (floorTargetY != null && npcGroup.position.y <= floorTargetY + landHeight) {
+    npcGroup.position.y = floorTargetY;
+    (npcGroup.userData as any).isFalling = false;
+    (npcGroup.userData as any).fallVelY = 0;
+    (npcGroup.userData as any).groundYTarget = floorTargetY;
+    if (floor) {
+      (npcGroup.userData as any).groundPlane = {
+        nx: floor.nx,
+        ny: floor.ny,
+        nz: floor.nz,
+        px: floor.px,
+        py: floor.py,
+        pz: floor.pz,
+        clearance,
+      };
+    }
+    return { moved: true, active: false, landed: true, mode: "fallDown", fallDistanceY };
+  }
+
+  // Mode selection: stay in fallDown for small drops, switch to fall/fallBack for deeper falls.
+  let mode: NpcFallMode = "fallDown";
+  const FALLDN_TO_FALL = 200;
+  if (fallDistanceY >= FALLDN_TO_FALL) {
+    const dir = (npcGroup.userData as any).lastMoveDirXZ as { x: number; z: number } | undefined;
+    const fwd = getPlanarForwardXZ(ctx, npcGroup.quaternion);
+    const dot = dir ? fwd.x * dir.x + fwd.z * dir.z : 1;
+    mode = dot >= 0 ? "fall" : "fallBack";
+  }
+
+  return {
+    moved: Math.abs(npcGroup.position.y - beforeY) > 1e-6,
+    active: true,
+    landed: false,
+    mode,
+    fallDistanceY,
+  };
 }
