@@ -71,8 +71,13 @@ export type NpcWorldCollisionConfig = {
   stepHeight: number;
   maxStepDown?: number;
   maxGroundAngleRad: number;
+  maxSlideAngleRad: number;
   minWallNormalY: number;
   enableWallSlide: boolean;
+
+  slideGravity?: number;
+  slideFriction?: number;
+  maxSlideSpeed?: number;
 };
 
 export type NpcWorldCollisionContext = {
@@ -512,8 +517,11 @@ export function applyNpcWorldCollisionXZ(
     const clearance = (plane?.clearance as number | undefined) ?? 4;
     const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
     const far = config.scanHeight + config.stepHeight * 2 + 50;
-    const minFloorNy = Math.cos(config.maxGroundAngleRad);
-    const floor = sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNy);
+    const minFloorNyWalk = Math.cos(config.maxGroundAngleRad);
+    const minFloorNySlide = Math.cos(config.maxSlideAngleRad);
+    const floor =
+      sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNyWalk) ||
+      (minFloorNySlide < minFloorNyWalk ? sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNySlide) : null);
     if (floor) {
       const targetY = floor.y + clearance;
       const dy = targetY - currentGroundY;
@@ -755,4 +763,118 @@ export function applyNpcWorldCollisionXZ(
   }
 
   return { blocked, moved };
+}
+
+export type NpcSlopeSlideMode = "slide" | "slideBack";
+
+export type NpcSlopeSlideResult = {
+  moved: boolean;
+  active: boolean;
+  mode: NpcSlopeSlideMode;
+};
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+const getSlopeRadFromNy = (ny: number): number => {
+  if (!Number.isFinite(ny)) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, ny)));
+};
+
+export function updateNpcSlopeSlideXZ(
+  ctx: NpcWorldCollisionContext,
+  npcGroup: THREE.Object3D,
+  worldMesh: THREE.Object3D,
+  deltaSeconds: number,
+  config: NpcWorldCollisionConfig
+): NpcSlopeSlideResult {
+  const plane = (npcGroup.userData as any).groundPlane as
+    | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
+    | undefined;
+  if (!plane) {
+    (npcGroup.userData as any).isSliding = false;
+    (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    return { moved: false, active: false, mode: "slide" };
+  }
+
+  const ny = plane.ny;
+  const slope = getSlopeRadFromNy(Math.abs(ny));
+  const startSlope = config.maxGroundAngleRad;
+  const stopSlope = Math.max(0, startSlope - THREE.MathUtils.degToRad(1.5));
+  const maxSlope = config.maxSlideAngleRad;
+
+  const prevActive = Boolean((npcGroup.userData as any).isSliding);
+  const shouldBeActive = slope > (prevActive ? stopSlope : startSlope) && slope < maxSlope - 1e-6;
+  if (!shouldBeActive) {
+    (npcGroup.userData as any).isSliding = false;
+    (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    return { moved: false, active: false, mode: "slide" };
+  }
+
+  // Compute downhill slide direction from the ground normal (ZenGin style):
+  // slideDir = (up x n) x n, oriented so that it points downward.
+  ctx.tmpNormal.set(plane.nx, plane.ny, plane.nz).normalize();
+  ctx.tmpDir.set(0, 1, 0).cross(ctx.tmpNormal).cross(ctx.tmpNormal);
+  if (ctx.tmpDir.y > 0) ctx.tmpDir.multiplyScalar(-1);
+  ctx.tmpDir.y = 0;
+  const len2 = ctx.tmpDir.lengthSq();
+  if (len2 < 1e-10) {
+    (npcGroup.userData as any).isSliding = false;
+    (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    return { moved: false, active: false, mode: "slide" };
+  }
+  ctx.tmpDir.multiplyScalar(1 / Math.sqrt(len2));
+
+  const dt = Math.min(Math.max(0, deltaSeconds), 0.05);
+  const g = config.slideGravity ?? 981;
+  const friction = config.slideFriction ?? 1.0;
+  const maxSpeed = config.maxSlideSpeed ?? 1200;
+
+  const accel = g * Math.sin(slope);
+  const state = ((npcGroup.userData as any).slideVelXZ as { x: number; z: number } | undefined) ?? { x: 0, z: 0 };
+  let vx = state.x;
+  let vz = state.z;
+
+  vx += ctx.tmpDir.x * accel * dt;
+  vz += ctx.tmpDir.z * accel * dt;
+
+  // Exponential damping (matches dv/dt += -k*v style friction).
+  const damping = Math.exp(-Math.max(0, friction) * dt);
+  vx *= damping;
+  vz *= damping;
+
+  const sp = Math.hypot(vx, vz);
+  if (sp > maxSpeed) {
+    const s = maxSpeed / sp;
+    vx *= s;
+    vz *= s;
+  }
+
+  // If the slope is only slightly above the threshold, keep the motion gentle.
+  const t = clamp01((slope - startSlope) / Math.max(1e-6, maxSlope - startSlope));
+  vx *= 0.25 + 0.75 * t;
+  vz *= 0.25 + 0.75 * t;
+
+  (npcGroup.userData as any).slideVelXZ = { x: vx, z: vz };
+  (npcGroup.userData as any).isSliding = true;
+
+  // Pick animation direction based on whether the NPC faces downhill.
+  ctx.tmpPlanarNormal.set(0, 0, 1).applyQuaternion(npcGroup.quaternion);
+  ctx.tmpPlanarNormal.y = 0;
+  if (ctx.tmpPlanarNormal.lengthSq() < 1e-10) ctx.tmpPlanarNormal.set(0, 0, 1);
+  else ctx.tmpPlanarNormal.normalize();
+  const dotForward = ctx.tmpPlanarNormal.x * ctx.tmpDir.x + ctx.tmpPlanarNormal.z * ctx.tmpDir.z;
+  const mode: NpcSlopeSlideMode = dotForward >= 0 ? "slide" : "slideBack";
+
+  const beforeX = npcGroup.position.x;
+  const beforeZ = npcGroup.position.z;
+  const desiredX = beforeX + vx * dt;
+  const desiredZ = beforeZ + vz * dt;
+
+  const r = applyNpcWorldCollisionXZ(ctx, npcGroup, desiredX, desiredZ, worldMesh, dt, config);
+  if (!r.moved) {
+    // Damp velocity aggressively when wedged against obstacles.
+    (npcGroup.userData as any).slideVelXZ = { x: vx * 0.15, z: vz * 0.15 };
+  }
+
+  return { moved: r.moved, active: true, mode };
 }

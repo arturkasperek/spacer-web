@@ -10,6 +10,8 @@ describe("npc locomotion controller", () => {
       runStart: { name: "RUN_START", loop: false },
       runLoop: { name: "RUN_LOOP", loop: true },
       runStop: { name: "RUN_STOP", loop: false },
+      slide: { name: "SLIDE", loop: true },
+      slideBack: { name: "SLIDE_B", loop: true },
     });
 
     const setAnimation = jest.fn();
@@ -46,6 +48,8 @@ describe("npc locomotion controller", () => {
       runStart: { name: "RUN_START", loop: false },
       runLoop: { name: "RUN_LOOP", loop: true },
       runStop: { name: "RUN_STOP", loop: false },
+      slide: { name: "SLIDE", loop: true },
+      slideBack: { name: "SLIDE_B", loop: true },
     });
 
     const setAnimation = jest.fn();
@@ -80,6 +84,8 @@ describe("npc locomotion controller", () => {
       runStart: { name: "RUN_START", loop: false },
       runLoop: { name: "RUN_LOOP", loop: true },
       runStop: { name: "RUN_STOP", loop: false },
+      slide: { name: "SLIDE", loop: true },
+      slideBack: { name: "SLIDE_B", loop: true },
     });
 
     const setAnimation = jest.fn();

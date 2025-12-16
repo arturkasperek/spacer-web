@@ -11,7 +11,14 @@ import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
-import { collectNpcWorldCollisionDebugSnapshot, applyNpcWorldCollisionXZ, createNpcWorldCollisionContext, type NpcMoveConstraintResult, type NpcWorldCollisionConfig } from "./npc-world-collision";
+import {
+  collectNpcWorldCollisionDebugSnapshot,
+  applyNpcWorldCollisionXZ,
+  createNpcWorldCollisionContext,
+  updateNpcSlopeSlideXZ,
+  type NpcMoveConstraintResult,
+  type NpcWorldCollisionConfig,
+} from "./npc-world-collision";
 import { getNpcCollisionDumpSeq } from "./npc-collision-debug";
 
 interface NpcRendererProps {
@@ -89,6 +96,22 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getSlide2SlopeDeg = (walkDeg: number) => {
+      // ZenGin defaults: walk ~50°, slide2 ~70°; keep the same +20° relationship for our tuned threshold.
+      // Override for tuning via `?npcSlide2Deg=...`.
+      const fallback = Math.min(89, walkDeg + 20);
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlide2Deg");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const walkDeg = getMaxSlopeDeg();
     return {
       radius: 35,
       scanHeight: 110,
@@ -96,9 +119,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       stepHeight: 60,
       maxStepDown: 800,
       // Rock stairs are about as steep as we want to allow. Anything steeper should block movement.
-      maxGroundAngleRad: THREE.MathUtils.degToRad(getMaxSlopeDeg()),
+      maxGroundAngleRad: THREE.MathUtils.degToRad(walkDeg),
+      maxSlideAngleRad: THREE.MathUtils.degToRad(getSlide2SlopeDeg(walkDeg)),
       minWallNormalY: 0.4,
       enableWallSlide: true,
+
+      // Slide tuning (ZenGin-style: gravity projected on slope plane + damping).
+      slideGravity: 981,
+      slideFriction: 1.0,
+      maxSlideSpeed: 1200,
     };
   }, []);
 
@@ -792,6 +821,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         tryingToMoveThisFrame = locomotionMode !== "idle";
       }
 
+      // ZenGin-like slope sliding:
+      // if the ground is steeper than `maxGroundAngleRad`, the character can't walk up and will slip down,
+      // playing `s_Slide` / `s_SlideB` while the slide is active.
+      {
+        const shouldConsiderSlide =
+          isManualCavalorn || Boolean(npcGroup.userData.isScriptControlled) || tryingToMoveThisFrame || Boolean(npcGroup.userData.isSliding);
+        if (shouldConsiderSlide) {
+          const ground = ensureWorldMesh();
+          if (ground) {
+            const s = updateNpcSlopeSlideXZ(collisionCtx, npcGroup, ground, delta, collisionConfig);
+            if (s.active) {
+              movedThisFrame = movedThisFrame || s.moved;
+              tryingToMoveThisFrame = true;
+              locomotionMode = s.mode;
+            }
+          }
+        }
+      }
+
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         locomotion?.update(instance, locomotionMode);
@@ -825,14 +873,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           if (now - lastSample >= SAMPLE_INTERVAL) {
             npcGroup.userData.lastGroundSampleAt = now;
             npcGroup.getWorldPosition(tmpGroundSampleWorldPos);
-            const hit = sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
-              clearance: 4,
-              rayStartAbove: 50,
-              maxDownDistance: 5000,
-              preferClosestToY: tmpGroundSampleWorldPos.y,
-              // Treat only walkable surfaces as "floor" (avoid snapping to walls/risers/undersides).
-              minHitNormalY: Math.cos(collisionConfig.maxGroundAngleRad),
-            });
+            const minWalkableNy = Math.cos(collisionConfig.maxGroundAngleRad);
+            const minSlideNy = Math.cos(collisionConfig.maxSlideAngleRad);
+            const hit =
+              sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
+                clearance: 4,
+                rayStartAbove: 50,
+                maxDownDistance: 5000,
+                preferClosestToY: tmpGroundSampleWorldPos.y,
+                // Prefer only walkable surfaces as "floor" (avoid snapping to walls/risers/undersides).
+                minHitNormalY: minWalkableNy,
+              }) ||
+              // If no walkable surface exists, accept steeper "ground" up to slide2 threshold so the NPC
+              // can transition into slope sliding instead of getting stuck with a stale floor plane.
+              (minSlideNy < minWalkableNy
+                ? sampleGroundHitForMove(tmpGroundSampleWorldPos, ground, {
+                    clearance: 4,
+                    rayStartAbove: 50,
+                    maxDownDistance: 5000,
+                    preferClosestToY: tmpGroundSampleWorldPos.y,
+                    minHitNormalY: minSlideNy,
+                  })
+                : null);
             if (hit) {
               const targetY = hit.targetY;
               // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
