@@ -79,6 +79,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       scanHeight: 110,
       scanHeights: [50, 110, 170],
       stepHeight: 60,
+      maxStepDown: 800,
       maxGroundAngleRad: THREE.MathUtils.degToRad(45),
       minWallNormalY: 0.4,
       enableWallSlide: true,
@@ -102,6 +103,24 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return typeof window !== "undefined" && new URLSearchParams(window.location.search).has("controlCavalorn");
     } catch {
       return false;
+    }
+  }, []);
+
+  const manualControlSpeeds = useMemo(() => {
+    const defaults = { walk: 180, run: 350 };
+    try {
+      if (typeof window === "undefined") return defaults;
+      const qs = new URLSearchParams(window.location.search);
+      const walkRaw = qs.get("cavalornSpeed");
+      const runRaw = qs.get("cavalornRunSpeed");
+      const walk = walkRaw != null ? Number(walkRaw) : defaults.walk;
+      const run = runRaw != null ? Number(runRaw) : defaults.run;
+      return {
+        walk: Number.isFinite(walk) && walk > 0 ? walk : defaults.walk,
+        run: Number.isFinite(run) && run > 0 ? run : defaults.run,
+      };
+    } catch {
+      return defaults;
     }
   }, []);
 
@@ -715,7 +734,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           if (tmpManualDir.lengthSq() < 1e-8) break;
           tmpManualDir.normalize();
 
-          const speed = keys.shift ? 350 : 180;
+          const speed = keys.shift ? manualControlSpeeds.run : manualControlSpeeds.walk;
           const desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
           const desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
           const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);

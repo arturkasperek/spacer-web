@@ -5,6 +5,7 @@ export type NpcWorldCollisionConfig = {
   scanHeight: number;
   scanHeights?: number[];
   stepHeight: number;
+  maxStepDown?: number;
   maxGroundAngleRad: number;
   minWallNormalY: number;
   enableWallSlide: boolean;
@@ -55,16 +56,19 @@ const worldNormalFromHit = (ctx: NpcWorldCollisionContext, hit: THREE.Intersecti
   ctx.tmpNormal.copy(faceNormal);
   ctx.normalMatrix.getNormalMatrix(hit.object.matrixWorld);
   ctx.tmpNormal.applyMatrix3(ctx.normalMatrix).normalize();
+  // WORLD_MESH is mirrored via `scale.x = -1`, which flips normals unless corrected.
+  // NormalMatrix doesn't guarantee a stable outward direction for negative determinants, so fix explicitly.
+  if (hit.object.matrixWorld.determinant() < 0) ctx.tmpNormal.multiplyScalar(-1);
   return ctx.tmpNormal;
 };
 
 export type NpcMoveConstraintResult = { blocked: boolean; moved: boolean };
 
 const shouldTreatAsObstacle = (normalY: number, sampleHeight: number, config: NpcWorldCollisionConfig) => {
-  // At torso/head heights we treat *any* horizontal intersection as an obstacle.
-  // This catches cases where only the upper body clips into steep terrain/overhangs.
-  if (sampleHeight >= config.scanHeight) return true;
-  // Near-feet probes ignore "ground-like" surfaces but still react to steep faces/walls.
+  void sampleHeight;
+  // Treat wall/ceiling-like surfaces as obstacles. Walkable slopes/ramps are not obstacles.
+  // (Stair collision in Gothic often uses special Vobs; our world mesh is mirrored and may have odd windings,
+  //  so this relies on the normal correction above.)
   return normalY <= config.minWallNormalY;
 };
 
@@ -74,6 +78,51 @@ const orientNormalAgainstRayXZ = (nx: number, ny: number, nz: number, rayDirX: n
   const d = nx * rayDirX + nz * rayDirZ;
   if (d > 0) return { nx: -nx, ny: -ny, nz: -nz };
   return { nx, ny, nz };
+};
+
+const sampleFloorAt = (
+  ctx: NpcWorldCollisionContext,
+  worldMesh: THREE.Object3D,
+  x: number,
+  z: number,
+  startY: number,
+  far: number
+): { y: number; nx: number; ny: number; nz: number; px: number; py: number; pz: number } | null => {
+  const raycaster = ctx.raycaster;
+  const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+  (raycaster as any).firstHitOnly = false;
+  raycaster.ray.origin.set(x, startY, z);
+  raycaster.ray.direction.set(0, -1, 0);
+  raycaster.near = 0;
+  raycaster.far = far;
+  const hits = raycaster.intersectObject(worldMesh, true);
+  (raycaster as any).firstHitOnly = prevFirstHitOnly;
+  if (!hits.length) return null;
+
+  // Pick the first "floor-like" hit (uppermost surface), ignoring near-vertical faces.
+  for (const h of hits) {
+    const n = worldNormalFromHit(ctx, h);
+    if (!n) continue;
+    let nx = n.x,
+      ny = n.y,
+      nz = n.z;
+    if (ny < 0) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    if (ny < 0.15) continue;
+    return {
+      y: h.point.y,
+      nx,
+      ny,
+      nz,
+      px: h.point.x,
+      py: h.point.y,
+      pz: h.point.z,
+    };
+  }
+  return null;
 };
 
 export type NpcCollisionDebugRayHit = {
@@ -224,6 +273,35 @@ export function applyNpcWorldCollisionXZ(
       const minNormalY = Math.cos(config.maxGroundAngleRad);
       // Only block steep slopes when going uphill (otherwise descending would feel artificially constrained).
       if (dy > 0.5 && plane.ny < minNormalY) return { blocked: true, moved: false };
+    }
+  }
+
+  // Stair/step handling (ZenGin-like): sample floor height at the target XZ and pre-adjust the ground target.
+  // This prevents the body from clipping into "step tops" when the vertical correction lags behind.
+  if (typeof currentGroundY === "number") {
+    const clearance = (plane?.clearance as number | undefined) ?? 4;
+    const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
+    const far = config.scanHeight + config.stepHeight * 2 + 50;
+    const floor = sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far);
+    if (floor) {
+      const targetY = floor.y + clearance;
+      const dy = targetY - currentGroundY;
+      const maxDown = config.maxStepDown ?? 800;
+      if (dy > config.stepHeight) return { blocked: true, moved: false };
+      if (dy < -maxDown) return { blocked: true, moved: false };
+
+      // Update the ground target/plane to the surface we're stepping onto.
+      // (Renderer will smooth towards this; updating early avoids interpenetration on stairs.)
+      (npcGroup.userData as any).groundYTarget = targetY;
+      (npcGroup.userData as any).groundPlane = {
+        nx: floor.nx,
+        ny: floor.ny,
+        nz: floor.nz,
+        px: floor.px,
+        py: floor.py,
+        pz: floor.pz,
+        clearance,
+      };
     }
   }
 
