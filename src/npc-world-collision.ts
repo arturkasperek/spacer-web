@@ -466,6 +466,15 @@ export function applyNpcWorldCollisionXZ(
     | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
     | undefined;
   const currentGroundY = (npcGroup.userData as any).groundYTarget as number | undefined;
+
+  // Use ground target height for collision, not the visual Y (which is smoothed and can temporarily lag behind),
+  // otherwise the capsule can end up intersecting the terrain and appear "stuck" even on flat ground.
+  // Use a conservative collision base height:
+  // - Never below `groundYTarget` (prevents terrain penetration when visual Y lags behind due to smoothing)
+  // - Never below the current object Y (prevents "sinking" into stairs when groundYTarget is stale/too low)
+  const collisionBaseY =
+    typeof currentGroundY === "number" ? Math.max(currentGroundY, npcGroup.position.y) : npcGroup.position.y;
+
   if (plane && typeof currentGroundY === "number") {
     const predicted = predictGroundYFromPlane(plane, desiredX, desiredZ);
     if (predicted != null) {
@@ -528,7 +537,7 @@ export function applyNpcWorldCollisionXZ(
     const far = dist + config.radius;
     for (const hY of heights) {
       for (const off of lateralOffsets) {
-        ctx.tmpOrigin.set(fromX + rightX * off, npcGroup.position.y + hY, fromZ + rightZ * off);
+        ctx.tmpOrigin.set(fromX + rightX * off, collisionBaseY + hY, fromZ + rightZ * off);
         raycaster.ray.origin.copy(ctx.tmpOrigin);
         raycaster.ray.direction.copy(ctx.tmpDir);
         raycaster.near = 0;
@@ -624,7 +633,7 @@ export function applyNpcWorldCollisionXZ(
   const minWalkableNy = Math.cos(config.maxGroundAngleRad);
 
   // Convert NPC origin to collider local-space.
-  ctx.tmpOrigin.set(fromX, npcGroup.position.y, fromZ).applyMatrix4(ctx.invMatrixWorld);
+  ctx.tmpOrigin.set(fromX, collisionBaseY, fromZ).applyMatrix4(ctx.invMatrixWorld);
 
   // Convert movement delta to collider local-space (directional part only).
   ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
@@ -663,7 +672,9 @@ export function applyNpcWorldCollisionXZ(
 
   // Step-up attempt when blocked: try the same move from an elevated capsule position.
   if (blocked && typeof currentGroundY === "number" && config.stepHeight > 0) {
-    const tryOriginLocal = ctx.tmpOrigin.set(fromX, npcGroup.position.y + config.stepHeight, fromZ).applyMatrix4(ctx.invMatrixWorld);
+    const tryOriginLocal = ctx.tmpOrigin
+      .set(fromX, collisionBaseY + config.stepHeight, fromZ)
+      .applyMatrix4(ctx.invMatrixWorld);
     const stepCapsule = buildCapsuleLocal(ctx, tryOriginLocal, config);
     const stepDelta = ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
     stepCapsule.translate(stepDelta);
@@ -679,7 +690,10 @@ export function applyNpcWorldCollisionXZ(
     const forwardProgBefore = movedDx * forward.x + movedDz * forward.z;
     const forwardProgAfter = steppedDx * forward.x + steppedDz * forward.z;
 
-    if (forwardProgAfter > forwardProgBefore + 0.5) {
+    // Accept the step if it makes meaningful forward progress.
+    // Use a scale-relative threshold so low-speed motion (small dt) can still step up.
+    const minGain = Math.max(0.05, Math.min(0.5, moveDist * 0.2));
+    if (forwardProgAfter > forwardProgBefore + minGain) {
       npcGroup.position.x = steppedOriginWorld.x;
       npcGroup.position.z = steppedOriginWorld.z;
 
