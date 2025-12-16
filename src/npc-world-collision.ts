@@ -1,9 +1,73 @@
 import * as THREE from "three";
+import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from "three-mesh-bvh";
+
+class BvhCapsule {
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  radius: number;
+
+  constructor(start = new THREE.Vector3(), end = new THREE.Vector3(0, 1, 0), radius = 1) {
+    this.start = start;
+    this.end = end;
+    this.radius = radius;
+  }
+
+  copy(other: BvhCapsule) {
+    this.start.copy(other.start);
+    this.end.copy(other.end);
+    this.radius = other.radius;
+    return this;
+  }
+
+  set(start: THREE.Vector3, end: THREE.Vector3, radius: number) {
+    this.start.copy(start);
+    this.end.copy(end);
+    this.radius = radius;
+    return this;
+  }
+
+  translate(v: THREE.Vector3) {
+    this.start.add(v);
+    this.end.add(v);
+    return this;
+  }
+
+  intersectsBox(box: THREE.Box3) {
+    const r = this.radius;
+    const s = this.start;
+    const e = this.end;
+    return (
+      this.#checkAabbAxis(s.x, s.y, e.x, e.y, box.min.x, box.max.x, box.min.y, box.max.y, r) &&
+      this.#checkAabbAxis(s.x, s.z, e.x, e.z, box.min.x, box.max.x, box.min.z, box.max.z, r) &&
+      this.#checkAabbAxis(s.y, s.z, e.y, e.z, box.min.y, box.max.y, box.min.z, box.max.z, r)
+    );
+  }
+
+  #checkAabbAxis(
+    p1x: number,
+    p1y: number,
+    p2x: number,
+    p2y: number,
+    minx: number,
+    maxx: number,
+    miny: number,
+    maxy: number,
+    radius: number
+  ) {
+    return (
+      (minx - p1x < radius || minx - p2x < radius) &&
+      (p1x - maxx < radius || p2x - maxx < radius) &&
+      (miny - p1y < radius || miny - p2y < radius) &&
+      (p1y - maxy < radius || p2y - maxy < radius)
+    );
+  }
+}
 
 export type NpcWorldCollisionConfig = {
   radius: number;
   scanHeight: number;
   scanHeights?: number[];
+  capsuleHeight?: number;
   stepHeight: number;
   maxStepDown?: number;
   maxGroundAngleRad: number;
@@ -14,11 +78,19 @@ export type NpcWorldCollisionConfig = {
 export type NpcWorldCollisionContext = {
   raycaster: THREE.Raycaster;
   normalMatrix: THREE.Matrix3;
+  invMatrixWorld: THREE.Matrix4;
+  invMatrixWorld3: THREE.Matrix3;
+  tmpUpLocal: THREE.Vector3;
   tmpOrigin: THREE.Vector3;
   tmpDir: THREE.Vector3;
+  tmpDelta: THREE.Vector3;
   tmpNormal: THREE.Vector3;
   tmpPlanarNormal: THREE.Vector3;
   tmpNext: THREE.Vector3;
+  tmpCapsuleLocal: BvhCapsule;
+  tmpCapsuleSeg: THREE.Line3;
+  tmpTriPoint: THREE.Vector3;
+  tmpCapsulePoint: THREE.Vector3;
 };
 
 export function createNpcWorldCollisionContext(): NpcWorldCollisionContext {
@@ -28,11 +100,19 @@ export function createNpcWorldCollisionContext(): NpcWorldCollisionContext {
   return {
     raycaster,
     normalMatrix: new THREE.Matrix3(),
+    invMatrixWorld: new THREE.Matrix4(),
+    invMatrixWorld3: new THREE.Matrix3(),
+    tmpUpLocal: new THREE.Vector3(0, 1, 0),
     tmpOrigin: new THREE.Vector3(),
     tmpDir: new THREE.Vector3(),
+    tmpDelta: new THREE.Vector3(),
     tmpNormal: new THREE.Vector3(),
     tmpPlanarNormal: new THREE.Vector3(),
     tmpNext: new THREE.Vector3(),
+    tmpCapsuleLocal: new BvhCapsule(new THREE.Vector3(), new THREE.Vector3(0, 1, 0), 1),
+    tmpCapsuleSeg: new THREE.Line3(new THREE.Vector3(), new THREE.Vector3()),
+    tmpTriPoint: new THREE.Vector3(),
+    tmpCapsulePoint: new THREE.Vector3(),
   };
 }
 
@@ -63,21 +143,6 @@ const worldNormalFromHit = (ctx: NpcWorldCollisionContext, hit: THREE.Intersecti
 };
 
 export type NpcMoveConstraintResult = { blocked: boolean; moved: boolean };
-
-const shouldTreatAsObstacle = (normalY: number, config: NpcWorldCollisionConfig) => {
-  // Treat anything steeper than the max walkable slope as an obstacle (walls, steep hills, ceilings).
-  // This matches ZenGin's intent for spacing-ray filtering on slopes, but without needing special stair VOBs.
-  const minWalkableNy = Math.cos(config.maxGroundAngleRad);
-  return normalY < minWalkableNy;
-};
-
-const orientNormalAgainstRayXZ = (nx: number, ny: number, nz: number, rayDirX: number, rayDirZ: number) => {
-  // World meshes can have inconsistent winding; ensure the normal points *against* our incoming ray in XZ.
-  // This makes push-out and wall-slide direction stable.
-  const d = nx * rayDirX + nz * rayDirZ;
-  if (d > 0) return { nx: -nx, ny: -ny, nz: -nz };
-  return { nx, ny, nz };
-};
 
 const sampleFloorAt = (
   ctx: NpcWorldCollisionContext,
@@ -123,6 +188,143 @@ const sampleFloorAt = (
     };
   }
   return null;
+};
+
+const findWorldCollisionMeshWithBVH = (root: THREE.Object3D): THREE.Mesh | null => {
+  if ((root as any).isMesh && (root as any).geometry?.boundsTree) return root as THREE.Mesh;
+  let found: THREE.Mesh | null = null;
+  root.traverse((o) => {
+    if (found) return;
+    if ((o as any).isMesh && (o as any).geometry?.boundsTree) found = o as THREE.Mesh;
+  });
+  return found;
+};
+
+const buildCapsuleLocal = (
+  ctx: NpcWorldCollisionContext,
+  originLocal: THREE.Vector3,
+  config: NpcWorldCollisionConfig
+): BvhCapsule => {
+  const radius = config.radius;
+  const capsuleHeight =
+    config.capsuleHeight ??
+    Math.max(config.scanHeight, ...(config.scanHeights?.length ? config.scanHeights : []));
+
+  // Capsule is defined along "up" direction in collider space.
+  // "originLocal" is the NPC origin (feet) in collider-local coordinates.
+  ctx.tmpCapsuleLocal.radius = radius;
+  ctx.tmpCapsuleLocal.start.copy(originLocal).addScaledVector(ctx.tmpUpLocal, radius);
+  ctx.tmpCapsuleLocal.end.copy(originLocal).addScaledVector(ctx.tmpUpLocal, Math.max(radius, capsuleHeight - radius));
+  return ctx.tmpCapsuleLocal;
+};
+
+const resolveCapsuleIntersections = (
+  ctx: NpcWorldCollisionContext,
+  bvh: MeshBVH,
+  capsule: BvhCapsule,
+  options: {
+    maxIterations?: number;
+    planarOnly?: boolean;
+    minWalkableNy?: number;
+    moveDir?: THREE.Vector3;
+  }
+): { collided: boolean; pushDirWorldXZ?: { x: number; z: number } } => {
+  const maxIterations = Math.max(1, options.maxIterations ?? 3);
+  const planarOnly = options.planarOnly ?? true;
+  const minWalkableNy = options.minWalkableNy ?? 0;
+  let collided = false;
+  let lastPushXZ: { x: number; z: number } | undefined;
+
+  // We update the capsule in-place inside shapecast, so we need to re-run a few times for stability.
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let didAdjust = false;
+    ctx.tmpCapsuleSeg.start.copy(capsule.start);
+    ctx.tmpCapsuleSeg.end.copy(capsule.end);
+
+    bvh.shapecast({
+      intersectsBounds: (box) => {
+        return capsule.intersectsBox(box) ? INTERSECTED : NOT_INTERSECTED;
+      },
+      intersectsTriangle: (tri) => {
+        // Note: `tri` is an ExtendedTriangle instance.
+        (tri as any).closestPointToSegment(ctx.tmpCapsuleSeg, ctx.tmpTriPoint, ctx.tmpCapsulePoint);
+
+        // Compute a stable triangle normal oriented toward the capsule. WORLD_MESH can have inconsistent winding
+        // (and can be mirrored), so we can't rely on the raw triangle normal direction for classification.
+        (tri as any).getNormal(ctx.tmpNormal);
+        ctx.tmpNext.copy(ctx.tmpCapsulePoint).sub(ctx.tmpTriPoint);
+        if (ctx.tmpNormal.dot(ctx.tmpNext) < 0) ctx.tmpNormal.multiplyScalar(-1);
+
+        // Classify triangle: treat ceilings / steep slopes as obstacles for XZ motion; ignore floor-like surfaces.
+        // This reduces false positives on walkable ground and prevents tunneling into very steep terrain.
+        const dotUp = ctx.tmpNormal.dot(ctx.tmpUpLocal);
+        const isCeiling = dotUp < 0;
+        const ny = Math.abs(dotUp);
+        const isObstacle = isCeiling || ny < minWalkableNy;
+        if (!isObstacle) return false;
+
+        const distSq = ctx.tmpTriPoint.distanceToSquared(ctx.tmpCapsulePoint);
+        const r = capsule.radius;
+        if (distSq >= r * r) return false;
+
+        const dist = Math.sqrt(Math.max(0, distSq));
+        const depth = r - dist + 1e-4;
+
+        // Push direction is the shortest vector from the triangle to the capsule segment.
+        ctx.tmpDir.copy(ctx.tmpCapsulePoint).sub(ctx.tmpTriPoint);
+        if (ctx.tmpDir.lengthSq() < 1e-12) {
+          // Degenerate case; use triangle normal but orient it consistently.
+          ctx.tmpDir.copy(ctx.tmpNormal);
+          if (!Number.isFinite(ctx.tmpDir.x + ctx.tmpDir.y + ctx.tmpDir.z)) return false;
+          const center = ctx.tmpOrigin.copy(capsule.end).add(capsule.start).multiplyScalar(0.5);
+          const toCenter = center.sub(ctx.tmpTriPoint);
+          if (ctx.tmpDir.dot(toCenter) < 0) ctx.tmpDir.multiplyScalar(-1);
+        }
+
+        if (planarOnly) {
+          // Project out the up component (movement is constrained to XZ plane).
+          ctx.tmpDir.addScaledVector(ctx.tmpUpLocal, -ctx.tmpDir.dot(ctx.tmpUpLocal));
+          if (ctx.tmpDir.lengthSq() < 1e-10) {
+            // If separation is mostly vertical (common on steep ramps), use the triangle normal projection instead.
+            ctx.tmpDir.copy(ctx.tmpNormal);
+            // Ensure normal points away from triangle towards capsule.
+            const toCapsule = ctx.tmpNext.copy(ctx.tmpCapsulePoint).sub(ctx.tmpTriPoint);
+            if (ctx.tmpDir.dot(toCapsule) < 0) ctx.tmpDir.multiplyScalar(-1);
+            ctx.tmpDir.addScaledVector(ctx.tmpUpLocal, -ctx.tmpDir.dot(ctx.tmpUpLocal));
+          }
+        }
+
+        const len2 = ctx.tmpDir.lengthSq();
+        if (len2 < 1e-10) return false;
+
+        // Prefer pushing opposite to movement direction so we don't "tunnel" through thin surfaces.
+        const moveDir = options.moveDir;
+        if (moveDir) {
+          ctx.tmpPlanarNormal.copy(moveDir);
+          if (planarOnly) ctx.tmpPlanarNormal.addScaledVector(ctx.tmpUpLocal, -ctx.tmpPlanarNormal.dot(ctx.tmpUpLocal));
+          if (ctx.tmpPlanarNormal.lengthSq() > 1e-10) {
+            // If the computed push is in the same direction as motion, flip it.
+            if (ctx.tmpDir.dot(ctx.tmpPlanarNormal) > 0) ctx.tmpDir.multiplyScalar(-1);
+          }
+        }
+
+        ctx.tmpDir.multiplyScalar(depth / Math.sqrt(ctx.tmpDir.lengthSq()));
+
+        capsule.translate(ctx.tmpDir);
+        ctx.tmpCapsuleSeg.start.copy(capsule.start);
+        ctx.tmpCapsuleSeg.end.copy(capsule.end);
+
+        didAdjust = true;
+        collided = true;
+        lastPushXZ = { x: ctx.tmpDir.x, z: ctx.tmpDir.z };
+        return false;
+      },
+    });
+
+    if (!didAdjust) break;
+  }
+
+  return { collided, pushDirWorldXZ: lastPushXZ };
 };
 
 export type NpcCollisionDebugRayHit = {
@@ -306,165 +508,209 @@ export function applyNpcWorldCollisionXZ(
     }
   }
 
-  // Spacing ray in movement direction to avoid going into walls/cliffs.
-  ctx.tmpDir.set(dx / dist, 0, dz / dist);
-  const heights = config.scanHeights?.length ? config.scanHeights : [config.scanHeight];
-  const rayLen = dist + config.radius;
-  const raycaster = ctx.raycaster;
+  // Conservative obstacle clamp (BVH-accelerated raycasts when available):
+  // Prevents tunneling through very thin/tilted surfaces by limiting how far we move before capsule resolution.
+  // This keeps the behavior closer to OpenGothic/Bullet kinematic motion (no crossing through a wall in one frame).
+  let clampedDist = dist;
+  {
+    const raycaster = ctx.raycaster;
+    const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+    (raycaster as any).firstHitOnly = true;
 
-  const prevFirstHitOnly = (raycaster as any).firstHitOnly;
-  (raycaster as any).firstHitOnly = true;
+    ctx.tmpDir.set(dx / dist, 0, dz / dist);
+    const rightX = -ctx.tmpDir.z;
+    const rightZ = ctx.tmpDir.x;
+    const heights = config.scanHeights?.length ? config.scanHeights : [config.scanHeight];
+    const lateral = config.radius * 0.75;
+    const lateralOffsets = [0, lateral, -lateral];
+    const minWalkableNy = Math.cos(config.maxGroundAngleRad);
 
-  // Sample multiple rays to account for the full body volume (head/torso/feet and width).
-  // This is a simplified version of ZenGin's spacing rays + low ceiling checks.
-  const rightX = -ctx.tmpDir.z;
-  const rightZ = ctx.tmpDir.x;
-  const lateral = config.radius * 0.75;
-  const lateralOffsets = [0, lateral, -lateral];
+    const far = dist + config.radius;
+    for (const hY of heights) {
+      for (const off of lateralOffsets) {
+        ctx.tmpOrigin.set(fromX + rightX * off, npcGroup.position.y + hY, fromZ + rightZ * off);
+        raycaster.ray.origin.copy(ctx.tmpOrigin);
+        raycaster.ray.direction.copy(ctx.tmpDir);
+        raycaster.near = 0;
+        raycaster.far = far;
 
-  let bestHitDist = Number.POSITIVE_INFINITY;
-  let bestHitNx = 0,
-    bestHitNy = 0,
-    bestHitNz = 0;
-  let bestHitSampleHeight = heights[0] ?? config.scanHeight;
+        const hits = raycaster.intersectObject(worldMesh, true);
+        if (!hits.length) continue;
 
-  for (const hY of heights) {
-    for (const off of lateralOffsets) {
-      ctx.tmpOrigin.set(fromX + rightX * off, npcGroup.position.y + hY, fromZ + rightZ * off);
-      raycaster.ray.origin.copy(ctx.tmpOrigin);
-      raycaster.ray.direction.copy(ctx.tmpDir);
-      raycaster.near = 0;
-      raycaster.far = rayLen;
-
-      const hits = raycaster.intersectObject(worldMesh, true);
-      if (!hits.length) continue;
-
-      for (const h of hits) {
+        const h = hits[0];
         const n = worldNormalFromHit(ctx, h);
         if (!n) continue;
-        const oriented = orientNormalAgainstRayXZ(n.x, n.y, n.z, ctx.tmpDir.x, ctx.tmpDir.z);
-        if (!shouldTreatAsObstacle(oriented.ny, config)) continue;
-        if (h.distance < bestHitDist) {
-          bestHitDist = h.distance;
-          bestHitNx = oriented.nx;
-          bestHitNy = oriented.ny;
-          bestHitNz = oriented.nz;
-          bestHitSampleHeight = hY;
+        const ny = Math.abs(n.y);
+        const isObstacle = ny < minWalkableNy;
+        if (!isObstacle) continue;
+
+        // Step-over exception: if this looks like a low "riser" and there is walkable floor right behind it
+        // within `stepHeight`, then don't clamp movement here (we'll handle it via the capsule step-up retry).
+        if (typeof currentGroundY === "number" && config.stepHeight > 0 && hY <= config.scanHeight + 1) {
+          const clearance = (plane?.clearance as number | undefined) ?? 4;
+          const probeDist = Math.min(far, h.distance + config.radius + 2);
+          const probeX = fromX + ctx.tmpDir.x * probeDist;
+          const probeZ = fromZ + ctx.tmpDir.z * probeDist;
+
+          const startY = currentGroundY + config.scanHeight + config.stepHeight + 10;
+          const downFar = config.scanHeight + config.stepHeight * 2 + 200;
+          const floor = sampleFloorAt(ctx, worldMesh, probeX, probeZ, startY, downFar, minWalkableNy);
+          if (floor) {
+            const targetY = floor.y + clearance;
+            const dy = targetY - currentGroundY;
+            if (dy > 1 && dy <= config.stepHeight) continue;
+          }
         }
-        break;
+
+        const allowed = Math.max(0, h.distance - config.radius);
+        clampedDist = Math.min(clampedDist, allowed);
       }
     }
+
+    (raycaster as any).firstHitOnly = prevFirstHitOnly;
   }
 
-  (raycaster as any).firstHitOnly = prevFirstHitOnly;
+  // Update desired position after clamping.
+  const moveScale = clampedDist < dist ? clampedDist / dist : 1;
+  const moveDx = dx * moveScale;
+  const moveDz = dz * moveScale;
+  const moveDist = clampedDist;
 
-  if (!Number.isFinite(bestHitDist)) {
-    npcGroup.position.x = desiredX;
-    npcGroup.position.z = desiredZ;
-    return { blocked: false, moved: true };
-  }
+  const desiredXClamped = fromX + moveDx;
+  const desiredZClamped = fromZ + moveDz;
 
-  // Treat low-height near-vertical hits as "step risers" if there's walkable floor right behind it.
-  // This approximates ZenGin's special handling of stairs (it ignores zCVobStair in spacing rays).
-  if (typeof currentGroundY === "number" && bestHitSampleHeight < config.scanHeight) {
-    const clearance = (plane?.clearance as number | undefined) ?? 4;
-    const minFloorNy = Math.cos(config.maxGroundAngleRad);
-    const probeDist = Math.min(dist, bestHitDist + config.radius + 2);
-    const probeX = fromX + ctx.tmpDir.x * probeDist;
-    const probeZ = fromZ + ctx.tmpDir.z * probeDist;
-    const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
-    const far = config.scanHeight + config.stepHeight * 2 + 50;
-    const floor = sampleFloorAt(ctx, worldMesh, probeX, probeZ, startY, far, minFloorNy);
-    if (floor) {
-      const targetY = floor.y + clearance;
-      const dy = targetY - currentGroundY;
-      if (dy > 1 && dy <= config.stepHeight) {
-        (npcGroup.userData as any).groundYTarget = targetY;
-        (npcGroup.userData as any).groundPlane = {
-          nx: floor.nx,
-          ny: floor.ny,
-          nz: floor.nz,
-          px: floor.px,
-          py: floor.py,
-          pz: floor.pz,
-          clearance,
-        };
-        // Allow the move without clamping on the riser.
-        npcGroup.position.x = desiredX;
-        npcGroup.position.z = desiredZ;
-        return { blocked: false, moved: true };
-      }
+  const mesh = findWorldCollisionMeshWithBVH(worldMesh);
+  if (!mesh) {
+    // BVH not available (or not built yet) - fall back to a conservative clamp via a single spacing ray.
+    ctx.tmpDir.set(dx / dist, 0, dz / dist);
+    const raycaster = ctx.raycaster;
+    const prevFirstHitOnly = (raycaster as any).firstHitOnly;
+    (raycaster as any).firstHitOnly = true;
+    ctx.tmpOrigin.set(fromX, npcGroup.position.y + config.scanHeight, fromZ);
+    raycaster.ray.origin.copy(ctx.tmpOrigin);
+    raycaster.ray.direction.copy(ctx.tmpDir);
+    raycaster.near = 0;
+    raycaster.far = dist + config.radius;
+    const hits = raycaster.intersectObject(worldMesh, true);
+    (raycaster as any).firstHitOnly = prevFirstHitOnly;
+    if (!hits.length) {
+      npcGroup.position.x = desiredXClamped;
+      npcGroup.position.z = desiredZClamped;
+      return { blocked: false, moved: true };
     }
+    const hit = hits[0];
+    const allowed = Math.max(0, hit.distance - config.radius);
+    const clampedLen = Math.min(moveDist, allowed);
+    npcGroup.position.x = fromX + ctx.tmpDir.x * clampedLen;
+    npcGroup.position.z = fromZ + ctx.tmpDir.z * clampedLen;
+    return { blocked: clampedLen < moveDist - 1e-6, moved: clampedLen > 1e-6 };
   }
 
-  const allowed = Math.max(0, bestHitDist - config.radius);
-  const clampedLen = Math.min(dist, allowed);
-  const newX = fromX + ctx.tmpDir.x * clampedLen;
-  const newZ = fromZ + ctx.tmpDir.z * clampedLen;
+  // BVH capsule-vs-triangle collision (OpenGothic-like body collider).
+  mesh.updateWorldMatrix(true, false);
+  ctx.invMatrixWorld.copy(mesh.matrixWorld).invert();
+  ctx.invMatrixWorld3.setFromMatrix4(ctx.invMatrixWorld);
+  ctx.tmpUpLocal.set(0, 1, 0).applyMatrix3(ctx.invMatrixWorld3);
+  if (ctx.tmpUpLocal.lengthSq() < 1e-8) ctx.tmpUpLocal.set(0, 1, 0);
+  else ctx.tmpUpLocal.normalize();
+
+  const bvh = (mesh.geometry as any).boundsTree as MeshBVH | undefined;
+  if (!bvh) {
+    npcGroup.position.x = desiredXClamped;
+    npcGroup.position.z = desiredZClamped;
+    return { blocked: clampedDist < dist - 1e-6, moved: clampedDist > 1e-6 };
+  }
+
+  const minWalkableNy = Math.cos(config.maxGroundAngleRad);
+
+  // Convert NPC origin to collider local-space.
+  ctx.tmpOrigin.set(fromX, npcGroup.position.y, fromZ).applyMatrix4(ctx.invMatrixWorld);
+
+  // Convert movement delta to collider local-space (directional part only).
+  ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
+
+  const desiredLenLocal = Math.hypot(ctx.tmpDelta.x, ctx.tmpDelta.z);
+  const radiusLocal = config.radius; // World uses uniform scaling for WORLD_MESH; treat as 1:1.
+  const substeps = Math.min(8, Math.max(1, Math.ceil(desiredLenLocal / Math.max(1e-6, radiusLocal))));
+
+  const capsule = buildCapsuleLocal(ctx, ctx.tmpOrigin, config);
+  const stepDeltaLocalX = ctx.tmpDelta.x / substeps;
+  const stepDeltaLocalY = ctx.tmpDelta.y / substeps;
+  const stepDeltaLocalZ = ctx.tmpDelta.z / substeps;
+
+  for (let i = 0; i < substeps; i++) {
+    const stepDelta = ctx.tmpDelta.set(stepDeltaLocalX, stepDeltaLocalY, stepDeltaLocalZ);
+    capsule.translate(stepDelta);
+    resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 3, planarOnly: true, minWalkableNy, moveDir: stepDelta });
+  }
+
+  // Convert capsule-local back to NPC origin (feet).
+  const originLocalAfter = ctx.tmpNext.copy(capsule.start).addScaledVector(ctx.tmpUpLocal, -capsule.radius);
+  originLocalAfter.applyMatrix4(mesh.matrixWorld);
+
+  const newX = originLocalAfter.x;
+  const newZ = originLocalAfter.z;
+
+  const movedDx = newX - fromX;
+  const movedDz = newZ - fromZ;
+  const movedDist = Math.hypot(movedDx, movedDz);
 
   npcGroup.position.x = newX;
   npcGroup.position.z = newZ;
 
-  // If we're effectively "inside" an overhang/wall at some sampled height, push out a little along the planar normal.
-  // This helps avoid cases where only the head/torso penetrates, while the feet are still clear.
-  if (bestHitDist < config.radius - 1e-3) {
-    ctx.tmpPlanarNormal.set(bestHitNx, bestHitNy, bestHitNz);
-    ctx.tmpPlanarNormal.y = 0;
-    const len2 = ctx.tmpPlanarNormal.lengthSq();
-    if (len2 > 1e-8) {
-      ctx.tmpPlanarNormal.multiplyScalar(1 / Math.sqrt(len2));
-      const push = Math.min(25, config.radius - bestHitDist + 0.5);
-      npcGroup.position.x += ctx.tmpPlanarNormal.x * push;
-      npcGroup.position.z += ctx.tmpPlanarNormal.z * push;
+  const blocked = movedDist < moveDist - 1e-4 || clampedDist < dist - 1e-6;
+  const moved = movedDist > 1e-6;
+
+  // Step-up attempt when blocked: try the same move from an elevated capsule position.
+  if (blocked && typeof currentGroundY === "number" && config.stepHeight > 0) {
+    const tryOriginLocal = ctx.tmpOrigin.set(fromX, npcGroup.position.y + config.stepHeight, fromZ).applyMatrix4(ctx.invMatrixWorld);
+    const stepCapsule = buildCapsuleLocal(ctx, tryOriginLocal, config);
+    const stepDelta = ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
+    stepCapsule.translate(stepDelta);
+    resolveCapsuleIntersections(ctx, bvh, stepCapsule, { maxIterations: 4, planarOnly: true, minWalkableNy, moveDir: stepDelta });
+
+    const steppedOriginWorld = ctx.tmpNext.copy(stepCapsule.start).addScaledVector(ctx.tmpUpLocal, -stepCapsule.radius).applyMatrix4(mesh.matrixWorld);
+
+    // Only accept the step if it improves forward progress in the requested direction.
+    const forward = ctx.tmpDir.set(movedDx / dist, 0, movedDz / dist);
+    if (forward.lengthSq() < 1e-8) forward.set(dx / dist, 0, dz / dist);
+    const steppedDx = steppedOriginWorld.x - fromX;
+    const steppedDz = steppedOriginWorld.z - fromZ;
+    const forwardProgBefore = movedDx * forward.x + movedDz * forward.z;
+    const forwardProgAfter = steppedDx * forward.x + steppedDz * forward.z;
+
+    if (forwardProgAfter > forwardProgBefore + 0.5) {
+      npcGroup.position.x = steppedOriginWorld.x;
+      npcGroup.position.z = steppedOriginWorld.z;
+
+      // Update ground target if we can see a floor at the stepped XZ.
+      const clearance = (plane?.clearance as number | undefined) ?? 4;
+      const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
+      const far = config.scanHeight + (config.maxStepDown ?? 800) + config.stepHeight + 100;
+      const minFloorNy = Math.cos(config.maxGroundAngleRad);
+      const floor = sampleFloorAt(ctx, worldMesh, npcGroup.position.x, npcGroup.position.z, startY, far, minFloorNy);
+      if (floor) {
+        const targetY = floor.y + clearance;
+        const dy = targetY - currentGroundY;
+        const maxDown = config.maxStepDown ?? 800;
+        if (dy <= config.stepHeight && dy >= -maxDown) {
+          (npcGroup.userData as any).groundYTarget = targetY;
+          (npcGroup.userData as any).groundPlane = {
+            nx: floor.nx,
+            ny: floor.ny,
+            nz: floor.nz,
+            px: floor.px,
+            py: floor.py,
+            pz: floor.pz,
+            clearance,
+          };
+        }
+      }
+
+      const totalMoved = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
+      return { blocked: totalMoved < dist - 1e-4, moved: totalMoved > 1e-6 };
     }
   }
 
-  if (!config.enableWallSlide || clampedLen >= dist - 1e-6) {
-    return { blocked: clampedLen < dist - 1e-6, moved: clampedLen > 1e-6 };
-  }
-
-  // Basic wall sliding: try to spend the remaining displacement along the wall tangent in XZ.
-  ctx.tmpPlanarNormal.set(bestHitNx, bestHitNy, bestHitNz);
-  ctx.tmpPlanarNormal.y = 0;
-  if (ctx.tmpPlanarNormal.lengthSq() < 1e-8) {
-    return { blocked: true, moved: clampedLen > 1e-6 };
-  }
-  ctx.tmpPlanarNormal.normalize();
-
-  const remaining = dist - clampedLen;
-  ctx.tmpNext.copy(ctx.tmpDir).multiplyScalar(remaining);
-  const dot = ctx.tmpNext.dot(ctx.tmpPlanarNormal);
-  ctx.tmpNext.addScaledVector(ctx.tmpPlanarNormal, -dot);
-  const slideLen = ctx.tmpNext.length();
-  if (slideLen < 1e-6) return { blocked: true, moved: clampedLen > 1e-6 };
-
-  const slideDirX = ctx.tmpNext.x / slideLen;
-  const slideDirZ = ctx.tmpNext.z / slideLen;
-
-  // Cast again along slide direction to keep clearance.
-  ctx.tmpOrigin.set(npcGroup.position.x, npcGroup.position.y + config.scanHeight, npcGroup.position.z);
-  raycaster.ray.origin.copy(ctx.tmpOrigin);
-  raycaster.ray.direction.set(slideDirX, 0, slideDirZ);
-  raycaster.near = 0;
-  raycaster.far = slideLen + config.radius;
-
-  (raycaster as any).firstHitOnly = true;
-  const slideHits = raycaster.intersectObject(worldMesh, true);
-  (raycaster as any).firstHitOnly = prevFirstHitOnly;
-
-  let slideAllowed = slideLen;
-  for (const h of slideHits) {
-    const n = worldNormalFromHit(ctx, h);
-    if (!n) continue;
-    const oriented = orientNormalAgainstRayXZ(n.x, n.y, n.z, slideDirX, slideDirZ);
-    if (!shouldTreatAsObstacle(oriented.ny, config)) continue;
-    slideAllowed = Math.max(0, Math.min(slideAllowed, h.distance - config.radius));
-    break;
-  }
-
-  npcGroup.position.x += slideDirX * slideAllowed;
-  npcGroup.position.z += slideDirZ * slideAllowed;
-
-  const totalMoved = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
-  return { blocked: totalMoved < dist - 1e-6, moved: totalMoved > 1e-6 };
+  return { blocked, moved };
 }

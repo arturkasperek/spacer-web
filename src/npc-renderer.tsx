@@ -74,13 +74,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const collisionCtx = useMemo(() => createNpcWorldCollisionContext(), []);
   const collisionDumpSeqRef = useRef(0);
   const collisionConfig = useMemo<NpcWorldCollisionConfig>(() => {
+    const getMaxSlopeDeg = () => {
+      // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
+      // Override for tuning via `?npcMaxSlopeDeg=...`.
+      const fallback = 43;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcMaxSlopeDeg");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     return {
       radius: 35,
       scanHeight: 110,
       scanHeights: [50, 110, 170],
       stepHeight: 60,
       maxStepDown: 800,
-      maxGroundAngleRad: THREE.MathUtils.degToRad(45),
+      // Rock stairs are about as steep as we want to allow. Anything steeper should block movement.
+      maxGroundAngleRad: THREE.MathUtils.degToRad(getMaxSlopeDeg()),
       minWallNormalY: 0.4,
       enableWallSlide: true,
     };
