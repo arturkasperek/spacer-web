@@ -66,6 +66,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
   const tmpManualUp = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const tmpTeleportForward = useMemo(() => new THREE.Vector3(), []);
+  const tmpTeleportDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
   const characterCachesRef = useRef<CharacterCaches>({
     binary: new Map(),
     textures: new Map(),
@@ -176,6 +178,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     right: false,
     shift: false,
   });
+  const teleportCavalornSeqRef = useRef(0);
+  const teleportCavalornSeqAppliedRef = useRef(0);
 
   useEffect(() => {
     if (!manualControlCavalornEnabled) return;
@@ -198,6 +202,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         case "ShiftLeft":
         case "ShiftRight":
           manualKeysRef.current.shift = pressed;
+          break;
+        case "KeyT":
+          if (pressed && !e.repeat) teleportCavalornSeqRef.current += 1;
           break;
         default:
           handled = false;
@@ -729,6 +736,77 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     if (!enabled || loadedNpcsRef.current.size === 0) return;
+
+    // Debug helper: teleport Cavalorn in front of the camera (manual control only).
+    if (manualControlCavalornEnabled && teleportCavalornSeqAppliedRef.current !== teleportCavalornSeqRef.current) {
+      const cavalorn = cavalornGroupRef.current;
+      const ground = ensureWorldMesh();
+      const cam = camera;
+      if (cavalorn && cam) {
+        cam.getWorldDirection(tmpTeleportForward);
+        tmpTeleportForward.y = 0;
+        if (tmpTeleportForward.lengthSq() < 1e-8) tmpTeleportForward.set(0, 0, -1);
+        else tmpTeleportForward.normalize();
+
+        const TELEPORT_DISTANCE = 220;
+        const targetX = cam.position.x + tmpTeleportForward.x * TELEPORT_DISTANCE;
+        const targetZ = cam.position.z + tmpTeleportForward.z * TELEPORT_DISTANCE;
+        cavalorn.position.x = targetX;
+        cavalorn.position.z = targetZ;
+
+        // Face the same direction as the camera.
+        const yaw = Math.atan2(tmpTeleportForward.x, tmpTeleportForward.z);
+        tmpTeleportDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
+        cavalorn.quaternion.copy(tmpTeleportDesiredQuat);
+
+        // Reset slide state and force a fresh ground sample.
+        cavalorn.userData.isSliding = false;
+        cavalorn.userData.slideVelXZ = { x: 0, z: 0 };
+        cavalorn.userData.lastGroundSampleAt = 0;
+        cavalorn.userData._clock = 0;
+
+        if (ground) {
+          const minSlideNy = Math.cos(collisionConfig.maxSlideAngleRad);
+          const hit =
+            sampleGroundHitForMove(new THREE.Vector3(targetX, cam.position.y, targetZ), ground, {
+              clearance: 4,
+              rayStartAbove: 2000,
+              maxDownDistance: 20000,
+              preferClosestToY: cam.position.y,
+              minHitNormalY: minSlideNy,
+            }) ||
+            sampleGroundHitForMove(new THREE.Vector3(targetX, cam.position.y, targetZ), ground, {
+              clearance: 4,
+              rayStartAbove: 2000,
+              maxDownDistance: 20000,
+              preferClosestToY: cam.position.y,
+            });
+
+          if (hit) {
+            cavalorn.userData.groundPlane = {
+              nx: hit.normal.x,
+              ny: hit.normal.y,
+              nz: hit.normal.z,
+              px: hit.point.x,
+              py: hit.point.y,
+              pz: hit.point.z,
+              clearance: 4,
+            };
+            cavalorn.userData.groundYTarget = hit.targetY;
+            cavalorn.position.y = hit.targetY;
+          } else {
+            // Fallback to the previous ground snap method if we didn't find a floor from the camera height.
+            snapNpcToGroundOrDefer(cavalorn);
+          }
+        } else {
+          // If WORLD_MESH isn't ready yet, defer to the existing snap queue.
+          snapNpcToGroundOrDefer(cavalorn);
+        }
+
+        persistNpcPosition(cavalorn);
+        teleportCavalornSeqAppliedRef.current = teleportCavalornSeqRef.current;
+      }
+    }
 
     // If the world mesh arrives after NPCs were spawned, snap any pending NPCs in small batches.
     if (pendingGroundSnapRef.current.length > 0 && ensureWorldMesh()) {
