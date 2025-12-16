@@ -93,6 +93,34 @@ describe("npc world collision", () => {
     expect(npc.position.x).toBeLessThan(0);
   });
 
+  it("can move away from a wall even if starting slightly interpenetrating (depenetration)", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(-1.9, 0, 0); // radius=2 => starts slightly inside the wall at x=0
+
+    const wallGeo = new THREE.PlaneGeometry(100, 100);
+    (wallGeo as any).boundsTree = new MeshBVH(wallGeo, { maxLeafTris: 3 });
+    const wallMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    const wall = new THREE.Mesh(wallGeo, wallMat);
+    wall.rotation.y = -Math.PI / 2; // normal ~ +X
+    wall.updateMatrixWorld(true);
+
+    const config = {
+      radius: 2,
+      scanHeight: 110,
+      scanHeights: [50, 110],
+      stepHeight: 60,
+      maxStepDown: 800,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(60),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+    };
+
+    const r = applyNpcWorldCollisionXZ(ctx, npc, -2.1, 0, wall, 0.016, config);
+    expect(r.moved).toBe(true);
+    expect(npc.position.x).toBeLessThan(-1.9);
+  });
+
   it("can step over a low riser when there is walkable floor behind it (stairs)", () => {
     const ctx = createNpcWorldCollisionContext();
     const npc = new THREE.Group();

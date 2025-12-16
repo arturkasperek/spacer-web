@@ -403,7 +403,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         tmpMoveNormalMatrix.getNormalMatrix(hit.object.matrixWorld);
         tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
         // Flip only when we're likely hitting the back-face of a floor (surface at/below the query point).
-        if (tmpMoveNormal.y < 0 && hit.point.y <= worldPos.y + 0.01) tmpMoveNormal.multiplyScalar(-1);
+        // Allow a small window above the current position to recover from minor penetrations (stairs/steps),
+        // while still preventing snapping to distant roofs/ceilings.
+        const FLIP_MAX_ABOVE = 20;
+        if (tmpMoveNormal.y < 0 && hit.point.y <= worldPos.y + FLIP_MAX_ABOVE) tmpMoveNormal.multiplyScalar(-1);
         normalY = tmpMoveNormal.y;
         if (typeof options.minHitNormalY === "number" && normalY < options.minHitNormalY) continue;
       }
@@ -429,7 +432,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       tmpMoveNormal.copy(faceNormal);
       tmpMoveNormalMatrix.getNormalMatrix(best.object.matrixWorld);
       tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
-      if (tmpMoveNormal.y < 0 && best.point.y <= worldPos.y + 0.01) tmpMoveNormal.multiplyScalar(-1);
+      const FLIP_MAX_ABOVE = 20;
+      if (tmpMoveNormal.y < 0 && best.point.y <= worldPos.y + FLIP_MAX_ABOVE) tmpMoveNormal.multiplyScalar(-1);
     } else {
       tmpMoveNormal.set(0, 1, 0);
     }
@@ -722,6 +726,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcId = `npc-${npcData.instanceIndex}`;
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
+      let tryingToMoveThisFrame = false;
 
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
       if (isManualCavalorn) {
@@ -737,6 +742,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const x = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
           const z = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
           if (x === 0 && z === 0) break;
+          tryingToMoveThisFrame = true;
 
           camera.getWorldDirection(tmpManualForward);
           tmpManualForward.y = 0;
@@ -769,6 +775,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
         movedThisFrame = Boolean(moveResult?.moved);
         locomotionMode = moveResult?.mode ?? "idle";
+        tryingToMoveThisFrame = locomotionMode !== "idle";
       }
 
       if (instance) {
@@ -776,7 +783,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         locomotion?.update(instance, locomotionMode);
       }
 
-      if (movedThisFrame) {
+      // Keep NPCs glued to the ground while moving, and also while *trying* to move:
+      // if we get blocked on stairs/walls, Y can otherwise stay stale (and we never recover).
+      if (movedThisFrame || tryingToMoveThisFrame) {
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
         const ground = ensureWorldMesh();
         if (ground) {
@@ -807,8 +816,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               rayStartAbove: 50,
               maxDownDistance: 5000,
               preferClosestToY: tmpGroundSampleWorldPos.y,
-              // Ignore near-vertical faces (e.g. stair risers / walls) when sampling "floor".
-              minHitNormalY: 0.25,
+              // Treat only walkable surfaces as "floor" (avoid snapping to walls/risers/undersides).
+              minHitNormalY: Math.cos(collisionConfig.maxGroundAngleRad),
             });
             if (hit) {
               const targetY = hit.targetY;

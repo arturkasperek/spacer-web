@@ -226,7 +226,6 @@ const resolveCapsuleIntersections = (
     maxIterations?: number;
     planarOnly?: boolean;
     minWalkableNy?: number;
-    moveDir?: THREE.Vector3;
   }
 ): { collided: boolean; pushDirWorldXZ?: { x: number; z: number } } => {
   const maxIterations = Math.max(1, options.maxIterations ?? 3);
@@ -296,17 +295,6 @@ const resolveCapsuleIntersections = (
 
         const len2 = ctx.tmpDir.lengthSq();
         if (len2 < 1e-10) return false;
-
-        // Prefer pushing opposite to movement direction so we don't "tunnel" through thin surfaces.
-        const moveDir = options.moveDir;
-        if (moveDir) {
-          ctx.tmpPlanarNormal.copy(moveDir);
-          if (planarOnly) ctx.tmpPlanarNormal.addScaledVector(ctx.tmpUpLocal, -ctx.tmpPlanarNormal.dot(ctx.tmpUpLocal));
-          if (ctx.tmpPlanarNormal.lengthSq() > 1e-10) {
-            // If the computed push is in the same direction as motion, flip it.
-            if (ctx.tmpDir.dot(ctx.tmpPlanarNormal) > 0) ctx.tmpDir.multiplyScalar(-1);
-          }
-        }
 
         ctx.tmpDir.multiplyScalar(depth / Math.sqrt(ctx.tmpDir.lengthSq()));
 
@@ -647,10 +635,14 @@ export function applyNpcWorldCollisionXZ(
   const stepDeltaLocalY = ctx.tmpDelta.y / substeps;
   const stepDeltaLocalZ = ctx.tmpDelta.z / substeps;
 
+  // If we're already intersecting obstacle geometry (e.g. due to snap/smoothing artifacts),
+  // depenetrate first so we don't end up "stuck" in place.
+  resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 6, planarOnly: true, minWalkableNy });
+
   for (let i = 0; i < substeps; i++) {
     const stepDelta = ctx.tmpDelta.set(stepDeltaLocalX, stepDeltaLocalY, stepDeltaLocalZ);
     capsule.translate(stepDelta);
-    resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 3, planarOnly: true, minWalkableNy, moveDir: stepDelta });
+    resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 3, planarOnly: true, minWalkableNy });
   }
 
   // Convert capsule-local back to NPC origin (feet).
@@ -678,7 +670,7 @@ export function applyNpcWorldCollisionXZ(
     const stepCapsule = buildCapsuleLocal(ctx, tryOriginLocal, config);
     const stepDelta = ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
     stepCapsule.translate(stepDelta);
-    resolveCapsuleIntersections(ctx, bvh, stepCapsule, { maxIterations: 4, planarOnly: true, minWalkableNy, moveDir: stepDelta });
+    resolveCapsuleIntersections(ctx, bvh, stepCapsule, { maxIterations: 4, planarOnly: true, minWalkableNy });
 
     const steppedOriginWorld = ctx.tmpNext.copy(stepCapsule.start).addScaledVector(ctx.tmpUpLocal, -stepCapsule.radius).applyMatrix4(mesh.matrixWorld);
 
@@ -691,8 +683,8 @@ export function applyNpcWorldCollisionXZ(
     const forwardProgAfter = steppedDx * forward.x + steppedDz * forward.z;
 
     // Accept the step if it makes meaningful forward progress.
-    // Use a scale-relative threshold so low-speed motion (small dt) can still step up.
-    const minGain = Math.max(0.05, Math.min(0.5, moveDist * 0.2));
+    // Use a scale-relative threshold so tiny per-frame deltas (small dt / slow speed) can still step up.
+    const minGain = Math.max(1e-4, Math.min(0.5, moveDist * 0.2));
     if (forwardProgAfter > forwardProgBefore + minGain) {
       npcGroup.position.x = steppedOriginWorld.x;
       npcGroup.position.z = steppedOriginWorld.z;
