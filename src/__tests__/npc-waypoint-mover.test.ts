@@ -104,7 +104,6 @@ describe("npc waypoint mover", () => {
     group.position.set(-10, 0, 0);
 
     const tick = mover.update("npc-1", group, 0.016);
-    expect(tick.moved).toBe(true);
     expect(tick.mode).toBe("idle");
     expect(group.position.x).toBeCloseTo(-10, 6);
   });
@@ -127,5 +126,25 @@ describe("npc waypoint mover", () => {
 
     mover.clear();
     expect(mover.update("npc-1", group, 0.016)).toEqual({ moved: false, mode: "idle" });
+  });
+
+  it("stops the move when repeatedly blocked (simulating hard collision)", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        { name: "B", position: { x: 10, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+    (group.userData as any).moveConstraint = () => ({ blocked: true, moved: false });
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    const tick = mover.update("npc-1", group, 1.0);
+    expect(tick.mode).toBe("idle");
+    expect(group.position.x).toBeCloseTo(0, 6);
   });
 });

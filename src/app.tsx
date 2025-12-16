@@ -12,6 +12,7 @@ import { NpcRenderer } from "./npc-renderer.js";
 import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
+import { NpcCollisionDebugPanel } from "./npc-collision-debug-panel.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 
@@ -272,6 +273,7 @@ export function App() {
 
   return (
     <>
+      <NpcCollisionDebugPanel />
       {/* VOB Tree - left side panel */}
       <VOBTree
         world={world}

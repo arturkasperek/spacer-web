@@ -11,6 +11,8 @@ import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
+import { collectNpcWorldCollisionDebugSnapshot, applyNpcWorldCollisionXZ, createNpcWorldCollisionContext, type NpcMoveConstraintResult, type NpcWorldCollisionConfig } from "./npc-world-collision";
+import { getNpcCollisionDumpSeq } from "./npc-collision-debug";
 
 interface NpcRendererProps {
   world: World | null;
@@ -69,6 +71,19 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const warnedNoWorldMeshRef = useRef(false);
   const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
   const cavalornGroupRef = useRef<THREE.Group | null>(null);
+  const collisionCtx = useMemo(() => createNpcWorldCollisionContext(), []);
+  const collisionDumpSeqRef = useRef(0);
+  const collisionConfig = useMemo<NpcWorldCollisionConfig>(() => {
+    return {
+      radius: 35,
+      scanHeight: 110,
+      scanHeights: [50, 110, 170],
+      stepHeight: 60,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(45),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+    };
+  }, []);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -245,6 +260,19 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return found;
     }
     return null;
+  };
+
+  const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): NpcMoveConstraintResult => {
+    const ground = ensureWorldMesh();
+    if (!ground) {
+      const beforeX = npcGroup.position.x;
+      const beforeZ = npcGroup.position.z;
+      npcGroup.position.x = desiredX;
+      npcGroup.position.z = desiredZ;
+      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      return { blocked: false, moved };
+    }
+    return applyNpcWorldCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, ground, dt, collisionConfig);
   };
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
@@ -570,6 +598,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Create NPC mesh imperatively
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
+        npcGroup.userData.moveConstraint = applyMoveConstraint;
         {
           const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
           const displayName = (npc.npcData.name || "").trim().toUpperCase();
@@ -687,14 +716,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           tmpManualDir.normalize();
 
           const speed = keys.shift ? 350 : 180;
-          npcGroup.position.addScaledVector(tmpManualDir, speed * dt);
+          const desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
+          const desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
+          const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);
+          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpManualDir.x, z: tmpManualDir.z };
 
           const yaw = Math.atan2(tmpManualDir.x, tmpManualDir.z);
           tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
           const t = 1 - Math.exp(-10 * dt);
           npcGroup.quaternion.slerp(tmpManualDesiredQuat, t);
 
-          movedThisFrame = true;
+          movedThisFrame = movedThisFrame || r.moved;
         }
 
         locomotionMode = movedThisFrame ? (manualKeysRef.current.shift ? "run" : "walk") : "idle";
@@ -772,6 +804,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
         const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
+      }
+    }
+
+    // One-shot debug dump (button-triggered).
+    const dumpSeq = getNpcCollisionDumpSeq();
+    if (dumpSeq !== collisionDumpSeqRef.current) {
+      collisionDumpSeqRef.current = dumpSeq;
+      const cavalorn = cavalornGroupRef.current;
+      const ground = ensureWorldMesh();
+      if (cavalorn && ground) {
+        const moveDirXZ = (cavalorn.userData.lastMoveDirXZ as { x: number; z: number } | undefined) ?? null;
+        const snapshot = collectNpcWorldCollisionDebugSnapshot(collisionCtx, cavalorn, ground, moveDirXZ, collisionConfig);
+        try {
+          console.log("[NPCCollisionDebugJSON]" + JSON.stringify(snapshot));
+        } catch (e) {
+          console.log("[NPCCollisionDebugJSON]" + JSON.stringify({ error: String(e) }));
+        }
+      } else {
+        console.log("[NPCCollisionDebugJSON]" + JSON.stringify({ error: "Cavalorn or WORLD_MESH not ready" }));
       }
     }
   });

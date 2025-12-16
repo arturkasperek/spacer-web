@@ -24,6 +24,7 @@ export type WaypointMoveState = {
   arriveDistance: number;
   locomotionMode: Exclude<LocomotionMode, "idle">;
   done: boolean;
+  stuckSeconds: number;
 };
 
 export type WaypointMover = {
@@ -107,6 +108,7 @@ export function createWaypointMover(world: World): WaypointMover {
         arriveDistance: options?.arriveDistance ?? 5,
         locomotionMode: options?.locomotionMode ?? "walk",
         done: false,
+        stuckSeconds: 0,
       });
       npcGroup.userData.isScriptControlled = true;
       return true;
@@ -118,8 +120,28 @@ export function createWaypointMover(world: World): WaypointMover {
 
       const MAX_DT = 0.05;
       const MAX_STEPS = 8;
+      const STUCK_SECONDS_TO_GIVE_UP = 0.35;
       let remaining = Math.max(0, deltaSeconds);
       let moved = false;
+
+      const applyMoveXZ = (x: number, z: number, dt: number): { blocked: boolean; moved: boolean } => {
+        const beforeX = npcGroup.position.x;
+        const beforeZ = npcGroup.position.z;
+        let blocked = false;
+        const constraint = (npcGroup.userData as any).moveConstraint as
+          | ((group: THREE.Group, desiredX: number, desiredZ: number, dt: number) => { blocked: boolean; moved: boolean } | boolean | void)
+          | undefined;
+        if (typeof constraint === "function") {
+          const res = constraint(npcGroup, x, z, dt);
+          if (typeof res === "boolean") blocked = res;
+          else if (res && typeof res === "object") blocked = Boolean((res as any).blocked);
+        } else {
+          npcGroup.position.x = x;
+          npcGroup.position.z = z;
+        }
+        const didMove = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+        return { blocked, moved: didMove };
+      };
 
       for (let step = 0; step < MAX_STEPS && remaining > 0 && !move.done; step++) {
         const dt = Math.min(remaining, MAX_DT);
@@ -148,19 +170,33 @@ export function createWaypointMover(world: World): WaypointMover {
         const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
 
         if (shouldSnap) {
-          npcGroup.position.x = target.x;
-          npcGroup.position.z = target.z;
-          move.nextIndex += 1;
-          if (move.nextIndex >= move.route.length) {
-            move.done = true;
+          const r = applyMoveXZ(target.x, target.z, dt);
+          moved = moved || r.moved;
+          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+          if (Math.abs(npcGroup.position.x - target.x) <= 1e-4 && Math.abs(npcGroup.position.z - target.z) <= 1e-4) {
+            move.nextIndex += 1;
+            move.stuckSeconds = 0;
+            if (move.nextIndex >= move.route.length) {
+              move.done = true;
+            }
+          } else {
+            move.stuckSeconds += dt;
           }
         } else {
           // `shouldSnap === false` implies `dist > 0`.
           tmpToTargetHoriz.multiplyScalar(1 / dist);
-          npcGroup.position.addScaledVector(tmpToTargetHoriz, maxStep);
+          const nextX = npcGroup.position.x + tmpToTargetHoriz.x * maxStep;
+          const nextZ = npcGroup.position.z + tmpToTargetHoriz.z * maxStep;
+          const r = applyMoveXZ(nextX, nextZ, dt);
+          moved = moved || r.moved;
+          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+          if (r.moved) move.stuckSeconds = 0;
+          else move.stuckSeconds += dt;
         }
 
-        moved = true;
+        if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {
+          move.done = true;
+        }
       }
 
       return { moved, mode: move.done ? "idle" : move.locomotionMode };
