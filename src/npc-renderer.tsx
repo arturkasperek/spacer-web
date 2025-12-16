@@ -791,7 +791,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               rayStartAbove: 50,
               maxDownDistance: 5000,
               preferClosestToY: tmpGroundSampleWorldPos.y,
-              minHitNormalY: 0.05,
+              // Ignore near-vertical faces (e.g. stair risers / walls) when sampling "floor".
+              minHitNormalY: 0.25,
             });
             if (hit) {
               const targetY = hit.targetY;

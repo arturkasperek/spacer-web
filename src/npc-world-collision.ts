@@ -64,12 +64,11 @@ const worldNormalFromHit = (ctx: NpcWorldCollisionContext, hit: THREE.Intersecti
 
 export type NpcMoveConstraintResult = { blocked: boolean; moved: boolean };
 
-const shouldTreatAsObstacle = (normalY: number, sampleHeight: number, config: NpcWorldCollisionConfig) => {
-  void sampleHeight;
-  // Treat wall/ceiling-like surfaces as obstacles. Walkable slopes/ramps are not obstacles.
-  // (Stair collision in Gothic often uses special Vobs; our world mesh is mirrored and may have odd windings,
-  //  so this relies on the normal correction above.)
-  return normalY <= config.minWallNormalY;
+const shouldTreatAsObstacle = (normalY: number, config: NpcWorldCollisionConfig) => {
+  // Treat anything steeper than the max walkable slope as an obstacle (walls, steep hills, ceilings).
+  // This matches ZenGin's intent for spacing-ray filtering on slopes, but without needing special stair VOBs.
+  const minWalkableNy = Math.cos(config.maxGroundAngleRad);
+  return normalY < minWalkableNy;
 };
 
 const orientNormalAgainstRayXZ = (nx: number, ny: number, nz: number, rayDirX: number, rayDirZ: number) => {
@@ -86,7 +85,8 @@ const sampleFloorAt = (
   x: number,
   z: number,
   startY: number,
-  far: number
+  far: number,
+  minNormalY: number
 ): { y: number; nx: number; ny: number; nz: number; px: number; py: number; pz: number } | null => {
   const raycaster = ctx.raycaster;
   const prevFirstHitOnly = (raycaster as any).firstHitOnly;
@@ -111,7 +111,7 @@ const sampleFloorAt = (
       ny = -ny;
       nz = -nz;
     }
-    if (ny < 0.15) continue;
+    if (ny < minNormalY) continue;
     return {
       y: h.point.y,
       nx,
@@ -282,7 +282,8 @@ export function applyNpcWorldCollisionXZ(
     const clearance = (plane?.clearance as number | undefined) ?? 4;
     const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
     const far = config.scanHeight + config.stepHeight * 2 + 50;
-    const floor = sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far);
+    const minFloorNy = Math.cos(config.maxGroundAngleRad);
+    const floor = sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNy);
     if (floor) {
       const targetY = floor.y + clearance;
       const dy = targetY - currentGroundY;
@@ -325,6 +326,7 @@ export function applyNpcWorldCollisionXZ(
   let bestHitNx = 0,
     bestHitNy = 0,
     bestHitNz = 0;
+  let bestHitSampleHeight = heights[0] ?? config.scanHeight;
 
   for (const hY of heights) {
     for (const off of lateralOffsets) {
@@ -341,12 +343,13 @@ export function applyNpcWorldCollisionXZ(
         const n = worldNormalFromHit(ctx, h);
         if (!n) continue;
         const oriented = orientNormalAgainstRayXZ(n.x, n.y, n.z, ctx.tmpDir.x, ctx.tmpDir.z);
-        if (!shouldTreatAsObstacle(oriented.ny, hY, config)) continue;
+        if (!shouldTreatAsObstacle(oriented.ny, config)) continue;
         if (h.distance < bestHitDist) {
           bestHitDist = h.distance;
           bestHitNx = oriented.nx;
           bestHitNy = oriented.ny;
           bestHitNz = oriented.nz;
+          bestHitSampleHeight = hY;
         }
         break;
       }
@@ -359,6 +362,39 @@ export function applyNpcWorldCollisionXZ(
     npcGroup.position.x = desiredX;
     npcGroup.position.z = desiredZ;
     return { blocked: false, moved: true };
+  }
+
+  // Treat low-height near-vertical hits as "step risers" if there's walkable floor right behind it.
+  // This approximates ZenGin's special handling of stairs (it ignores zCVobStair in spacing rays).
+  if (typeof currentGroundY === "number" && bestHitSampleHeight < config.scanHeight) {
+    const clearance = (plane?.clearance as number | undefined) ?? 4;
+    const minFloorNy = Math.cos(config.maxGroundAngleRad);
+    const probeDist = Math.min(dist, bestHitDist + config.radius + 2);
+    const probeX = fromX + ctx.tmpDir.x * probeDist;
+    const probeZ = fromZ + ctx.tmpDir.z * probeDist;
+    const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
+    const far = config.scanHeight + config.stepHeight * 2 + 50;
+    const floor = sampleFloorAt(ctx, worldMesh, probeX, probeZ, startY, far, minFloorNy);
+    if (floor) {
+      const targetY = floor.y + clearance;
+      const dy = targetY - currentGroundY;
+      if (dy > 1 && dy <= config.stepHeight) {
+        (npcGroup.userData as any).groundYTarget = targetY;
+        (npcGroup.userData as any).groundPlane = {
+          nx: floor.nx,
+          ny: floor.ny,
+          nz: floor.nz,
+          px: floor.px,
+          py: floor.py,
+          pz: floor.pz,
+          clearance,
+        };
+        // Allow the move without clamping on the riser.
+        npcGroup.position.x = desiredX;
+        npcGroup.position.z = desiredZ;
+        return { blocked: false, moved: true };
+      }
+    }
   }
 
   const allowed = Math.max(0, bestHitDist - config.radius);
@@ -421,7 +457,7 @@ export function applyNpcWorldCollisionXZ(
     const n = worldNormalFromHit(ctx, h);
     if (!n) continue;
     const oriented = orientNormalAgainstRayXZ(n.x, n.y, n.z, slideDirX, slideDirZ);
-    if (!shouldTreatAsObstacle(oriented.ny, config.scanHeight, config)) continue;
+    if (!shouldTreatAsObstacle(oriented.ny, config)) continue;
     slideAllowed = Math.max(0, Math.min(slideAllowed, h.distance - config.radius));
     break;
   }
