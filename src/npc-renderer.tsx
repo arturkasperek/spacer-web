@@ -391,11 +391,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     (raycaster as any).firstHitOnly = prevFirstHitOnly;
     if (!hits.length) return null;
 
+    const isCollidableHit = (hit: THREE.Intersection): boolean => {
+      const obj: any = hit.object as any;
+      if (!obj?.isMesh) return true;
+      const noColl: boolean[] | undefined = obj.userData?.noCollDetByMaterialId;
+      if (!noColl) return true;
+      const tri = hit.faceIndex ?? -1;
+      if (tri < 0) return true;
+      const ids: Int32Array | undefined = obj.geometry?.userData?.materialIds;
+      const matId = ids && tri < ids.length ? ids[tri] : null;
+      if (matId == null) return true;
+      return !noColl[matId];
+    };
+
     let best: THREE.Intersection | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
     let bestNormalY = -Infinity;
 
     for (const hit of hits) {
+      if (!isCollidableHit(hit)) continue;
       const faceNormal = hit.face?.normal;
       let normalY: number | null = null;
       if (faceNormal) {

@@ -85,9 +85,10 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
 
         // Build materials array from deduplicated materials
         const materialArray: THREE.MeshBasicMaterial[] = [];
+        const noCollDetByMaterialId: boolean[] = [];
 
         for (let mi = 0; mi < matCount; mi++) {
-          const mat = processed.materials.get(mi);
+          const mat = processed.materials.get(mi) as any;
           const material = new THREE.MeshBasicMaterial({
             color: 0xFFFFFF, // WHITE - don't tint the texture!
             side: THREE.DoubleSide,
@@ -96,16 +97,22 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
           });
           materialArray.push(material);
 
+          const texName = (mat?.texture as string | undefined) ?? "";
+          // ZenGin: zCMaterial::noCollDet
+          // ZenKit WASM binding: MaterialData.disableCollision
+          const disableCollision = Boolean(mat?.disableCollision);
+          noCollDetByMaterialId[mi] = disableCollision;
+
           // Load texture asynchronously using shared utility
-          if (mat?.texture && mat.texture.length) {
-            const textureUrl = tgaNameToCompiledUrl(mat.texture);
+          if (texName && texName.length) {
+            const textureUrl = tgaNameToCompiledUrl(texName);
             loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
               if (tex && materialArray[mi]) {
                 materialArray[mi].map = tex;
                 materialArray[mi].needsUpdate = true;
               }
             }).catch(() => {
-              console.warn(`Failed to load texture: ${mat.texture}`);
+              console.warn(`Failed to load texture: ${texName}`);
             });
           }
         }
@@ -119,6 +126,49 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         const threeMesh = new THREE.Mesh(geometry, materialArray);
         threeMesh.name = 'WORLD_MESH';
         threeMesh.scale.x = -1; // Fix mirrored world
+
+        // Store per-triangle material IDs to allow collision filtering (ZenGin `noCollDet` materials).
+        // This is used by NPC collision to ignore leaf/foliage polygons like the original engine.
+        const triCount = processed.materialIds.size();
+        const materialIds = new Int32Array(triCount);
+        for (let i = 0; i < triCount; i++) materialIds[i] = processed.materialIds.get(i);
+        (threeMesh.geometry as any).userData.materialIds = materialIds;
+        (threeMesh as any).userData.noCollDetByMaterialId = noCollDetByMaterialId;
+
+        // Temporary visual debug: render non-collidable materials as a red wireframe overlay
+        // so it's easy to verify `noCollDet` parsing. We'll remove this later.
+        {
+          const overlayMats: THREE.MeshBasicMaterial[] = [];
+          for (let mi = 0; mi < matCount; mi++) {
+            if (noCollDetByMaterialId[mi]) {
+              overlayMats.push(
+                new THREE.MeshBasicMaterial({
+                  color: 0xff0000,
+                  wireframe: true,
+                  transparent: true,
+                  opacity: 1,
+                  depthWrite: false,
+                })
+              );
+            } else {
+              overlayMats.push(
+                new THREE.MeshBasicMaterial({
+                  transparent: true,
+                  opacity: 0,
+                  depthWrite: false,
+                  depthTest: true,
+                })
+              );
+            }
+          }
+
+          const overlay = new THREE.Mesh(geometry, overlayMats);
+          overlay.name = "WORLD_MESH_NO_COLLDET_DEBUG";
+          overlay.renderOrder = 1;
+          // Ensure this debug overlay never affects raycasts / collision queries.
+          (overlay as any).raycast = () => {};
+          threeMesh.add(overlay);
+        }
 
         // Speed up frequent raycasts (NPC ground sampling, picking, etc.) by building a BVH once for the world mesh.
         // If the dependency isn't available for some reason, we fall back to Three.js' default raycast.

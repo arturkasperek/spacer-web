@@ -130,6 +130,31 @@ const predictGroundYFromPlane = (
   return y + plane.clearance;
 };
 
+const getMaterialIdForTriangle = (mesh: THREE.Mesh, triangleIndex: number): number | null => {
+  if (!Number.isFinite(triangleIndex) || triangleIndex < 0) return null;
+  const geom: any = mesh.geometry as any;
+  const ids: Int32Array | undefined = geom?.userData?.materialIds;
+  if (ids && triangleIndex < ids.length) return ids[triangleIndex];
+
+  // Fallback: derive from geometry groups (range is in indices, 3 per triangle).
+  const groups: THREE.BufferGeometry["groups"] | undefined = geom?.groups;
+  if (!groups || !groups.length) return 0;
+  const indexOffset = triangleIndex * 3;
+  // Groups are added in order in our loader, so a linear scan is typically small.
+  for (const g of groups) {
+    if (indexOffset >= g.start && indexOffset < g.start + g.count) return g.materialIndex ?? 0;
+  }
+  return 0;
+};
+
+const isTriangleCollidable = (mesh: THREE.Mesh, triangleIndex: number): boolean => {
+  const noColl: boolean[] | undefined = (mesh as any).userData?.noCollDetByMaterialId;
+  if (!noColl) return true;
+  const matId = getMaterialIdForTriangle(mesh, triangleIndex);
+  if (matId == null) return true;
+  return !noColl[matId];
+};
+
 const worldNormalFromHit = (ctx: NpcWorldCollisionContext, hit: THREE.Intersection): THREE.Vector3 | null => {
   const faceNormal = hit.face?.normal;
   if (!faceNormal) return null;
@@ -166,6 +191,10 @@ const sampleFloorAt = (
 
   // Pick the first "floor-like" hit (uppermost surface), ignoring near-vertical faces.
   for (const h of hits) {
+    if ((h.object as any).isMesh) {
+      const faceIndex = h.faceIndex ?? -1;
+      if (!isTriangleCollidable(h.object as THREE.Mesh, faceIndex)) continue;
+    }
     const n = worldNormalFromHit(ctx, h);
     if (!n) continue;
     let nx = n.x,
@@ -226,6 +255,7 @@ const resolveCapsuleIntersections = (
     maxIterations?: number;
     planarOnly?: boolean;
     minWalkableNy?: number;
+    isTriangleCollidable?: (triangleIndex: number) => boolean;
   }
 ): { collided: boolean; pushDirWorldXZ?: { x: number; z: number } } => {
   const maxIterations = Math.max(1, options.maxIterations ?? 3);
@@ -244,7 +274,8 @@ const resolveCapsuleIntersections = (
       intersectsBounds: (box) => {
         return capsule.intersectsBox(box) ? INTERSECTED : NOT_INTERSECTED;
       },
-      intersectsTriangle: (tri) => {
+      intersectsTriangle: (tri, triangleIndex) => {
+        if (options.isTriangleCollidable && !options.isTriangleCollidable(triangleIndex)) return false;
         // Note: `tri` is an ExtendedTriangle instance.
         (tri as any).closestPointToSegment(ctx.tmpCapsuleSeg, ctx.tmpTriPoint, ctx.tmpCapsulePoint);
 
@@ -535,6 +566,10 @@ export function applyNpcWorldCollisionXZ(
         if (!hits.length) continue;
 
         const h = hits[0];
+        if ((h.object as any).isMesh) {
+          const faceIndex = h.faceIndex ?? -1;
+          if (!isTriangleCollidable(h.object as THREE.Mesh, faceIndex)) continue;
+        }
         const n = worldNormalFromHit(ctx, h);
         if (!n) continue;
         const ny = Math.abs(n.y);
@@ -619,6 +654,7 @@ export function applyNpcWorldCollisionXZ(
   }
 
   const minWalkableNy = Math.cos(config.maxGroundAngleRad);
+  const triCollidable = (triIndex: number) => isTriangleCollidable(mesh, triIndex);
 
   // Convert NPC origin to collider local-space.
   ctx.tmpOrigin.set(fromX, collisionBaseY, fromZ).applyMatrix4(ctx.invMatrixWorld);
@@ -637,12 +673,12 @@ export function applyNpcWorldCollisionXZ(
 
   // If we're already intersecting obstacle geometry (e.g. due to snap/smoothing artifacts),
   // depenetrate first so we don't end up "stuck" in place.
-  resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 6, planarOnly: true, minWalkableNy });
+  resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 6, planarOnly: true, minWalkableNy, isTriangleCollidable: triCollidable });
 
   for (let i = 0; i < substeps; i++) {
     const stepDelta = ctx.tmpDelta.set(stepDeltaLocalX, stepDeltaLocalY, stepDeltaLocalZ);
     capsule.translate(stepDelta);
-    resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 3, planarOnly: true, minWalkableNy });
+    resolveCapsuleIntersections(ctx, bvh, capsule, { maxIterations: 3, planarOnly: true, minWalkableNy, isTriangleCollidable: triCollidable });
   }
 
   // Convert capsule-local back to NPC origin (feet).
@@ -670,7 +706,7 @@ export function applyNpcWorldCollisionXZ(
     const stepCapsule = buildCapsuleLocal(ctx, tryOriginLocal, config);
     const stepDelta = ctx.tmpDelta.set(moveDx, 0, moveDz).applyMatrix3(ctx.invMatrixWorld3);
     stepCapsule.translate(stepDelta);
-    resolveCapsuleIntersections(ctx, bvh, stepCapsule, { maxIterations: 4, planarOnly: true, minWalkableNy });
+    resolveCapsuleIntersections(ctx, bvh, stepCapsule, { maxIterations: 4, planarOnly: true, minWalkableNy, isTriangleCollidable: triCollidable });
 
     const steppedOriginWorld = ctx.tmpNext.copy(stepCapsule.start).addScaledVector(ctx.tmpUpLocal, -stepCapsule.radius).applyMatrix4(mesh.matrixWorld);
 

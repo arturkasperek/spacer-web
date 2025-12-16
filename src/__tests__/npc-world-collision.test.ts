@@ -65,6 +65,38 @@ describe("npc world collision", () => {
     expect(npc.position.x).toBeLessThanOrEqual(-1.9);
   });
 
+  it("ignores non-collidable (noCollDet) materials like foliage", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(-5, 0, 0);
+
+    const wallGeo = new THREE.PlaneGeometry(100, 100);
+    // Mark all wall triangles as materialId=0.
+    const triCount = ((wallGeo.index?.count ?? 0) / 3) || 2;
+    (wallGeo as any).userData = { materialIds: new Int32Array(Array(triCount).fill(0)) };
+    (wallGeo as any).boundsTree = new MeshBVH(wallGeo, { maxLeafTris: 3 });
+
+    const wall = new THREE.Mesh(wallGeo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    wall.rotation.y = -Math.PI / 2; // normal ~ +X
+    (wall as any).userData = { noCollDetByMaterialId: [true] };
+    wall.updateMatrixWorld(true);
+
+    const config = {
+      radius: 2,
+      scanHeight: 110,
+      scanHeights: [50, 110, 170],
+      stepHeight: 60,
+      maxStepDown: 800,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(60),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+    };
+
+    const r = applyNpcWorldCollisionXZ(ctx, npc, 5, 0, wall, 0.016, config);
+    expect(r.moved).toBe(true);
+    expect(npc.position.x).toBeGreaterThan(4.5);
+  });
+
   it("detects head-level overhangs using BVH capsule collision", () => {
     const ctx = createNpcWorldCollisionContext();
     const npc = new THREE.Group();
