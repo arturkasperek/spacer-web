@@ -52,6 +52,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const tmpMoveNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
   const tmpMoveNormal = useMemo(() => new THREE.Vector3(), []);
   const tmpMoveHitPoint = useMemo(() => new THREE.Vector3(), []);
+  const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
+  const tmpManualRight = useMemo(() => new THREE.Vector3(), []);
+  const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
+  const tmpManualDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
+  const tmpManualUp = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const characterCachesRef = useRef<CharacterCaches>({
     binary: new Map(),
     textures: new Map(),
@@ -60,10 +65,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   });
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
-  const hardcodedCavalornMoveStartedRef = useRef(false);
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
   const warnedNoWorldMeshRef = useRef(false);
   const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
+  const cavalornGroupRef = useRef<THREE.Group | null>(null);
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -76,6 +81,62 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
+
+  const manualControlCavalornEnabled = useMemo(() => {
+    try {
+      return typeof window !== "undefined" && new URLSearchParams(window.location.search).has("controlCavalorn");
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const manualKeysRef = useRef({
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+    shift: false,
+  });
+
+  useEffect(() => {
+    if (!manualControlCavalornEnabled) return;
+
+    const setKey = (e: KeyboardEvent, pressed: boolean) => {
+      let handled = true;
+      switch (e.code) {
+        case "ArrowUp":
+          manualKeysRef.current.up = pressed;
+          break;
+        case "ArrowDown":
+          manualKeysRef.current.down = pressed;
+          break;
+        case "ArrowLeft":
+          manualKeysRef.current.left = pressed;
+          break;
+        case "ArrowRight":
+          manualKeysRef.current.right = pressed;
+          break;
+        case "ShiftLeft":
+        case "ShiftRight":
+          manualKeysRef.current.shift = pressed;
+          break;
+        default:
+          handled = false;
+      }
+
+      if (handled) e.preventDefault();
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => setKey(e, true);
+    const onKeyUp = (e: KeyboardEvent) => setKey(e, false);
+
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    window.addEventListener("keyup", onKeyUp, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown as any);
+      window.removeEventListener("keyup", onKeyUp as any);
+    };
+  }, [manualControlCavalornEnabled]);
 
   // Create a stable serialized key from the Map for dependency tracking
   const npcsKey = getMapKey(npcs);
@@ -425,9 +486,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const symbolName = (npcData.symbolName || "").trim().toUpperCase();
       const displayName = (npcData.name || "").trim().toUpperCase();
       const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
-      if (isCavalorn && !hardcodedCavalornMoveStartedRef.current && waypointMoverRef.current) {
-        hardcodedCavalornMoveStartedRef.current = true;
-        npcGroup.userData.startMoveToWaypoint("NW_XARDAS_TOWER_IN1_28");
+      if (isCavalorn) {
+        npcGroup.userData.isCavalorn = true;
+        cavalornGroupRef.current = npcGroup;
       }
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
@@ -509,6 +570,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Create NPC mesh imperatively
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
+        {
+          const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
+          const displayName = (npc.npcData.name || "").trim().toUpperCase();
+          const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
+          if (isCavalorn) {
+            npcGroup.userData.isCavalorn = true;
+            cavalornGroupRef.current = npcGroup;
+          }
+        }
 
         // Ensure NPCs group exists
         if (!npcsGroupRef.current) {
@@ -535,6 +605,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           npcsGroupRef.current.remove(npcGroup);
           disposeObject3D(npcGroup);
           loadedNpcsRef.current.delete(npcId);
+          if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
         }
       }
     }
@@ -585,15 +656,60 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
-      const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
-      const locomotionMode: LocomotionMode = moveResult?.mode ?? "idle";
+      let movedThisFrame = false;
+      let locomotionMode: LocomotionMode = "idle";
+
+      const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
+      if (isManualCavalorn) {
+        const MAX_DT = 0.05;
+        const MAX_STEPS = 8;
+        let remaining = Math.max(0, delta);
+
+        for (let step = 0; step < MAX_STEPS && remaining > 0; step++) {
+          const dt = Math.min(remaining, MAX_DT);
+          remaining -= dt;
+
+          const keys = manualKeysRef.current;
+          const x = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+          const z = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          if (x === 0 && z === 0) break;
+
+          camera.getWorldDirection(tmpManualForward);
+          tmpManualForward.y = 0;
+          if (tmpManualForward.lengthSq() < 1e-8) tmpManualForward.set(0, 0, -1);
+          else tmpManualForward.normalize();
+
+          // Right vector in Three.js: up x forward
+          tmpManualRight.crossVectors(tmpManualUp, tmpManualForward).normalize();
+
+          tmpManualDir.copy(tmpManualForward).multiplyScalar(z).addScaledVector(tmpManualRight, x);
+          if (tmpManualDir.lengthSq() < 1e-8) break;
+          tmpManualDir.normalize();
+
+          const speed = keys.shift ? 350 : 180;
+          npcGroup.position.addScaledVector(tmpManualDir, speed * dt);
+
+          const yaw = Math.atan2(tmpManualDir.x, tmpManualDir.z);
+          tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
+          const t = 1 - Math.exp(-10 * dt);
+          npcGroup.quaternion.slerp(tmpManualDesiredQuat, t);
+
+          movedThisFrame = true;
+        }
+
+        locomotionMode = movedThisFrame ? (manualKeysRef.current.shift ? "run" : "walk") : "idle";
+      } else {
+        const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
+        movedThisFrame = Boolean(moveResult?.moved);
+        locomotionMode = moveResult?.mode ?? "idle";
+      }
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         locomotion?.update(instance, locomotionMode);
       }
 
-      if (moveResult?.moved) {
+      if (movedThisFrame) {
         // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
         const ground = ensureWorldMesh();
         if (ground) {

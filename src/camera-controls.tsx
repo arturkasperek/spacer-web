@@ -15,10 +15,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     KeyS: false,
     KeyA: false,
     KeyD: false,
-    ArrowUp: false,
-    ArrowDown: false,
-    ArrowLeft: false,
-    ArrowRight: false,
     KeyQ: false,
     Space: false,
     KeyZ: false,
@@ -88,6 +84,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       )) {
         return;
       }
+      // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
+      if (event.code.startsWith("Arrow")) return;
       setKeys((prev) => ({ ...prev, [event.code]: true }));
     };
 
@@ -101,6 +99,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       )) {
         return;
       }
+      // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
+      if (event.code.startsWith("Arrow")) return;
       setKeys((prev) => ({ ...prev, [event.code]: false }));
     };
 
@@ -220,17 +220,17 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     forward.applyQuaternion(camera.quaternion);
     right.applyQuaternion(camera.quaternion);
 
-    // WASD or Arrow keys (matching zen-viewer controls)
-    if (keys['KeyW'] || keys['ArrowUp']) {
+    // WASD movement
+    if (keys['KeyW']) {
       velocity.add(forward);
     }
-    if (keys['KeyS'] || keys['ArrowDown']) {
+    if (keys['KeyS']) {
       velocity.sub(forward);
     }
-    if (keys['KeyA'] || keys['ArrowLeft']) {
+    if (keys['KeyA']) {
       velocity.sub(right);
     }
-    if (keys['KeyD'] || keys['ArrowRight']) {
+    if (keys['KeyD']) {
       velocity.add(right);
     }
     if (keys['KeyQ'] || keys['Space']) {
