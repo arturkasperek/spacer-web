@@ -773,8 +773,6 @@ export type NpcSlopeSlideResult = {
   mode: NpcSlopeSlideMode;
 };
 
-const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
-
 const getSlopeRadFromNy = (ny: number): number => {
   if (!Number.isFinite(ny)) return 0;
   return Math.acos(Math.max(-1, Math.min(1, ny)));
@@ -799,11 +797,11 @@ export function updateNpcSlopeSlideXZ(
   const ny = plane.ny;
   const slope = getSlopeRadFromNy(Math.abs(ny));
   const startSlope = config.maxGroundAngleRad;
-  const stopSlope = Math.max(0, startSlope - THREE.MathUtils.degToRad(1.5));
   const maxSlope = config.maxSlideAngleRad;
 
-  const prevActive = Boolean((npcGroup.userData as any).isSliding);
-  const shouldBeActive = slope > (prevActive ? stopSlope : startSlope) && slope < maxSlope - 1e-6;
+  // ZenGin behavior: sliding only applies on surfaces steeper than the walkable threshold.
+  // If the floor becomes walkable again, sliding ends immediately (no hysteresis).
+  const shouldBeActive = slope > startSlope && slope < maxSlope - 1e-6;
   if (!shouldBeActive) {
     (npcGroup.userData as any).isSliding = false;
     (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
@@ -848,11 +846,6 @@ export function updateNpcSlopeSlideXZ(
     vx *= s;
     vz *= s;
   }
-
-  // If the slope is only slightly above the threshold, keep the motion gentle.
-  const t = clamp01((slope - startSlope) / Math.max(1e-6, maxSlope - startSlope));
-  vx *= 0.25 + 0.75 * t;
-  vz *= 0.25 + 0.75 * t;
 
   (npcGroup.userData as any).slideVelXZ = { x: vx, z: vz };
   (npcGroup.userData as any).isSliding = true;
