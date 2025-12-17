@@ -166,7 +166,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     try {
       if (typeof window === "undefined") return false;
       const qs = new URLSearchParams(window.location.search);
-      return qs.has("npcDebugMotion") || qs.has("controlCavalorn");
+      // Gate noisy logs behind an explicit query param.
+      // Accept legacy typo `montionDebug=1` too.
+      return qs.get("motionDebug") === "1" || qs.get("montionDebug") === "1";
     } catch {
       return false;
     }
