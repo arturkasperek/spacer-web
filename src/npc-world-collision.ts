@@ -72,6 +72,16 @@ export type NpcWorldCollisionConfig = {
   maxStepDown?: number;
   maxGroundAngleRad: number;
   maxSlideAngleRad: number;
+  /**
+   * Small tolerance for the slide max angle to avoid flip-flopping on near-threshold triangles.
+   * (Some world triangles have slightly noisy normals.)
+   */
+  maxSlideAngleEpsRad?: number;
+  /**
+   * When leaving a slideable surface into "too steep / fall" terrain, keep slide inertia for a short time
+   * before transitioning to falling (ZenGin-like behavior).
+   */
+  slideLeaveGraceSeconds?: number;
   minWallNormalY: number;
   enableWallSlide: boolean;
 
@@ -82,6 +92,7 @@ export type NpcWorldCollisionConfig = {
   landHeight?: number;
   fallGravity?: number;
   maxFallSpeed?: number;
+  fallBackoffDistance?: number;
 };
 
 export type NpcWorldCollisionContext = {
@@ -522,7 +533,8 @@ export function applyNpcWorldCollisionXZ(
     const startY = currentGroundY + config.scanHeight + config.stepHeight + 5;
     const far = config.scanHeight + config.stepHeight * 2 + 50;
     const minFloorNyWalk = Math.cos(config.maxGroundAngleRad);
-    const minFloorNySlide = Math.cos(config.maxSlideAngleRad);
+    const slideEps = config.maxSlideAngleEpsRad ?? 0;
+    const minFloorNySlide = Math.cos(Math.min(Math.PI / 2, config.maxSlideAngleRad + slideEps));
     const floor =
       sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNyWalk) ||
       (minFloorNySlide < minFloorNyWalk ? sampleFloorAt(ctx, worldMesh, desiredX, desiredZ, startY, far, minFloorNySlide) : null);
@@ -795,6 +807,11 @@ export function updateNpcSlopeSlideXZ(
   if (!plane) {
     (npcGroup.userData as any).isSliding = false;
     (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    (npcGroup.userData as any).slideGraceRemaining = 0;
+    (npcGroup.userData as any)._slideDbg = {
+      active: false,
+      reason: "noPlane",
+    };
     return { moved: false, active: false, mode: "slide" };
   }
 
@@ -802,15 +819,15 @@ export function updateNpcSlopeSlideXZ(
   const slope = getSlopeRadFromNy(Math.abs(ny));
   const startSlope = config.maxGroundAngleRad;
   const maxSlope = config.maxSlideAngleRad;
+  const maxSlopeEps = config.maxSlideAngleEpsRad ?? (3 * Math.PI) / 180;
+  const graceSeconds = config.slideLeaveGraceSeconds ?? 0.5;
 
   // ZenGin behavior: sliding only applies on surfaces steeper than the walkable threshold.
   // If the floor becomes walkable again, sliding ends immediately (no hysteresis).
-  const shouldBeActive = slope > startSlope && slope < maxSlope - 1e-6;
-  if (!shouldBeActive) {
-    (npcGroup.userData as any).isSliding = false;
-    (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
-    return { moved: false, active: false, mode: "slide" };
-  }
+  const isWalkableNow = slope <= startSlope + 1e-6;
+  const shouldBeActive = slope > startSlope && slope <= maxSlope + maxSlopeEps;
+  const prevGrace = ((npcGroup.userData as any).slideGraceRemaining as number | undefined) ?? 0;
+  const wasSliding = Boolean((npcGroup.userData as any).isSliding);
 
   // Compute downhill slide direction from the ground normal (ZenGin style):
   // slideDir = (up x n) x n, oriented so that it points downward.
@@ -822,6 +839,7 @@ export function updateNpcSlopeSlideXZ(
   if (len2 < 1e-10) {
     (npcGroup.userData as any).isSliding = false;
     (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    (npcGroup.userData as any).slideGraceRemaining = 0;
     return { moved: false, active: false, mode: "slide" };
   }
   ctx.tmpDir.multiplyScalar(1 / Math.sqrt(len2));
@@ -836,8 +854,43 @@ export function updateNpcSlopeSlideXZ(
   let vx = state.x;
   let vz = state.z;
 
-  vx += ctx.tmpDir.x * accel * dt;
-  vz += ctx.tmpDir.z * accel * dt;
+  // Grace window: when leaving a slide surface into "too steep" terrain (often a cliff edge),
+  // keep existing slide velocity for a short time before allowing the fall state to take over.
+  //
+  // - If we are still on a slideable slope, keep grace topped up.
+  // - If we reach walkable terrain, sliding ends immediately (ZenGin-like).
+  // - If we leave into "too steep" terrain, start (or continue) a short grace timer.
+  let nextGrace = 0;
+  if (shouldBeActive) {
+    nextGrace = graceSeconds;
+  } else if (!isWalkableNow && wasSliding) {
+    nextGrace = prevGrace > 0 ? Math.max(0, prevGrace - dt) : graceSeconds;
+  }
+  (npcGroup.userData as any).slideGraceRemaining = nextGrace;
+
+  const graceActive = !shouldBeActive && wasSliding && !isWalkableNow && nextGrace > 0;
+
+  if (shouldBeActive) {
+    // Store slide direction so we can keep inertia during the grace window.
+    (npcGroup.userData as any).slideDirXZ = { x: ctx.tmpDir.x, z: ctx.tmpDir.z };
+    vx += ctx.tmpDir.x * accel * dt;
+    vz += ctx.tmpDir.z * accel * dt;
+  } else if (!graceActive) {
+    (npcGroup.userData as any).isSliding = false;
+    (npcGroup.userData as any).slideVelXZ = { x: 0, z: 0 };
+    (npcGroup.userData as any).slideDirXZ = { x: 0, z: 0 };
+    (npcGroup.userData as any)._slideDbg = {
+      active: false,
+      reason: "notSteepEnough",
+      slope,
+      ny,
+      startSlope,
+      maxSlope,
+      maxSlopeEps,
+      graceRemaining: 0,
+    };
+    return { moved: false, active: false, mode: "slide" };
+  }
 
   // Exponential damping (matches dv/dt += -k*v style friction).
   const damping = Math.exp(-Math.max(0, friction) * dt);
@@ -859,7 +912,10 @@ export function updateNpcSlopeSlideXZ(
   ctx.tmpPlanarNormal.y = 0;
   if (ctx.tmpPlanarNormal.lengthSq() < 1e-10) ctx.tmpPlanarNormal.set(0, 0, 1);
   else ctx.tmpPlanarNormal.normalize();
-  const dotForward = ctx.tmpPlanarNormal.x * ctx.tmpDir.x + ctx.tmpPlanarNormal.z * ctx.tmpDir.z;
+  const dirForAnim = graceActive
+    ? ((npcGroup.userData as any).slideDirXZ as { x: number; z: number } | undefined) ?? { x: 0, z: 0 }
+    : { x: ctx.tmpDir.x, z: ctx.tmpDir.z };
+  const dotForward = ctx.tmpPlanarNormal.x * dirForAnim.x + ctx.tmpPlanarNormal.z * dirForAnim.z;
   const mode: NpcSlopeSlideMode = dotForward >= 0 ? "slide" : "slideBack";
 
   const beforeX = npcGroup.position.x;
@@ -872,6 +928,22 @@ export function updateNpcSlopeSlideXZ(
     // Damp velocity aggressively when wedged against obstacles.
     (npcGroup.userData as any).slideVelXZ = { x: vx * 0.15, z: vz * 0.15 };
   }
+
+  (npcGroup.userData as any)._slideDbg = {
+    active: true,
+    graceActive,
+    graceRemaining: ((npcGroup.userData as any).slideGraceRemaining as number) ?? 0,
+    slope,
+    ny,
+    startSlope,
+    maxSlope,
+    maxSlopeEps,
+    vx,
+    vz,
+    moved: r.moved,
+    blocked: r.blocked,
+    animMode: mode,
+  };
 
   return { moved: r.moved, active: true, mode };
 }
@@ -906,11 +978,17 @@ export function updateNpcFallY(
   const gravity = config.fallGravity ?? 981;
   const landHeight = config.landHeight ?? 10;
   const maxFallSpeed = config.maxFallSpeed ?? 8000;
-  const minFloorNy = Math.cos(config.maxSlideAngleRad);
+  const slideEps = config.maxSlideAngleEpsRad ?? 0;
+  // Allow a small epsilon above the configured slide angle to prevent falling through near-threshold triangles.
+  const minFloorNy = Math.cos(Math.min(Math.PI / 2, config.maxSlideAngleRad + slideEps));
   const clearance = 4;
+  // When a fall begins right at an edge, the capsule can end up "stuck" on the lip and land intersecting nearby geometry.
+  // Nudge a little in the movement/facing direction to ensure we commit over the edge.
+  const fallLedgeNudgeDistance = config.fallBackoffDistance ?? Math.min(30, config.radius * 0.6);
 
   const isFalling = Boolean((npcGroup.userData as any).isFalling);
   const groundYTarget = (npcGroup.userData as any).groundYTarget as number | undefined;
+  const slideGraceRemaining = ((npcGroup.userData as any).slideGraceRemaining as number | undefined) ?? 0;
 
   // Sample floor below the NPC. We accept slopes up to slide2 angle (anything steeper is treated as a wall).
   const startY = npcGroup.position.y + 50;
@@ -920,6 +998,23 @@ export function updateNpcFallY(
   const contactY = typeof groundYTarget === "number" ? groundYTarget : npcGroup.position.y;
   const seemsGrounded = Math.abs(npcGroup.position.y - contactY) <= 20;
   const aboveFloor = floorTargetY != null ? contactY - floorTargetY : 0;
+  {
+    const dbg = ((npcGroup.userData as any)._fallDbg as any) ?? ((npcGroup.userData as any)._fallDbg = {});
+    dbg.dt = dt;
+    dbg.isFalling = isFalling;
+    dbg.slideGraceRemaining = slideGraceRemaining;
+    dbg.floorFound = Boolean(floor);
+    dbg.floorY = floor ? floor.y : null;
+    dbg.floorNy = floor ? floor.ny : null;
+    dbg.floorTargetY = floorTargetY;
+    dbg.contactY = contactY;
+    dbg.seemsGrounded = seemsGrounded;
+    dbg.aboveFloor = aboveFloor;
+    dbg.minFloorNy = minFloorNy;
+    dbg.stepHeight = config.stepHeight;
+    dbg.posY = npcGroup.position.y;
+    dbg.groundYTarget = typeof groundYTarget === "number" ? groundYTarget : null;
+  }
 
   if (!isFalling) {
     if (floorTargetY == null) {
@@ -928,8 +1023,48 @@ export function updateNpcFallY(
 
     // ZenGin: if the character is more than stepHeight above the floor, start falling physics (unless stairs).
     // We don't have stair classification, so we approximate based on distance to floor only.
+    // While transitioning out of sliding, delay fall start briefly to avoid slide/fall flip-flopping on steep terrain seams.
     if (seemsGrounded && aboveFloor > config.stepHeight) {
+      if (Boolean((npcGroup.userData as any).isSliding) || slideGraceRemaining > 0) {
+        return { moved: false, active: false, landed: false, mode: "fallDown", fallDistanceY: 0 };
+      }
+      // Small "push-off" nudge when we start falling to help clear the ledge.
+      // Use the last movement direction (or facing direction) and nudge by a few units.
+      if (fallLedgeNudgeDistance > 0) {
+        const dir = (npcGroup.userData as any).lastMoveDirXZ as { x: number; z: number } | undefined;
+        let pushX = 0;
+        let pushZ = 0;
+        if (dir && Number.isFinite(dir.x) && Number.isFinite(dir.z)) {
+          const dlen = Math.hypot(dir.x, dir.z);
+          if (dlen > 1e-6) {
+            pushX = dir.x / dlen;
+            pushZ = dir.z / dlen;
+          }
+        }
+        if (pushX === 0 && pushZ === 0) {
+          const fwd = getPlanarForwardXZ(ctx, npcGroup.quaternion);
+          const flen = Math.hypot(fwd.x, fwd.z);
+          if (flen > 1e-6) {
+            pushX = fwd.x / flen;
+            pushZ = fwd.z / flen;
+          }
+        }
+
+        if (pushX !== 0 || pushZ !== 0) {
+          applyNpcWorldCollisionXZ(
+            ctx,
+            npcGroup,
+            npcGroup.position.x + pushX * fallLedgeNudgeDistance,
+            npcGroup.position.z + pushZ * fallLedgeNudgeDistance,
+            worldMesh,
+            1 / 60,
+            config
+          );
+        }
+      }
+
       (npcGroup.userData as any).isFalling = true;
+      // Use the precomputed contact height at the ledge (not `groundYTarget` which may be updated by the backoff move).
       (npcGroup.userData as any).fallStartY = contactY;
       (npcGroup.userData as any).fallVelY = 0;
     } else {

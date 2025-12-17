@@ -102,7 +102,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const getSlide2SlopeDeg = (walkDeg: number) => {
       // ZenGin defaults: walk ~50°, slide2 ~70°; keep the same +20° relationship for our tuned threshold.
       // Override for tuning via `?npcSlide2Deg=...`.
-      const fallback = Math.min(89, walkDeg + 20);
+      const fallback = Math.min(89, Math.max(70, walkDeg + 20));
       try {
         const raw = new URLSearchParams(window.location.search).get("npcSlide2Deg");
         if (raw == null) return fallback;
@@ -131,6 +131,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       slideGravity: 981,
       slideFriction: 1.0,
       maxSlideSpeed: 1200,
+      slideLeaveGraceSeconds: 2.5,
+      maxSlideAngleEpsRad: THREE.MathUtils.degToRad(3),
+
+      // Fall tuning (ZenGin-like defaults) + a small ledge nudge to commit off edges.
+      landHeight: 10,
+      fallGravity: 981,
+      maxFallSpeed: 8000,
+      fallBackoffDistance: 20,
     };
   }, []);
 
@@ -153,6 +161,27 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return false;
     }
   }, []);
+
+  const motionDebugEnabled = useMemo(() => {
+    try {
+      if (typeof window === "undefined") return false;
+      const qs = new URLSearchParams(window.location.search);
+      return qs.has("npcDebugMotion") || qs.has("controlCavalorn");
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const motionDebugLastRef = useRef<
+    | {
+        isFalling: boolean;
+        isSliding: boolean;
+        locomotionMode: LocomotionMode;
+        lastWarnAtMs: number;
+        lastPeriodicAtMs: number;
+      }
+    | undefined
+  >(undefined);
 
   const manualControlSpeeds = useMemo(() => {
     const defaults = { walk: 180, run: 350 };
@@ -849,6 +878,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       let tryingToMoveThisFrame = false;
+      const shouldLogMotion = motionDebugEnabled && cavalornGroupRef.current === npcGroup;
 
       // Falling has priority over everything else (no locomotion, no ground glue).
       const groundForNpc = ensureWorldMesh();
@@ -925,22 +955,22 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         tryingToMoveThisFrame = locomotionMode !== "idle";
       }
 
-      // Start falling if we stepped off a ledge (ZenGin-style).
-      if (groundForNpc) {
-        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, 0, collisionConfig);
-        if (fall.active) {
-          movedThisFrame = movedThisFrame || fall.moved;
-          locomotionMode = fall.mode;
-          tryingToMoveThisFrame = true;
-        }
-      }
-
       // ZenGin-like slope sliding:
       // if the ground is steeper than `maxGroundAngleRad`, the character can't walk up and will slip down,
       // playing `s_Slide` / `s_SlideB` while the slide is active.
       {
+        const plane = npcGroup.userData.groundPlane as
+          | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
+          | undefined;
+        const slope =
+          plane && Number.isFinite(plane.ny) ? Math.acos(Math.max(-1, Math.min(1, Math.abs(plane.ny)))) : 0;
+        const isSteepGround = slope > collisionConfig.maxGroundAngleRad + 1e-6;
         const shouldConsiderSlide =
-          isManualCavalorn || Boolean(npcGroup.userData.isScriptControlled) || tryingToMoveThisFrame || Boolean(npcGroup.userData.isSliding);
+          isManualCavalorn ||
+          Boolean(npcGroup.userData.isScriptControlled) ||
+          tryingToMoveThisFrame ||
+          Boolean(npcGroup.userData.isSliding) ||
+          isSteepGround;
         if (shouldConsiderSlide) {
           if (groundForNpc) {
             const s = updateNpcSlopeSlideXZ(collisionCtx, npcGroup, groundForNpc, delta, collisionConfig);
@@ -953,9 +983,83 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
       }
 
+      // Start falling if we stepped off a ledge (ZenGin-style).
+      // Run this AFTER slide update so slide/grace state can suppress unwanted fall starts.
+      if (groundForNpc) {
+        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, 0, collisionConfig);
+        if (fall.active) {
+          movedThisFrame = movedThisFrame || fall.moved;
+          locomotionMode = fall.mode;
+          tryingToMoveThisFrame = true;
+        } else if (fall.landed) {
+          movedThisFrame = true;
+          locomotionMode = "idle";
+          tryingToMoveThisFrame = false;
+        }
+      }
+
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         locomotion?.update(instance, locomotionMode);
+      }
+
+      if (shouldLogMotion) {
+        const isFallingNow = Boolean(npcGroup.userData.isFalling);
+        const isSlidingNow = Boolean(npcGroup.userData.isSliding);
+        const last = motionDebugLastRef.current;
+        const lastMode = last?.locomotionMode ?? "idle";
+        const shouldEmit =
+          !last || last.isFalling !== isFallingNow || last.isSliding !== isSlidingNow || lastMode !== locomotionMode;
+
+        const nowMs = Date.now();
+        const lastPeriodicAtMs = last?.lastPeriodicAtMs ?? 0;
+        const shouldEmitPeriodic = (isSlidingNow || isFallingNow) && nowMs - lastPeriodicAtMs > 250;
+
+        if (shouldEmit || shouldEmitPeriodic) {
+          const payload = {
+            t: nowMs,
+            npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+            locomotionMode,
+            isFalling: isFallingNow,
+            isSliding: isSlidingNow,
+            locomotionRequested: instance ? (instance as any).__debugLocomotionRequested : undefined,
+            fallDbg: (npcGroup.userData as any)._fallDbg,
+            slideDbg: (npcGroup.userData as any)._slideDbg,
+          };
+          try {
+            console.log("[NPCMotionDebugJSON]" + JSON.stringify(payload));
+          } catch {
+            console.log("[NPCMotionDebugJSON]" + String(payload));
+          }
+        }
+
+        // Throttled warning when we are falling but we can't find a floor to land on.
+        const lastWarnAtMs = last?.lastWarnAtMs ?? 0;
+        const floorTargetY = (npcGroup.userData as any)?._fallDbg?.floorTargetY as number | null | undefined;
+        const lastWarnNext = isFallingNow && floorTargetY == null && nowMs - lastWarnAtMs > 500 ? nowMs : lastWarnAtMs;
+        if (lastWarnNext !== lastWarnAtMs) {
+          try {
+            console.log(
+              "[NPCMotionDebugJSON]" +
+                JSON.stringify({
+                  t: nowMs,
+                  warn: "fallingNoFloorHit",
+                  npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+                  fallDbg: (npcGroup.userData as any)._fallDbg,
+                })
+            );
+          } catch {
+            // ignore
+          }
+        }
+
+        motionDebugLastRef.current = {
+          isFalling: isFallingNow,
+          isSliding: isSlidingNow,
+          locomotionMode,
+          lastWarnAtMs: lastWarnNext,
+          lastPeriodicAtMs: shouldEmitPeriodic ? nowMs : lastPeriodicAtMs,
+        };
       }
 
       // Keep NPCs glued to the ground while moving, and also while *trying* to move:
@@ -986,7 +1090,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             npcGroup.userData.lastGroundSampleAt = now;
             npcGroup.getWorldPosition(tmpGroundSampleWorldPos);
             const minWalkableNy = Math.cos(collisionConfig.maxGroundAngleRad);
-            const minSlideNy = Math.cos(collisionConfig.maxSlideAngleRad);
+            const slideEps = collisionConfig.maxSlideAngleEpsRad ?? 0;
+            const minSlideNy = Math.cos(Math.min(Math.PI / 2, collisionConfig.maxSlideAngleRad + slideEps));
             const hit =
               sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
                 clearance: 4,

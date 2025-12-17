@@ -251,6 +251,49 @@ describe("npc world collision", () => {
     const npc = new THREE.Group();
     npc.position.set(0, 200, 0);
     npc.userData.groundYTarget = 200;
+    npc.userData.lastMoveDirXZ = { x: 1, z: 0 };
+
+    const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+    floorGeo.rotateX(-Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    floor.updateMatrixWorld(true);
+
+    const config = {
+      radius: 35,
+      scanHeight: 110,
+      stepHeight: 60,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(45),
+      maxSlideAngleRad: THREE.MathUtils.degToRad(70),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+      landHeight: 10,
+      fallGravity: 981,
+      fallBackoffDistance: 10,
+    };
+
+    // First call should start falling (ground is far below).
+    const r0 = updateNpcFallY(ctx, npc, floor, 0.016, config);
+    expect(Boolean(npc.userData.isFalling)).toBe(true);
+    expect(r0.active).toBe(true);
+    expect(npc.position.x).toBeCloseTo(10, 6);
+    expect(npc.userData.fallStartY).toBeCloseTo(200, 6);
+
+    // Simulate until we land.
+    for (let i = 0; i < 400 && Boolean(npc.userData.isFalling); i++) {
+      updateNpcFallY(ctx, npc, floor, 0.016, config);
+    }
+    expect(Boolean(npc.userData.isFalling)).toBe(false);
+    expect(npc.position.y).toBeCloseTo(4, 1); // clearance=4 on top of plane at y=0
+  });
+
+  it("delays fall start briefly after sliding (slide grace)", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(0, 200, 0);
+    npc.userData.groundYTarget = 200;
+    npc.userData.groundPlane = { nx: 0, ny: 0.5, nz: 0.8660254, px: 0, py: 0, pz: 0, clearance: 0 }; // steep-ish
+    npc.userData.isSliding = true;
+    npc.userData.slideGraceRemaining = 0.5;
 
     const floorGeo = new THREE.PlaneGeometry(1000, 1000);
     floorGeo.rotateX(-Math.PI / 2);
@@ -269,17 +312,47 @@ describe("npc world collision", () => {
       fallGravity: 981,
     };
 
-    // First call should start falling (ground is far below).
     const r0 = updateNpcFallY(ctx, npc, floor, 0.016, config);
-    expect(Boolean(npc.userData.isFalling)).toBe(true);
-    expect(r0.active).toBe(true);
-
-    // Simulate until we land.
-    for (let i = 0; i < 400 && Boolean(npc.userData.isFalling); i++) {
-      updateNpcFallY(ctx, npc, floor, 0.016, config);
-    }
     expect(Boolean(npc.userData.isFalling)).toBe(false);
-    expect(npc.position.y).toBeCloseTo(4, 1); // clearance=4 on top of plane at y=0
+    expect(r0.active).toBe(false);
+  });
+
+  it("starts slide grace when leaving slide into too-steep terrain", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(0, 0, 0);
+    npc.userData.groundYTarget = 0;
+    // Start on a slideable slope: 60° => ny=0.5 (steeper than walk 45°, less than slide2 70°)
+    npc.userData.groundPlane = { nx: -0.8660254, ny: 0.5, nz: 0, px: 0, py: 0, pz: 0, clearance: 0 };
+
+    const config = {
+      radius: 30,
+      scanHeight: 110,
+      scanHeights: [50, 110, 170],
+      stepHeight: 60,
+      maxStepDown: 800,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(45),
+      maxSlideAngleRad: THREE.MathUtils.degToRad(70),
+      maxSlideAngleEpsRad: THREE.MathUtils.degToRad(3),
+      slideLeaveGraceSeconds: 0.5,
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+      slideGravity: 981,
+      slideFriction: 1.0,
+      maxSlideSpeed: 1200,
+    };
+
+    const worldMesh = new THREE.Object3D();
+    const r0 = updateNpcSlopeSlideXZ(ctx, npc, worldMesh, 0.016, config);
+    expect(r0.active).toBe(true);
+    expect(Boolean(npc.userData.isSliding)).toBe(true);
+
+    // Now "leave" into too-steep terrain (> slide2): ny very small.
+    npc.userData.groundPlane = { nx: 0, ny: 0.05, nz: 0.9987, px: 0, py: 0, pz: 0, clearance: 0 };
+    const r1 = updateNpcSlopeSlideXZ(ctx, npc, worldMesh, 0.016, config);
+    expect(r1.active).toBe(true); // graceActive keeps it "active"
+    expect(Boolean(npc.userData.isSliding)).toBe(true);
+    expect((npc.userData.slideGraceRemaining as number) || 0).toBeGreaterThan(0);
   });
 
 });

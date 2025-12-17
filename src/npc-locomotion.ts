@@ -36,6 +36,12 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
   let lastMode: LocomotionMode = "idle";
 
   const play = (instance: CharacterInstance, anim: LocomotionAnimationSpec, next?: LocomotionAnimationSpec) => {
+    (instance as any).__debugLocomotionRequested = {
+      name: anim.name,
+      loop: anim.loop,
+      next: next ? { name: next.name, loop: next.loop } : null,
+      atMs: Date.now(),
+    };
     instance.setAnimation(anim.name, {
       loop: anim.loop,
       resetTime: true,
