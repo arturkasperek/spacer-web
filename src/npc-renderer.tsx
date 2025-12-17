@@ -20,6 +20,7 @@ import {
   type NpcMoveConstraintResult,
   type NpcWorldCollisionConfig,
 } from "./npc-world-collision";
+import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { getNpcCollisionDumpSeq } from "./npc-collision-debug";
 
 interface NpcRendererProps {
@@ -367,6 +368,60 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   };
 
   const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): NpcMoveConstraintResult => {
+    // Dynamic NPC-vs-NPC collision (XZ only): prevent passing through other loaded NPCs.
+    // This runs before the world collision solver so we don't "push into walls" while clamping to other NPCs.
+    {
+      // Use a slightly smaller radius for NPC-vs-NPC than for NPC-vs-world so characters can get closer.
+      const selfRadius = collisionConfig.radius * 0.6;
+      const selfY = npcGroup.position.y;
+      const colliders: NpcCircleCollider[] = (npcGroup.userData._npcCollidersScratch as NpcCircleCollider[] | undefined) ?? [];
+      colliders.length = 0;
+      npcGroup.userData._npcCollidersScratch = colliders;
+
+      let pool: NpcCircleCollider[] = (npcGroup.userData._npcColliderPool as NpcCircleCollider[] | undefined) ?? [];
+      npcGroup.userData._npcColliderPool = pool;
+      let poolIdx = 0;
+
+      for (const other of loadedNpcsRef.current.values()) {
+        if (other === npcGroup) continue;
+        if (!other || other.userData.isDisposed) continue;
+        if (Math.abs(other.position.y - selfY) > 200) continue;
+
+        let c = pool[poolIdx];
+        if (!c) {
+          c = { x: 0, z: 0, radius: selfRadius, y: 0 };
+          pool[poolIdx] = c;
+        }
+        poolIdx++;
+
+        c.x = other.position.x;
+        c.z = other.position.z;
+        c.radius = selfRadius;
+        c.y = other.position.y;
+        colliders.push(c);
+      }
+
+      if (colliders.length > 0) {
+        const constrained = constrainCircleMoveXZ({
+          startX: npcGroup.position.x,
+          startZ: npcGroup.position.z,
+          desiredX,
+          desiredZ,
+          radius: selfRadius,
+          colliders,
+          maxIterations: 3,
+          separationSlop: 0.05,
+          y: selfY,
+          maxYDelta: 200,
+        });
+        desiredX = constrained.x;
+        desiredZ = constrained.z;
+        npcGroup.userData._npcNpcBlocked = constrained.blocked;
+      } else {
+        npcGroup.userData._npcNpcBlocked = false;
+      }
+    }
+
     const ground = ensureWorldMesh();
     if (!ground) {
       const beforeX = npcGroup.position.x;
@@ -374,9 +429,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
-      return { blocked: false, moved };
+      return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
-    return applyNpcWorldCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, ground, dt, collisionConfig);
+    const worldRes = applyNpcWorldCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, ground, dt, collisionConfig);
+    return { blocked: Boolean(npcGroup.userData._npcNpcBlocked) || worldRes.blocked, moved: worldRes.moved };
   };
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
@@ -937,8 +993,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           tmpManualDir.normalize();
 
           const speed = manualRunToggleRef.current ? manualControlSpeeds.run : manualControlSpeeds.walk;
-          const desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
-          const desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
+          let desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
+          let desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
+
           const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);
           if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpManualDir.x, z: tmpManualDir.z };
 
