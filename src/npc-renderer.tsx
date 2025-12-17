@@ -206,8 +206,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     down: false,
     left: false,
     right: false,
-    shift: false,
   });
+  const manualRunToggleRef = useRef(false);
   const teleportCavalornSeqRef = useRef(0);
   const teleportCavalornSeqAppliedRef = useRef(0);
 
@@ -231,7 +231,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           break;
         case "ShiftLeft":
         case "ShiftRight":
-          manualKeysRef.current.shift = pressed;
+          // Toggle run/walk on a single press (no hold).
+          if (pressed && !e.repeat) manualRunToggleRef.current = !manualRunToggleRef.current;
           break;
         case "KeyT":
           if (pressed && !e.repeat) teleportCavalornSeqRef.current += 1;
@@ -933,7 +934,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           if (tmpManualDir.lengthSq() < 1e-8) break;
           tmpManualDir.normalize();
 
-          const speed = keys.shift ? manualControlSpeeds.run : manualControlSpeeds.walk;
+          const speed = manualRunToggleRef.current ? manualControlSpeeds.run : manualControlSpeeds.walk;
           const desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
           const desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
           const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);
@@ -947,7 +948,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           movedThisFrame = movedThisFrame || r.moved;
         }
 
-        locomotionMode = movedThisFrame ? (manualKeysRef.current.shift ? "run" : "walk") : "idle";
+        locomotionMode = movedThisFrame ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
       } else {
         const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
         movedThisFrame = Boolean(moveResult?.moved);
