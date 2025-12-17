@@ -317,6 +317,39 @@ describe("npc world collision", () => {
     expect(r0.active).toBe(false);
   });
 
+  it("pushes away from walls while falling (depenetration)", () => {
+    const ctx = createNpcWorldCollisionContext();
+    const npc = new THREE.Group();
+    npc.position.set(-1.5, 100, 0); // radius=2 => intersects wall at x=0
+    npc.userData.isFalling = true;
+    npc.userData.fallVelY = 0;
+    npc.userData.fallStartY = 100;
+
+    const wallGeo = new THREE.BoxGeometry(0.2, 400, 400);
+    (wallGeo as any).boundsTree = new MeshBVH(wallGeo, { maxLeafTris: 3 });
+    const wall = new THREE.Mesh(wallGeo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    wall.position.set(0, 200, 0); // y-range 0..400 so capsule intersects at y~100
+    wall.updateMatrixWorld(true);
+
+    const config = {
+      radius: 2,
+      scanHeight: 110,
+      scanHeights: [50, 110, 170],
+      stepHeight: 60,
+      maxStepDown: 800,
+      maxGroundAngleRad: THREE.MathUtils.degToRad(60),
+      maxSlideAngleRad: THREE.MathUtils.degToRad(80),
+      minWallNormalY: 0.4,
+      enableWallSlide: true,
+      fallGravity: 981,
+    };
+
+    const r0 = updateNpcFallY(ctx, npc, wall, 0.016, config);
+    expect(r0.active).toBe(true);
+    expect(npc.position.x).toBeLessThanOrEqual(-1.9);
+    expect(Boolean((npc.userData as any)._fallDbg?.depenetrated)).toBe(true);
+  });
+
   it("starts slide grace when leaving slide into too-steep terrain", () => {
     const ctx = createNpcWorldCollisionContext();
     const npc = new THREE.Group();

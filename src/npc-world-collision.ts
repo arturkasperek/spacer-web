@@ -970,6 +970,55 @@ const getPlanarForwardXZ = (ctx: NpcWorldCollisionContext, q: THREE.Quaternion):
   return { x: ctx.tmpDir.x, z: ctx.tmpDir.z };
 };
 
+const depenetrateNpcWorldCollisionXZ = (
+  ctx: NpcWorldCollisionContext,
+  npcGroup: THREE.Object3D,
+  worldMesh: THREE.Object3D,
+  config: NpcWorldCollisionConfig
+): { moved: boolean; collided: boolean; dx: number; dz: number } => {
+  const mesh = findWorldCollisionMeshWithBVH(worldMesh);
+  if (!mesh) return { moved: false, collided: false, dx: 0, dz: 0 };
+
+  mesh.updateWorldMatrix(true, false);
+  ctx.invMatrixWorld.copy(mesh.matrixWorld).invert();
+  ctx.invMatrixWorld3.setFromMatrix4(ctx.invMatrixWorld);
+  ctx.tmpUpLocal.set(0, 1, 0).applyMatrix3(ctx.invMatrixWorld3);
+  if (ctx.tmpUpLocal.lengthSq() < 1e-8) ctx.tmpUpLocal.set(0, 1, 0);
+  else ctx.tmpUpLocal.normalize();
+
+  const bvh = (mesh.geometry as any).boundsTree as MeshBVH | undefined;
+  if (!bvh) return { moved: false, collided: false, dx: 0, dz: 0 };
+
+  const beforeX = npcGroup.position.x;
+  const beforeZ = npcGroup.position.z;
+  const minWalkableNy = Math.cos(config.maxGroundAngleRad);
+  const triCollidable = (triIndex: number) => isTriangleCollidable(mesh, triIndex);
+
+  // During falling we must use the actual current Y (not `groundYTarget`, which can be stale).
+  ctx.tmpOrigin.set(beforeX, npcGroup.position.y, beforeZ).applyMatrix4(ctx.invMatrixWorld);
+  const capsule = buildCapsuleLocal(ctx, ctx.tmpOrigin, config);
+
+  const resolved = resolveCapsuleIntersections(ctx, bvh, capsule, {
+    maxIterations: 8,
+    planarOnly: true,
+    minWalkableNy,
+    isTriangleCollidable: triCollidable,
+  });
+
+  if (!resolved.collided) return { moved: false, collided: false, dx: 0, dz: 0 };
+
+  const originLocalAfter = ctx.tmpNext.copy(capsule.start).addScaledVector(ctx.tmpUpLocal, -capsule.radius);
+  originLocalAfter.applyMatrix4(mesh.matrixWorld);
+
+  npcGroup.position.x = originLocalAfter.x;
+  npcGroup.position.z = originLocalAfter.z;
+
+  const dx = npcGroup.position.x - beforeX;
+  const dz = npcGroup.position.z - beforeZ;
+  const moved = Math.hypot(dx, dz) > 1e-6;
+  return { moved, collided: true, dx, dz };
+};
+
 export function updateNpcFallY(
   ctx: NpcWorldCollisionContext,
   npcGroup: THREE.Object3D,
@@ -1077,29 +1126,57 @@ export function updateNpcFallY(
 
   // Integrate fall.
   const beforeY = npcGroup.position.y;
+  const beforeX = npcGroup.position.x;
+  const beforeZ = npcGroup.position.z;
   let vy = ((npcGroup.userData as any).fallVelY as number | undefined) ?? 0;
-  vy -= gravity * dt;
-  vy = Math.max(-maxFallSpeed, Math.min(maxFallSpeed, vy));
-  npcGroup.position.y += vy * dt;
-  (npcGroup.userData as any).fallVelY = vy;
+  if (dt > 0) {
+    vy -= gravity * dt;
+    vy = Math.max(-maxFallSpeed, Math.min(maxFallSpeed, vy));
+    npcGroup.position.y += vy * dt;
+    (npcGroup.userData as any).fallVelY = vy;
+
+    // While falling, resolve horizontal penetrations against the world (push away from walls/cliffs).
+    // This prevents tunneling through thin/tilted triangles as Y changes.
+    const dep = depenetrateNpcWorldCollisionXZ(ctx, npcGroup, worldMesh, config);
+    const dbg = ((npcGroup.userData as any)._fallDbg as any) ?? ((npcGroup.userData as any)._fallDbg = {});
+    dbg.depenetrated = dep.collided;
+    dbg.depenMoved = dep.moved;
+    dbg.depenDx = dep.dx;
+    dbg.depenDz = dep.dz;
+  }
 
   const fallStartY = ((npcGroup.userData as any).fallStartY as number | undefined) ?? beforeY;
   const fallDistanceY = Math.max(0, fallStartY - npcGroup.position.y);
 
+  // Re-sample floor after depenetration (XZ may have changed while falling).
+  let floorForLanding = floor;
+  let floorTargetYForLanding = floorTargetY;
+  if (dt > 0) {
+    const movedXZ = Math.hypot(npcGroup.position.x - beforeX, npcGroup.position.z - beforeZ) > 1e-6;
+    if (movedXZ || floorTargetYForLanding == null) {
+      const startY2 = npcGroup.position.y + 50;
+      const f2 = sampleFloorAt(ctx, worldMesh, npcGroup.position.x, npcGroup.position.z, startY2, 20000, minFloorNy);
+      if (f2) {
+        floorForLanding = f2;
+        floorTargetYForLanding = f2.y + clearance;
+      }
+    }
+  }
+
   // Land if we reached the floor (within landHeight).
-  if (floorTargetY != null && npcGroup.position.y <= floorTargetY + landHeight) {
-    npcGroup.position.y = floorTargetY;
+  if (floorTargetYForLanding != null && npcGroup.position.y <= floorTargetYForLanding + landHeight) {
+    npcGroup.position.y = floorTargetYForLanding;
     (npcGroup.userData as any).isFalling = false;
     (npcGroup.userData as any).fallVelY = 0;
-    (npcGroup.userData as any).groundYTarget = floorTargetY;
-    if (floor) {
+    (npcGroup.userData as any).groundYTarget = floorTargetYForLanding;
+    if (floorForLanding) {
       (npcGroup.userData as any).groundPlane = {
-        nx: floor.nx,
-        ny: floor.ny,
-        nz: floor.nz,
-        px: floor.px,
-        py: floor.py,
-        pz: floor.pz,
+        nx: floorForLanding.nx,
+        ny: floorForLanding.ny,
+        nz: floorForLanding.nz,
+        px: floorForLanding.px,
+        py: floorForLanding.py,
+        pz: floorForLanding.pz,
         clearance,
       };
     }
@@ -1117,7 +1194,10 @@ export function updateNpcFallY(
   }
 
   return {
-    moved: Math.abs(npcGroup.position.y - beforeY) > 1e-6,
+    moved:
+      Math.abs(npcGroup.position.y - beforeY) > 1e-6 ||
+      Math.abs(npcGroup.position.x - beforeX) > 1e-6 ||
+      Math.abs(npcGroup.position.z - beforeZ) > 1e-6,
     active: true,
     landed: false,
     mode,
