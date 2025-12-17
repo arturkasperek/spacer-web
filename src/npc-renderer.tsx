@@ -22,6 +22,7 @@ import {
 } from "./npc-world-collision";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { getNpcCollisionDumpSeq } from "./npc-collision-debug";
+import { spreadSpawnXZ } from "./npc-spawn-spread";
 
 interface NpcRendererProps {
   world: World | null;
@@ -774,6 +775,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         if (!npc) continue;
 
         // Create NPC mesh imperatively
+        // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
+        // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
+        const spreadRadius = collisionConfig.radius * 0.6;
+        const existing: Array<{ x: number; z: number; y?: number }> = [];
+        for (const other of loadedNpcsRef.current.values()) {
+          if (!other || other.userData.isDisposed) continue;
+          existing.push({ x: other.position.x, z: other.position.z, y: other.position.y });
+        }
+        const spread = spreadSpawnXZ({
+          baseX: npc.position.x,
+          baseZ: npc.position.z,
+          baseY: npc.position.y,
+          existing,
+          minSeparation: spreadRadius * 2 + 0.05,
+          maxTries: 24,
+          maxYDelta: 200,
+        });
+        if (spread.applied) {
+          npc.position.x = spread.x;
+          npc.position.z = spread.z;
+        }
+
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
         npcGroup.userData.moveConstraint = applyMoveConstraint;
