@@ -14,6 +14,7 @@ import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
 import { WorldTimeTicker } from "./world-time-ticker.js";
 import { WorldTimeOverlay } from "./world-time-overlay.js";
+import { WorldTimeLighting } from "./world-time-lighting.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 
@@ -90,6 +91,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     <>
       <CameraControls ref={cameraControlsRef} />
       <WorldTimeTicker />
+      <WorldTimeLighting />
 
       <AxesHelper />
 
