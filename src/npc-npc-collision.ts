@@ -1,4 +1,5 @@
 export type NpcCircleCollider = {
+  id?: number;
   x: number;
   z: number;
   radius: number;
@@ -89,4 +90,3 @@ export function constrainCircleMoveXZ(params: {
 
   return { x, z, blocked };
 }
-

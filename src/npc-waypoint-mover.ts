@@ -180,7 +180,10 @@ export function createWaypointMover(world: World): WaypointMover {
               move.done = true;
             }
           } else {
-            move.stuckSeconds += dt;
+            // Getting blocked by another NPC shouldn't immediately abort the route;
+            // they should be able to pass each other after a short avoidance/wait.
+            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
           }
         } else {
           // `shouldSnap === false` implies `dist > 0`.
@@ -191,7 +194,10 @@ export function createWaypointMover(world: World): WaypointMover {
           moved = moved || r.moved;
           if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
           if (r.moved) move.stuckSeconds = 0;
-          else move.stuckSeconds += dt;
+          else {
+            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
+          }
         }
 
         if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {

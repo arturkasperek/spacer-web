@@ -176,6 +176,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
+  const npcNpcDebugEnabled = useMemo(() => {
+    try {
+      if (typeof window === "undefined") return false;
+      const qs = new URLSearchParams(window.location.search);
+      return qs.get("npcNpcDebug") === "1";
+    } catch {
+      return false;
+    }
+  }, []);
+
   const motionDebugLastRef = useRef<
     | {
         isFalling: boolean;
@@ -214,6 +224,26 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const manualRunToggleRef = useRef(false);
   const teleportCavalornSeqRef = useRef(0);
   const teleportCavalornSeqAppliedRef = useRef(0);
+  const npcMeetTestStartedRef = useRef(new Set<string>());
+
+  const maybeStartMeetTestMove = (npcId: string, npcGroup: THREE.Group, npcData: NpcData) => {
+    if (npcMeetTestStartedRef.current.has(npcId)) return;
+    const mover = waypointMoverRef.current;
+    if (!mover) return;
+
+    const sym = (npcData.symbolName || "").trim().toUpperCase();
+    // "tweak things" meet-test: start two NPCs moving on load so we can observe NPC-vs-NPC collision.
+    let target: string | null = null;
+    if (sym === "BDT_1013_BANDIT_L") target = "NW_XARDAS_GOBBO_01";
+    if (sym === "BAU_4300_ADDON_CAVALORN") target = "NW_XARDAS_STAIRS_01";
+    // Extra meet-test clones: move along with originals.
+    if (sym === "BDT_1013_BANDIT_L__MEETTEST_EXTRA") target = "NW_XARDAS_GOBBO_01";
+    if (sym === "BAU_4300_ADDON_CAVALORN__MEETTEST_EXTRA") target = "NW_XARDAS_STAIRS_01";
+    if (!target) return;
+
+    const ok = mover.startMoveToWaypoint(npcId, npcGroup, target, { speed: 140, arriveDistance: 5, locomotionMode: "walk" });
+    if (ok) npcMeetTestStartedRef.current.add(npcId);
+  };
 
   useEffect(() => {
     if (!manualControlCavalornEnabled) return;
@@ -328,6 +358,32 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
+    // Meet-test helpers: spawn extra NPC clones at the same initial positions to stress-test NPC-vs-NPC avoidance.
+    // - clone bandit at bandit start, route to Cavalorn destination
+    // - clone cavalorn at cavalorn start, route to bandit destination
+    const findBySymbol = (symUpper: string) =>
+      renderableNpcs.find((e) => ((e.npcData.symbolName || "").trim().toUpperCase() === symUpper));
+    const bandit = findBySymbol("BDT_1013_BANDIT_L");
+    const cavalorn = findBySymbol("BAU_4300_ADDON_CAVALORN");
+    if (bandit) {
+      const clone: NpcData = {
+        ...(bandit.npcData as any),
+        instanceIndex: bandit.npcData.instanceIndex + 1_000_000,
+        symbolName: `${bandit.npcData.symbolName}__MEETTEST_EXTRA`,
+        name: `${bandit.npcData.name || "Bandyta"} (2)`,
+      };
+      renderableNpcs.push({ npcData: clone, position: bandit.position.clone() });
+    }
+    if (cavalorn) {
+      const clone: NpcData = {
+        ...(cavalorn.npcData as any),
+        instanceIndex: cavalorn.npcData.instanceIndex + 1_000_000,
+        symbolName: `${cavalorn.npcData.symbolName}__MEETTEST_EXTRA`,
+        name: `${cavalorn.npcData.name || "Cavalorn"} (2)`,
+      };
+      renderableNpcs.push({ npcData: clone, position: cavalorn.position.clone() });
+    }
+
     return renderableNpcs;
   }, [world, npcsKey, enabled]);
 
@@ -372,6 +428,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     // Dynamic NPC-vs-NPC collision (XZ only): prevent passing through other loaded NPCs.
     // This runs before the world collision solver so we don't "push into walls" while clamping to other NPCs.
     {
+      const startX = npcGroup.position.x;
+      const startZ = npcGroup.position.z;
+      const origDesiredX = desiredX;
+      const origDesiredZ = desiredZ;
+      const origDx = origDesiredX - startX;
+      const origDz = origDesiredZ - startZ;
+      const origDist = Math.hypot(origDx, origDz);
       // Use a slightly smaller radius for NPC-vs-NPC than for NPC-vs-world so characters can get closer.
       const selfRadius = collisionConfig.radius * 0.6;
       const selfY = npcGroup.position.y;
@@ -388,13 +451,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         if (!other || other.userData.isDisposed) continue;
         if (Math.abs(other.position.y - selfY) > 200) continue;
 
+        const otherData = other.userData.npcData as NpcData | undefined;
         let c = pool[poolIdx];
         if (!c) {
-          c = { x: 0, z: 0, radius: selfRadius, y: 0 };
+          c = { id: undefined, x: 0, z: 0, radius: selfRadius, y: 0 };
           pool[poolIdx] = c;
         }
         poolIdx++;
 
+        c.id = otherData?.instanceIndex;
         c.x = other.position.x;
         c.z = other.position.z;
         c.radius = selfRadius;
@@ -403,21 +468,137 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
 
       if (colliders.length > 0) {
-        const constrained = constrainCircleMoveXZ({
-          startX: npcGroup.position.x,
-          startZ: npcGroup.position.z,
-          desiredX,
-          desiredZ,
-          radius: selfRadius,
-          colliders,
-          maxIterations: 3,
-          separationSlop: 0.05,
-          y: selfY,
-          maxYDelta: 200,
-        });
+        const runConstraint = (x: number, z: number) =>
+          constrainCircleMoveXZ({
+            startX,
+            startZ,
+            desiredX: x,
+            desiredZ: z,
+            radius: selfRadius,
+            colliders,
+            maxIterations: 3,
+            separationSlop: 0.05,
+            y: selfY,
+            maxYDelta: 200,
+          });
+
+        const constrained = runConstraint(desiredX, desiredZ);
         desiredX = constrained.x;
         desiredZ = constrained.z;
         npcGroup.userData._npcNpcBlocked = constrained.blocked;
+
+        const debugLog = (stage: string, extra?: Record<string, unknown>) => {
+          if (!npcNpcDebugEnabled) return;
+          const nowMs = Date.now();
+          const lastAt = (npcGroup.userData._npcNpcDebugLastAt as number | undefined) ?? 0;
+          const lastStage = (npcGroup.userData._npcNpcDebugLastStage as string | undefined) ?? "";
+          if (stage === lastStage && nowMs - lastAt < 250) return;
+          npcGroup.userData._npcNpcDebugLastAt = nowMs;
+          npcGroup.userData._npcNpcDebugLastStage = stage;
+
+          const npcData = npcGroup.userData.npcData as NpcData | undefined;
+          const selfId = npcData ? `npc-${npcData.instanceIndex}` : "npc-unknown";
+          const selfSym = (npcData?.symbolName || "").trim();
+          const selfName = (npcData?.name || "").trim();
+
+          // Find closest collider at current position.
+          let closest: { id?: number; x: number; z: number; y?: number; dist: number } | null = null;
+          for (const c of colliders) {
+            const d = Math.hypot(startX - c.x, startZ - c.z);
+            if (!closest || d < closest.dist) closest = { id: c.id, x: c.x, z: c.z, y: c.y, dist: d };
+          }
+
+          const payload = {
+            t: nowMs,
+            stage,
+            dt,
+            self: {
+              id: selfId,
+              symbol: selfSym,
+              name: selfName,
+              pos: { x: startX, y: selfY, z: startZ },
+              desired: { x: origDesiredX, z: origDesiredZ },
+              applied: { x: desiredX, z: desiredZ },
+              avoidSide: (npcGroup.userData.avoidSide as number | undefined) ?? null,
+              blocked: Boolean(npcGroup.userData._npcNpcBlocked),
+            },
+            closest,
+            config: { radius: selfRadius, sepSlop: 0.05 },
+            ...extra,
+          };
+
+          try {
+            console.log("[NPCNpcDebugJSON]" + JSON.stringify(payload));
+          } catch {
+            console.log("[NPCNpcDebugJSON]" + String(payload));
+          }
+        };
+
+        debugLog("clamp");
+
+        // If two NPCs walk directly into each other, a pure "no-penetration" clamp can deadlock them.
+        // ZenGin resolves this with dynamic character collision/physics and local steering. We emulate that
+        // by attempting a small deterministic sidestep when we are blocked and made little/no progress.
+        const afterDx = desiredX - startX;
+        const afterDz = desiredZ - startZ;
+        const afterDist = Math.hypot(afterDx, afterDz);
+        const dirX = origDist > 1e-8 ? origDx / origDist : 0;
+        const dirZ = origDist > 1e-8 ? origDz / origDist : 0;
+        const progress = afterDx * dirX + afterDz * dirZ; // signed forward progress
+        const lowProgress = progress < origDist * 0.15 && afterDist < origDist * 0.25;
+
+        if (constrained.blocked && dt > 0 && origDist > 1e-6 && lowProgress) {
+          // Pick a stable side relative to the closest collider so the pair chooses opposite sides.
+          let closestId: number | null = null;
+          let closestDist = Infinity;
+          for (const c of colliders) {
+            if (typeof c.id !== "number") continue;
+            const d = Math.hypot(startX - c.x, startZ - c.z);
+            if (d < closestDist) {
+              closestDist = d;
+              closestId = c.id;
+            }
+          }
+
+          const npcData = npcGroup.userData.npcData as NpcData | undefined;
+          const idx = npcData?.instanceIndex ?? 0;
+          let preferredSide = idx % 2 === 0 ? 1 : -1;
+          if (closestId != null && closestId !== idx) preferredSide = idx < closestId ? 1 : -1;
+          let side = (npcGroup.userData.avoidSide as number | undefined) ?? preferredSide;
+          if (side !== 1 && side !== -1) side = 1;
+          npcGroup.userData.avoidSide = side;
+
+          const trySide = (s: number) => {
+            const perpX = -dirZ * s;
+            const perpZ = dirX * s;
+            // Keep the sidestep gentle; the main forward movement is still towards the waypoint.
+            const step = Math.min(selfRadius * 0.9, 180 * dt);
+            const fwd = Math.min(origDist, 40 * dt);
+            const a = runConstraint(startX + dirX * fwd + perpX * step, startZ + dirZ * fwd + perpZ * step);
+            if (!a.blocked) return a;
+            // If forward+side is blocked, try pure lateral separation (useful for head-on deadlocks).
+            return runConstraint(startX + perpX * step, startZ + perpZ * step);
+          };
+
+          let a = trySide(side);
+          if (!a.blocked && (Math.abs(a.x - startX) > 1e-6 || Math.abs(a.z - startZ) > 1e-6)) {
+            desiredX = a.x;
+            desiredZ = a.z;
+            npcGroup.userData._npcNpcBlocked = false;
+            debugLog("sidestep", { picked: side, preferredSide, closestId, blockedAfter: false });
+          } else {
+            const b = trySide(-side);
+            if (!b.blocked && (Math.abs(b.x - startX) > 1e-6 || Math.abs(b.z - startZ) > 1e-6)) {
+              desiredX = b.x;
+              desiredZ = b.z;
+              npcGroup.userData._npcNpcBlocked = false;
+              npcGroup.userData.avoidSide = -side;
+              debugLog("sidestep", { picked: -side, preferredSide, closestId, blockedAfter: false });
+            } else {
+              debugLog("sidestep", { picked: side, altPicked: -side, preferredSide, closestId, blockedAfter: true });
+            }
+          }
+        }
       } else {
         npcGroup.userData._npcNpcBlocked = false;
       }
@@ -692,7 +873,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       const symbolName = (npcData.symbolName || "").trim().toUpperCase();
       const displayName = (npcData.name || "").trim().toUpperCase();
-      const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
+      const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
       if (isCavalorn) {
         npcGroup.userData.isCavalorn = true;
         cavalornGroupRef.current = npcGroup;
@@ -800,10 +981,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
         npcGroup.userData.moveConstraint = applyMoveConstraint;
+        // Trigger the meet-test move as soon as the NPC is loaded (independent of model loading).
+        maybeStartMeetTestMove(item.id, npcGroup, npc.npcData);
         {
           const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
           const displayName = (npc.npcData.name || "").trim().toUpperCase();
-          const isCavalorn = symbolName.includes("CAVALORN") || displayName === "CAVALORN";
+          const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
           if (isCavalorn) {
             npcGroup.userData.isCavalorn = true;
             cavalornGroupRef.current = npcGroup;
