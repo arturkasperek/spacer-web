@@ -1,6 +1,7 @@
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useWorldTime } from "./world-time.js";
 
 interface SkyProps {
   scale?: number;
@@ -194,6 +195,30 @@ export function SkyComponent({
       materialRef.current.uniforms.cameraPos.value.copy(state.camera.position);
     }
   });
+
+  // Drive sun position from game time (Gothic-like) unless explicitly overridden via prop.
+  // Update only when displayed world time changes (minute granularity), not every frame.
+  const wt = useWorldTime();
+  useEffect(() => {
+    const mat = materialRef.current;
+    if (!mat) return;
+
+    if (sunPosition) {
+      mat.uniforms.sunPosition.value.copy(sunPosition);
+      return;
+    }
+
+    const dayFrac = ((wt.hour * 60 + wt.minute) % 1440) / 1440;
+    const az = dayFrac * Math.PI * 2;
+    const elevAng = Math.sin((dayFrac - 0.25) * Math.PI * 2) * (Math.PI / 2);
+    const cosEl = Math.cos(elevAng);
+
+    // Match shader's sunfade scale (450000) so day/night transitions look correct.
+    const SUN_SCALE = 450000;
+    mat.uniforms.sunPosition.value
+      .set(Math.cos(az) * cosEl, Math.sin(elevAng), Math.sin(az) * cosEl)
+      .multiplyScalar(SUN_SCALE);
+  }, [sunPosition, wt.hour, wt.minute]);
 
   // Generate environment map when sun position changes
   useEffect(() => {

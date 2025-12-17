@@ -13,7 +13,7 @@ import { VOBTree } from "./vob-tree.js";
 import { VobClickHandler } from "./vob-click-handler.js";
 import { logVobDetails } from "./vob-utils.js";
 import { WorldTimeTicker } from "./world-time-ticker.js";
-import { useWorldTime } from "./world-time.js";
+import { WorldTimeOverlay } from "./world-time-overlay.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 
@@ -136,31 +136,6 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       {/* NPC Renderer */}
       {world && zenKit && <NpcRenderer world={world} zenKit={zenKit} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
     </>
-  );
-}
-
-function WorldTimeOverlay() {
-  const t = useWorldTime();
-  const hh = String(t.hour).padStart(2, "0");
-  const mm = String(t.minute).padStart(2, "0");
-  return (
-    <div
-      style={{
-        position: "absolute",
-        right: 10,
-        bottom: 10,
-        zIndex: 1500,
-        background: "rgba(0, 0, 0, 0.65)",
-        color: "white",
-        padding: "6px 10px",
-        borderRadius: 6,
-        fontSize: 12,
-        fontFamily: "monospace",
-        pointerEvents: "none",
-      }}
-    >
-      Day {t.day} {hh}:{mm}
-    </div>
   );
 }
 
