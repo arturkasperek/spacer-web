@@ -1080,9 +1080,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
             | undefined;
           if (plane) {
-            const predicted = predictGroundYFromPlane(plane, npcGroup.position.x, npcGroup.position.z);
-            if (predicted != null) {
-              npcGroup.userData.groundYTarget = predicted;
+            // Only use plane prediction for reasonably "ground-like" surfaces.
+            // On very steep triangles (slide/cliff walls), y=f(x,z) becomes ill-conditioned and can explode.
+            const minPredictNy = Math.cos(collisionConfig.maxGroundAngleRad);
+            if (Number.isFinite(plane.ny) && plane.ny >= minPredictNy) {
+              const predicted = predictGroundYFromPlane(plane, npcGroup.position.x, npcGroup.position.z);
+              if (predicted != null) {
+                npcGroup.userData.groundYTarget = predicted;
+              }
             }
           }
 
@@ -1092,31 +1097,44 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             const minWalkableNy = Math.cos(collisionConfig.maxGroundAngleRad);
             const slideEps = collisionConfig.maxSlideAngleEpsRad ?? 0;
             const minSlideNy = Math.cos(Math.min(Math.PI / 2, collisionConfig.maxSlideAngleRad + slideEps));
+            const isSlidingNow = Boolean(npcGroup.userData.isSliding);
+            const planeForSlope = npcGroup.userData.groundPlane as
+              | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
+              | undefined;
+            const slopeNow =
+              planeForSlope && Number.isFinite(planeForSlope.ny)
+                ? Math.acos(Math.max(-1, Math.min(1, Math.abs(planeForSlope.ny))))
+                : 0;
+            const isSteepNow = slopeNow > collisionConfig.maxGroundAngleRad + 1e-6;
+
+            // While sliding/on steep terrain, don't "prefer walkable" hits first.
+            // Otherwise we may snap to a walkable floor far below the cliff and break sliding.
+            const primaryMinNy = isSlidingNow || isSteepNow ? minSlideNy : minWalkableNy;
+            const secondaryMinNy = isSlidingNow || isSteepNow ? null : minSlideNy < minWalkableNy ? minSlideNy : null;
+
             const hit =
               sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
                 clearance: 4,
                 rayStartAbove: 50,
                 maxDownDistance: 5000,
                 preferClosestToY: tmpGroundSampleWorldPos.y,
-                // Prefer only walkable surfaces as "floor" (avoid snapping to walls/risers/undersides).
-                minHitNormalY: minWalkableNy,
+                minHitNormalY: primaryMinNy,
               }) ||
-              // If no walkable surface exists, accept steeper "ground" up to slide2 threshold so the NPC
-              // can transition into slope sliding instead of getting stuck with a stale floor plane.
-              (minSlideNy < minWalkableNy
+              (secondaryMinNy != null
                 ? sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
                     clearance: 4,
                     rayStartAbove: 50,
                     maxDownDistance: 5000,
                     preferClosestToY: tmpGroundSampleWorldPos.y,
-                    minHitNormalY: minSlideNy,
+                    minHitNormalY: secondaryMinNy,
                   })
                 : null);
             if (hit) {
               const targetY = hit.targetY;
               // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
               const MAX_STEP_UP = 250;
-              const MAX_STEP_DOWN = 800;
+              // While sliding, avoid snapping down huge drops (we should fall instead).
+              const MAX_STEP_DOWN = isSlidingNow || isSteepNow ? 250 : 800;
               const dy = targetY - tmpGroundSampleWorldPos.y;
               if (dy <= MAX_STEP_UP && dy >= -MAX_STEP_DOWN) {
                 npcGroup.userData.groundPlane = {

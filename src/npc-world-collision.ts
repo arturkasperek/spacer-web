@@ -515,14 +515,17 @@ export function applyNpcWorldCollisionXZ(
     typeof currentGroundY === "number" ? Math.max(currentGroundY, npcGroup.position.y) : npcGroup.position.y;
 
   if (plane && typeof currentGroundY === "number") {
-    const predicted = predictGroundYFromPlane(plane, desiredX, desiredZ);
-    if (predicted != null) {
-      const dy = predicted - currentGroundY;
-      if (dy > config.stepHeight) return { blocked: true, moved: false };
+    const minNormalY = Math.cos(config.maxGroundAngleRad);
+    // Only use plane prediction for walkable-ish surfaces; on steep faces ny is small and y=f(x,z) is unstable.
+    if (Number.isFinite(plane.ny) && plane.ny >= minNormalY) {
+      const predicted = predictGroundYFromPlane(plane, desiredX, desiredZ);
+      if (predicted != null) {
+        const dy = predicted - currentGroundY;
+        if (dy > config.stepHeight) return { blocked: true, moved: false };
 
-      const minNormalY = Math.cos(config.maxGroundAngleRad);
-      // Only block steep slopes when going uphill (otherwise descending would feel artificially constrained).
-      if (dy > 0.5 && plane.ny < minNormalY) return { blocked: true, moved: false };
+        // Only block steep slopes when going uphill (otherwise descending would feel artificially constrained).
+        if (dy > 0.5 && plane.ny < minNormalY) return { blocked: true, moved: false };
+      }
     }
   }
 
