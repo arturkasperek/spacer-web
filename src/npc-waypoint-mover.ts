@@ -47,6 +47,35 @@ export function createWaypointMover(world: World): WaypointMover {
   const tmpDesiredQuat = new THREE.Quaternion();
   const tmpUp = new THREE.Vector3(0, 1, 0);
   const TURN_SPEED = 10;
+  const TRAFFIC_WAIT_MIN_MS = 1000;
+  const TRAFFIC_WAIT_MAX_MS = 15000;
+
+  const hashStringToSeed = (s: string): number => {
+    // FNV-1a 32-bit
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  };
+
+  const nextRand01 = (npcId: string, npcGroup: THREE.Group): number => {
+    const ud: any = npcGroup.userData as any;
+    let s = ud._npcTrafficRngState as number | undefined;
+    if (typeof s !== "number") {
+      const npcData = ud.npcData as { instanceIndex?: number } | undefined;
+      const base = typeof npcData?.instanceIndex === "number" ? (npcData.instanceIndex >>> 0) : hashStringToSeed(npcId);
+      s = (base ^ 0x9e3779b9) >>> 0;
+      if (s === 0) s = 0x6d2b79f5;
+    }
+    // xorshift32
+    s ^= (s << 13) >>> 0;
+    s ^= (s >>> 17) >>> 0;
+    s ^= (s << 5) >>> 0;
+    ud._npcTrafficRngState = s >>> 0;
+    return ((s >>> 0) / 4294967296) % 1;
+  };
 
   const ensureWaynetGraph = (): WaynetGraph | null => {
     if (waynetGraph) return waynetGraph;
@@ -118,6 +147,36 @@ export function createWaypointMover(world: World): WaypointMover {
       const move = moves.get(npcId);
       if (!move || move.done) return { moved: false, mode: "idle" };
 
+      const nowMs = Date.now();
+      const ud: any = npcGroup.userData as any;
+
+      // Post-deadlock "yield": wait briefly to allow other NPCs to clear the jam.
+      const waitUntilMs = ud._npcTrafficWaitUntilMs as number | undefined;
+      if (typeof waitUntilMs === "number" && waitUntilMs > nowMs) {
+        return { moved: false, mode: "idle" };
+      }
+      if (typeof waitUntilMs === "number" && waitUntilMs <= nowMs) {
+        delete ud._npcTrafficWaitUntilMs;
+      }
+
+      // If we finished a steer escape in a previous tick, schedule the wait now.
+      const steerUntilMs = ud._npcTrafficSteerUntilMs as number | undefined;
+      const pendingWait = Boolean(ud._npcTrafficSteerPendingWait);
+      if (pendingWait && typeof steerUntilMs === "number" && steerUntilMs <= nowMs) {
+        const movedDuringSteer = Boolean(ud._npcTrafficSteerMoved);
+        delete ud._npcTrafficSteerPendingWait;
+        delete ud._npcTrafficSteerMoved;
+        delete ud._npcTrafficSteerYaw;
+        delete ud._npcTrafficSteerUntilMs;
+
+        if (movedDuringSteer) {
+          const r = nextRand01(npcId, npcGroup);
+          const waitMs = Math.floor(TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS));
+          ud._npcTrafficWaitUntilMs = nowMs + waitMs;
+          return { moved: false, mode: "idle" };
+        }
+      }
+
       const MAX_DT = 0.05;
       const MAX_STEPS = 8;
       const STUCK_SECONDS_TO_GIVE_UP = 0.35;
@@ -143,9 +202,50 @@ export function createWaypointMover(world: World): WaypointMover {
         return { blocked, moved: didMove };
       };
 
+      const steerYawActive = ud._npcTrafficSteerYaw as number | undefined;
+      const steerUntilActiveMs = ud._npcTrafficSteerUntilMs as number | undefined;
+      const steerActiveAtStart =
+        typeof steerYawActive === "number" &&
+        typeof steerUntilActiveMs === "number" &&
+        steerUntilActiveMs > nowMs &&
+        Number.isFinite(steerYawActive);
+      let steerYaw: number | null = steerActiveAtStart ? steerYawActive : null;
+      let steerRemainingSeconds = steerActiveAtStart ? Math.max(0, (steerUntilActiveMs! - nowMs) / 1000) : 0;
+
       for (let step = 0; step < MAX_STEPS && remaining > 0 && !move.done; step++) {
-        const dt = Math.min(remaining, MAX_DT);
+        // During deadlock escape steering we intentionally limit simulation to the remaining steer window,
+        // otherwise a large delta (tab inactive) could produce a big unintended displacement.
+        const steerActive = steerYaw != null && steerRemainingSeconds > 0;
+        const dt = Math.min(remaining, MAX_DT, steerActive ? steerRemainingSeconds : MAX_DT);
         remaining -= dt;
+        if (dt <= 0) break;
+
+        if (steerActive) {
+          tmpToTargetHoriz.set(Math.sin(steerYaw!), 0, Math.cos(steerYaw!));
+          const yaw = steerYaw!;
+          tmpDesiredQuat.setFromAxisAngle(tmpUp, yaw);
+          const t = 1 - Math.exp(-TURN_SPEED * dt);
+          npcGroup.quaternion.slerp(tmpDesiredQuat, t);
+
+          const maxStep = move.speed * dt;
+          const nextX = npcGroup.position.x + tmpToTargetHoriz.x * maxStep;
+          const nextZ = npcGroup.position.z + tmpToTargetHoriz.z * maxStep;
+          const r = applyMoveXZ(nextX, nextZ, dt);
+          moved = moved || r.moved;
+          if (r.moved) {
+            ud._npcTrafficSteerMoved = true;
+            npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+            move.stuckSeconds = 0;
+          } else {
+            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
+          }
+
+          steerRemainingSeconds = Math.max(0, steerRemainingSeconds - dt);
+          // Stop processing more time in this tick once the steer window is consumed.
+          if (steerRemainingSeconds <= 1e-9) break;
+          continue;
+        }
 
         const target = move.route[move.nextIndex];
         if (!target) {
@@ -202,6 +302,25 @@ export function createWaypointMover(world: World): WaypointMover {
 
         if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {
           move.done = true;
+        }
+      }
+
+      // If we consumed the whole steer window in one update tick (e.g. large delta), schedule the wait immediately.
+      if (steerYaw != null && steerRemainingSeconds <= 1e-9 && Boolean(ud._npcTrafficSteerPendingWait)) {
+        const movedDuringSteer = Boolean(ud._npcTrafficSteerMoved);
+        delete ud._npcTrafficSteerPendingWait;
+        delete ud._npcTrafficSteerMoved;
+        delete ud._npcTrafficSteerYaw;
+        delete ud._npcTrafficSteerUntilMs;
+        steerYaw = null;
+
+        if (movedDuringSteer) {
+          const r = nextRand01(npcId, npcGroup);
+          const waitMs = Math.floor(TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS));
+          const processedSeconds = Math.max(0, deltaSeconds - remaining);
+          const endMs = nowMs + processedSeconds * 1000;
+          ud._npcTrafficWaitUntilMs = endMs + waitMs;
+          return { moved, mode: "idle" };
         }
       }
 

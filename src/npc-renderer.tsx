@@ -176,16 +176,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
-  const npcNpcDebugEnabled = useMemo(() => {
-    try {
-      if (typeof window === "undefined") return false;
-      const qs = new URLSearchParams(window.location.search);
-      return qs.get("npcNpcDebug") === "1";
-    } catch {
-      return false;
-    }
-  }, []);
-
   const motionDebugLastRef = useRef<
     | {
         isFalling: boolean;
@@ -212,6 +202,24 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       };
     } catch {
       return defaults;
+    }
+  }, []);
+
+  const npcMeetTestClonesCount = useMemo(() => {
+    // Meet-test helper: allow spawning multiple clones to stress-test NPC-vs-NPC avoidance.
+    // Default stays at 1 to preserve current behavior; set `npcMeetTestClonesCount=0` to disable.
+    const defaults = { count: 1, max: 12 };
+    try {
+      if (typeof window === "undefined") return defaults.count;
+      const qs = new URLSearchParams(window.location.search);
+      const raw = qs.get("npcMeetTestClonesCount");
+      if (raw == null) return defaults.count;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return defaults.count;
+      const clamped = Math.max(0, Math.min(defaults.max, Math.floor(n)));
+      return clamped;
+    } catch {
+      return defaults.count;
     }
   }, []);
 
@@ -365,27 +373,31 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       renderableNpcs.find((e) => ((e.npcData.symbolName || "").trim().toUpperCase() === symUpper));
     const bandit = findBySymbol("BDT_1013_BANDIT_L");
     const cavalorn = findBySymbol("BAU_4300_ADDON_CAVALORN");
-    if (bandit) {
-      const clone: NpcData = {
-        ...(bandit.npcData as any),
-        instanceIndex: bandit.npcData.instanceIndex + 1_000_000,
-        symbolName: `${bandit.npcData.symbolName}__MEETTEST_EXTRA`,
-        name: `${bandit.npcData.name || "Bandyta"} (2)`,
-      };
-      renderableNpcs.push({ npcData: clone, position: bandit.position.clone() });
+    if (npcMeetTestClonesCount > 0 && bandit) {
+      for (let i = 0; i < npcMeetTestClonesCount; i++) {
+        const clone: NpcData = {
+          ...(bandit.npcData as any),
+          instanceIndex: bandit.npcData.instanceIndex + 1_000_000 + i,
+          symbolName: `${bandit.npcData.symbolName}__MEETTEST_EXTRA`,
+          name: `${bandit.npcData.name || "Bandyta"} (${i + 2})`,
+        };
+        renderableNpcs.push({ npcData: clone, position: bandit.position.clone() });
+      }
     }
-    if (cavalorn) {
-      const clone: NpcData = {
-        ...(cavalorn.npcData as any),
-        instanceIndex: cavalorn.npcData.instanceIndex + 1_000_000,
-        symbolName: `${cavalorn.npcData.symbolName}__MEETTEST_EXTRA`,
-        name: `${cavalorn.npcData.name || "Cavalorn"} (2)`,
-      };
-      renderableNpcs.push({ npcData: clone, position: cavalorn.position.clone() });
+    if (npcMeetTestClonesCount > 0 && cavalorn) {
+      for (let i = 0; i < npcMeetTestClonesCount; i++) {
+        const clone: NpcData = {
+          ...(cavalorn.npcData as any),
+          instanceIndex: cavalorn.npcData.instanceIndex + 1_000_000 + i,
+          symbolName: `${cavalorn.npcData.symbolName}__MEETTEST_EXTRA`,
+          name: `${cavalorn.npcData.name || "Cavalorn"} (${i + 2})`,
+        };
+        renderableNpcs.push({ npcData: clone, position: cavalorn.position.clone() });
+      }
     }
 
     return renderableNpcs;
-  }, [world, npcsKey, enabled]);
+  }, [world, npcsKey, enabled, npcMeetTestClonesCount]);
 
   // Store NPCs with positions for streaming
   useEffect(() => {
@@ -487,55 +499,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         desiredZ = constrained.z;
         npcGroup.userData._npcNpcBlocked = constrained.blocked;
 
-        const debugLog = (stage: string, extra?: Record<string, unknown>) => {
-          if (!npcNpcDebugEnabled) return;
-          const nowMs = Date.now();
-          const lastAt = (npcGroup.userData._npcNpcDebugLastAt as number | undefined) ?? 0;
-          const lastStage = (npcGroup.userData._npcNpcDebugLastStage as string | undefined) ?? "";
-          if (stage === lastStage && nowMs - lastAt < 250) return;
-          npcGroup.userData._npcNpcDebugLastAt = nowMs;
-          npcGroup.userData._npcNpcDebugLastStage = stage;
-
-          const npcData = npcGroup.userData.npcData as NpcData | undefined;
-          const selfId = npcData ? `npc-${npcData.instanceIndex}` : "npc-unknown";
-          const selfSym = (npcData?.symbolName || "").trim();
-          const selfName = (npcData?.name || "").trim();
-
-          // Find closest collider at current position.
-          let closest: { id?: number; x: number; z: number; y?: number; dist: number } | null = null;
-          for (const c of colliders) {
-            const d = Math.hypot(startX - c.x, startZ - c.z);
-            if (!closest || d < closest.dist) closest = { id: c.id, x: c.x, z: c.z, y: c.y, dist: d };
-          }
-
-          const payload = {
-            t: nowMs,
-            stage,
-            dt,
-            self: {
-              id: selfId,
-              symbol: selfSym,
-              name: selfName,
-              pos: { x: startX, y: selfY, z: startZ },
-              desired: { x: origDesiredX, z: origDesiredZ },
-              applied: { x: desiredX, z: desiredZ },
-              avoidSide: (npcGroup.userData.avoidSide as number | undefined) ?? null,
-              blocked: Boolean(npcGroup.userData._npcNpcBlocked),
-            },
-            closest,
-            config: { radius: selfRadius, sepSlop: 0.05 },
-            ...extra,
-          };
-
-          try {
-            console.log("[NPCNpcDebugJSON]" + JSON.stringify(payload));
-          } catch {
-            console.log("[NPCNpcDebugJSON]" + String(payload));
-          }
-        };
-
-        debugLog("clamp");
-
         // If two NPCs walk directly into each other, a pure "no-penetration" clamp can deadlock them.
         // ZenGin resolves this with dynamic character collision/physics and local steering. We emulate that
         // by attempting a small deterministic sidestep when we are blocked and made little/no progress.
@@ -546,6 +509,60 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const dirZ = origDist > 1e-8 ? origDz / origDist : 0;
         const progress = afterDx * dirX + afterDz * dirZ; // signed forward progress
         const lowProgress = progress < origDist * 0.15 && afterDist < origDist * 0.25;
+
+        // Deadlock logging (no query params). Only logs after sustained low-progress blocking to avoid spam.
+        const logDeadlock = (event: string, extra?: Record<string, unknown>) => {
+          const nowMs = Date.now();
+          const lastAt = (npcGroup.userData._npcDeadlockLogLastAt as number | undefined) ?? 0;
+          if (event === "tick" && nowMs - lastAt < 500) return;
+          npcGroup.userData._npcDeadlockLogLastAt = nowMs;
+
+          const npcData = npcGroup.userData.npcData as NpcData | undefined;
+          const self = {
+            id: npcData ? `npc-${npcData.instanceIndex}` : "npc-unknown",
+            instanceIndex: npcData?.instanceIndex ?? null,
+            symbol: (npcData?.symbolName || "").trim(),
+            name: (npcData?.name || "").trim(),
+            pos: { x: startX, y: selfY, z: startZ },
+            desired: { x: origDesiredX, z: origDesiredZ },
+            applied: { x: desiredX, z: desiredZ },
+            blocked: Boolean(npcGroup.userData._npcNpcBlocked),
+            blockedStreak: (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0,
+            avoidSide: (npcGroup.userData.avoidSide as number | undefined) ?? null,
+          };
+
+          const nearest = colliders
+            .map((c) => ({ id: c.id ?? null, x: c.x, y: c.y, z: c.z, dist: Math.hypot(startX - c.x, startZ - c.z) }))
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 3);
+
+          const payload = { t: nowMs, event, dt, self, nearest, ...extra };
+          try {
+            console.log("[NPCDeadlockJSON]" + JSON.stringify(payload));
+          } catch {
+            console.log("[NPCDeadlockJSON]", payload);
+          }
+        };
+
+        {
+          const wasActive = Boolean(npcGroup.userData._npcDeadlockActive);
+          let streak = (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
+          const isCandidate = constrained.blocked && dt > 0 && origDist > 1e-6 && lowProgress;
+          if (isCandidate) streak += dt;
+          else streak = 0;
+          npcGroup.userData._npcDeadlockStreak = streak;
+
+          const isActive = streak >= 0.35;
+          if (isActive && !wasActive) {
+            npcGroup.userData._npcDeadlockActive = true;
+            logDeadlock("enter");
+          } else if (isActive) {
+            logDeadlock("tick");
+          } else if (!isActive && wasActive) {
+            npcGroup.userData._npcDeadlockActive = false;
+            logDeadlock("exit");
+          }
+        }
 
         if (constrained.blocked && dt > 0 && origDist > 1e-6 && lowProgress) {
           // Pick a stable side relative to the closest collider so the pair chooses opposite sides.
@@ -585,7 +602,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             desiredX = a.x;
             desiredZ = a.z;
             npcGroup.userData._npcNpcBlocked = false;
-            debugLog("sidestep", { picked: side, preferredSide, closestId, blockedAfter: false });
+            logDeadlock("sidestepResolved", { picked: side, preferredSide, closestId });
           } else {
             const b = trySide(-side);
             if (!b.blocked && (Math.abs(b.x - startX) > 1e-6 || Math.abs(b.z - startZ) > 1e-6)) {
@@ -593,9 +610,100 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               desiredZ = b.z;
               npcGroup.userData._npcNpcBlocked = false;
               npcGroup.userData.avoidSide = -side;
-              debugLog("sidestep", { picked: -side, preferredSide, closestId, blockedAfter: false });
+              logDeadlock("sidestepResolved", { picked: -side, preferredSide, closestId });
             } else {
-              debugLog("sidestep", { picked: side, altPicked: -side, preferredSide, closestId, blockedAfter: true });
+              const deadlockStreak = (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
+              // Start more aggressive resolution a bit earlier than the logging threshold.
+              // In practice, small oscillations can keep resetting the streak before 0.35s while the group remains stuck.
+              const deadlocked = deadlockStreak >= 0.25;
+
+              if (deadlocked) {
+                // Candidate direction search: sample several short moves around the NPC and pick the best
+                // collision-free option that still makes reasonable progress towards the desired direction.
+                const baseYaw = Math.atan2(dirX, dirZ);
+                const samples = 24;
+                // Keep the candidate displacement bounded by the caller's requested step for this frame.
+                // Larger radii can look like "teleporting" and break animation pacing.
+                const stepDist = origDist;
+                const radii = [stepDist];
+
+                let best: { x: number; z: number; score: number; yaw: number; radius: number; progress: number; clearance: number } | null =
+                  null;
+
+                const scoreCandidate = (x: number, z: number) => {
+                  const distToDesired = Math.hypot(x - origDesiredX, z - origDesiredZ);
+                  const dx = x - startX;
+                  const dz = z - startZ;
+                  const progress = dx * dirX + dz * dirZ;
+
+                  let minClearance = Number.POSITIVE_INFINITY;
+                  for (const c of colliders) {
+                    const d = Math.hypot(x - c.x, z - c.z) - selfRadius - (c.radius ?? selfRadius);
+                    if (d < minClearance) minClearance = d;
+                  }
+                  if (!Number.isFinite(minClearance)) minClearance = 0;
+
+                  // Prefer staying near the requested move, but also prioritize gaining clearance and forward progress.
+                  const score = minClearance * 2.5 + progress * 1.0 - distToDesired * 0.25;
+                  return { score, progress, clearance: minClearance };
+                };
+
+                for (const r of radii) {
+                  for (let i = 0; i < samples; i++) {
+                    const yaw = baseYaw + (i / samples) * Math.PI * 2;
+                    const cx = startX + Math.sin(yaw) * r;
+                    const cz = startZ + Math.cos(yaw) * r;
+                    const c = runConstraint(cx, cz);
+                    if (c.blocked) continue;
+                    const movedDist = Math.hypot(c.x - startX, c.z - startZ);
+                    if (movedDist < 1e-6) continue;
+
+                    const s = scoreCandidate(c.x, c.z);
+                    // Discard candidates that would still end up in penetration after constraints (very rare, but safe).
+                    if (s.clearance < -0.05) continue;
+                    if (!best || s.score > best.score) {
+                      best = { x: c.x, z: c.z, score: s.score, yaw, radius: r, progress: s.progress, clearance: s.clearance };
+                    }
+                  }
+                }
+
+                if (best) {
+                  desiredX = best.x;
+                  desiredZ = best.z;
+                  npcGroup.userData._npcNpcBlocked = false;
+
+                  // Signal the mover to temporarily steer in the chosen direction (so the character turns and walks away),
+                  // then wait a bit to help clear traffic jams. The mover handles the actual steering and waiting.
+                  {
+                    const nowMs = Date.now();
+                    const steerUntil = (npcGroup.userData._npcTrafficSteerUntilMs as number | undefined) ?? 0;
+                    if (!(steerUntil > nowMs)) {
+                      npcGroup.userData._npcTrafficSteerYaw = best.yaw;
+                      npcGroup.userData._npcTrafficSteerUntilMs = nowMs + 500;
+                      npcGroup.userData._npcTrafficSteerPendingWait = true;
+                      npcGroup.userData._npcTrafficSteerMoved = false;
+                    }
+                  }
+
+                  logDeadlock("candidateSearchResolved", {
+                    picked: side,
+                    altPicked: -side,
+                    preferredSide,
+                    closestId,
+                    candidate: {
+                      radius: best.radius,
+                      yawRad: best.yaw,
+                      score: best.score,
+                      progress: best.progress,
+                      clearance: best.clearance,
+                    },
+                  });
+                } else {
+                  logDeadlock("sidestepBlocked", { picked: side, altPicked: -side, preferredSide, closestId });
+                }
+              } else {
+                logDeadlock("sidestepBlocked", { picked: side, altPicked: -side, preferredSide, closestId });
+              }
             }
           }
         }

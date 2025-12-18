@@ -128,6 +128,56 @@ describe("npc waypoint mover", () => {
     expect(mover.update("npc-1", group, 0.016)).toEqual({ moved: false, mode: "idle" });
   });
 
+  it("supports deadlock steer + post-steer wait (no teleport)", () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1000);
+
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        { name: "B", position: { x: 10, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    // Force a steer direction that differs from the route direction (route is towards x=-10).
+    (group.userData as any)._npcTrafficSteerYaw = Math.PI / 2; // +X
+    (group.userData as any)._npcTrafficSteerUntilMs = 1500;
+    (group.userData as any)._npcTrafficSteerPendingWait = true;
+    (group.userData as any)._npcTrafficSteerMoved = false;
+
+    const steerTick = mover.update("npc-1", group, 0.1);
+    expect(steerTick.mode).toBe("walk");
+    expect(steerTick.moved).toBe(true);
+    expect(group.position.x).toBeGreaterThan(0);
+
+    // Steer window ended -> should enter a short random wait.
+    nowSpy.mockReturnValue(1501);
+    const waitTick = mover.update("npc-1", group, 0.016);
+    expect(waitTick).toEqual({ moved: false, mode: "idle" });
+    const waitUntil = (group.userData as any)._npcTrafficWaitUntilMs as number;
+    expect(typeof waitUntil).toBe("number");
+    expect(waitUntil).toBeGreaterThanOrEqual(1501 + 1000);
+    expect(waitUntil).toBeLessThanOrEqual(1501 + 15000);
+
+    nowSpy.mockReturnValue(waitUntil - 1);
+    expect(mover.update("npc-1", group, 0.016)).toEqual({ moved: false, mode: "idle" });
+
+    // After the wait, route movement resumes.
+    const beforeResumeX = group.position.x;
+    nowSpy.mockReturnValue(waitUntil + 1);
+    const resumeTick = mover.update("npc-1", group, 0.016);
+    expect(resumeTick.mode).toBe("walk");
+    expect(group.position.x).toBeLessThan(beforeResumeX);
+
+    nowSpy.mockRestore();
+  });
+
   it("stops the move when repeatedly blocked (simulating hard collision)", () => {
     const world = createMockWorld(
       [
