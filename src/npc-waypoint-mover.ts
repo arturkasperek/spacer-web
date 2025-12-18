@@ -309,6 +309,11 @@ export function createWaypointMover(world: World): WaypointMover {
           return { moved: false, mode: "idle" };
         }
       }
+      if (!pendingWait && typeof steerUntilMs === "number" && steerUntilMs <= nowMs) {
+        delete ud._npcTrafficSteerMoved;
+        delete ud._npcTrafficSteerYaw;
+        delete ud._npcTrafficSteerUntilMs;
+      }
 
       const MAX_DT = 0.05;
       const MAX_STEPS = 8;
@@ -333,6 +338,89 @@ export function createWaypointMover(world: World): WaypointMover {
         }
         const didMove = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
         return { blocked, moved: didMove };
+      };
+
+      const scheduleSteerEscape = (params: {
+        yaw: number;
+        durationSeconds: number;
+        pendingWait: boolean;
+      }) => {
+        const processedSeconds = Math.max(0, deltaSeconds - remaining);
+        const endMs = nowMs + processedSeconds * 1000;
+        ud._npcTrafficSteerYaw = params.yaw;
+        ud._npcTrafficSteerUntilMs = endMs + params.durationSeconds * 1000;
+        ud._npcTrafficSteerMoved = false;
+        ud._npcTrafficSteerPendingWait = params.pendingWait;
+        steerYaw = params.yaw;
+        steerRemainingSeconds = params.durationSeconds;
+      };
+
+      const tryStartWorldStuckRecovery = (params: {
+        maxStep: number;
+        dt: number;
+        target: THREE.Vector3;
+      }): boolean => {
+        if (params.dt <= 0) return false;
+        if (move.done) return false;
+        if (steerYaw != null || steerRemainingSeconds > 0) return false;
+        if (typeof ud._npcTrafficSteerUntilMs === "number" && (ud._npcTrafficSteerUntilMs as number) > nowMs) return false;
+
+        const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+        if (npcBlocked) return false;
+
+        const dx = params.target.x - npcGroup.position.x;
+        const dz = params.target.z - npcGroup.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= 1e-6) return false;
+        const dirX = dx / dist;
+        const dirZ = dz / dist;
+        const baseYaw = Math.atan2(dirX, dirZ);
+
+        const stepDist = Math.max(params.maxStep, 10);
+        const savedX = npcGroup.position.x;
+        const savedZ = npcGroup.position.z;
+        const savedNpcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+
+        const probeYaw = (yaw: number): { yaw: number; movedDist: number; blocked: boolean; progress: number } => {
+          npcGroup.position.x = savedX;
+          npcGroup.position.z = savedZ;
+          (npcGroup.userData as any)._npcNpcBlocked = savedNpcBlocked;
+
+          const px = savedX + Math.sin(yaw) * stepDist;
+          const pz = savedZ + Math.cos(yaw) * stepDist;
+          const r = applyMoveXZ(px, pz, params.dt);
+          const dxm = npcGroup.position.x - savedX;
+          const dzm = npcGroup.position.z - savedZ;
+          const movedDist = Math.hypot(dxm, dzm);
+          const progress = dxm * dirX + dzm * dirZ;
+
+          npcGroup.position.x = savedX;
+          npcGroup.position.z = savedZ;
+          (npcGroup.userData as any)._npcNpcBlocked = savedNpcBlocked;
+
+          return { yaw, movedDist, blocked: r.blocked, progress };
+        };
+
+        const deg = (d: number) => (d * Math.PI) / 180;
+        const offsets = [0, deg(30), -deg(30), deg(60), -deg(60), deg(90), -deg(90), deg(120), -deg(120), Math.PI];
+
+        let best: { yaw: number; score: number } | null = null;
+        for (const off of offsets) {
+          const cand = probeYaw(baseYaw + off);
+          if (cand.movedDist <= 1e-4) continue;
+          const blockedPenalty = cand.blocked ? 1000 : 0;
+          // Prefer unblocked movement and forward progress, but allow temporary sideways/backward steps to get unstuck.
+          const score = blockedPenalty + Math.max(0, -cand.progress) * 0.25 - cand.progress + 0.05 * (stepDist - cand.movedDist);
+          if (!best || score < best.score) best = { yaw: cand.yaw, score };
+        }
+
+        if (!best) return false;
+
+        const r = nextRand01(npcId, npcGroup);
+        const durationSeconds = 0.25 + r * 0.25; // 0.25–0.5s
+        scheduleSteerEscape({ yaw: best.yaw, durationSeconds, pendingWait: false });
+        move.stuckSeconds = 0;
+        return true;
       };
 
       const steerYawActive = ud._npcTrafficSteerYaw as number | undefined;
@@ -535,8 +623,12 @@ export function createWaypointMover(world: World): WaypointMover {
         }
 
         if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {
-          move.done = true;
-          if (move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
+          // If we got stuck due to world collisions (not NPC-vs-NPC), try a short steer escape to get back on track.
+          const started = tryStartWorldStuckRecovery({ maxStep, dt, target });
+          if (!started) {
+            move.done = true;
+            if (move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
+          }
         }
       }
 

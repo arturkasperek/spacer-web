@@ -289,6 +289,54 @@ describe("npc waypoint mover", () => {
     expect(Math.abs(group.position.x - -200)).toBeLessThanOrEqual(60);
   });
 
+  it("recovers from world-collision blocking by steering around the obstacle", () => {
+    const nowSpy = jest.spyOn(Date, "now");
+    let now = 1000;
+    nowSpy.mockImplementation(() => now);
+
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        // Three X becomes -10
+        { name: "B", position: { x: 10, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    // Simulate a "wall" in front: moving towards -X is blocked while we're near z=0
+    // and still "in front" of the obstacle (like a doorway/wall segment).
+    (group.userData as any).moveConstraint = (_g: any, x: number, z: number) => {
+      const beforeX = _g.position.x;
+      const beforeZ = _g.position.z;
+      const movingNegX = x < beforeX - 1e-9;
+      if (movingNegX && beforeX > -5 && Math.abs(beforeZ) < 1) return { blocked: true, moved: false };
+      _g.position.x = x;
+      _g.position.z = z;
+      (_g.userData as any)._npcNpcBlocked = false;
+      return { blocked: false, moved: true };
+    };
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    let last = mover.update("npc-1", group, 0.05);
+    let safety = 0;
+    while (last.mode !== "idle" && safety < 400) {
+      now += 50;
+      last = mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+
+    expect(safety).toBeLessThan(400);
+    expect(last.mode).toBe("idle");
+    expect(group.position.x).toBeCloseTo(-10, 3);
+
+    nowSpy.mockRestore();
+  });
+
   it("clear() stops an in-progress move", () => {
     const world = createMockWorld(
       [
