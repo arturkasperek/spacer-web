@@ -108,6 +108,103 @@ describe("npc waypoint mover", () => {
     expect(group.position.x).toBeCloseTo(-10, 6);
   });
 
+  it("treats intermediate waypoints as a gate (does not require snapping), but still snaps to final destination", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        // Three X becomes -200
+        { name: "B", position: { x: 200, y: 0, z: 0 } },
+        // Three X becomes -400
+        { name: "C", position: { x: 400, y: 0, z: 0 } },
+      ],
+      [
+        { waypoint_a_index: 0, waypoint_b_index: 1 },
+        { waypoint_a_index: 1, waypoint_b_index: 2 },
+      ]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    // If the mover tries to "snap" to B exactly, simulate that it is blocked (like another NPC occupying the node).
+    (group.userData as any).moveConstraint = (_g: any, x: number, z: number) => {
+      const bx = -200;
+      const bz = 0;
+      if (Math.abs(x - bx) < 1e-6 && Math.abs(z - bz) < 1e-6) return { blocked: true, moved: false };
+      _g.position.x = x;
+      _g.position.z = z;
+      return { blocked: false, moved: true };
+    };
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "C", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    // Run updates until we are past B (x < -200) which should be possible even though snapping to B is blocked.
+    let safety = 0;
+    while (group.position.x > -220 && safety < 500) {
+      mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+    expect(safety).toBeLessThan(500);
+    expect(group.position.x).toBeLessThan(-200);
+
+    // Eventually the mover should still reach the final destination (C) by snapping exactly.
+    safety = 0;
+    let last = mover.update("npc-1", group, 0.05);
+    while (last.mode !== "idle" && safety < 2000) {
+      last = mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+    expect(safety).toBeLessThan(2000);
+    expect(last.mode).toBe("idle");
+    expect(group.position.x).toBeCloseTo(-400, 1);
+  });
+
+  it("treats final waypoint as a gate only when NPC-blocked near the center", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        // Three X becomes -200
+        { name: "B", position: { x: 200, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    // Start at A and move towards B.
+    group.position.set(0, 0, 0);
+
+    // Simulate another NPC occupying the destination center: block moves that get too close to the center.
+    (group.userData as any).moveConstraint = (_g: any, x: number, z: number) => {
+      const bx = -200;
+      const bz = 0;
+      const nextDist = Math.hypot(x - bx, z - bz);
+      if (nextDist <= 30) {
+        (_g.userData as any)._npcNpcBlocked = true;
+        return { blocked: true, moved: false };
+      }
+      (_g.userData as any)._npcNpcBlocked = false;
+      _g.position.x = x;
+      _g.position.z = z;
+      return { blocked: false, moved: true };
+    };
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    // The NPC should try to approach the center, get NPC-blocked near it, and accept the gate as complete.
+    let safety = 0;
+    let last = mover.update("npc-1", group, 0.05);
+    while (last.mode !== "idle" && safety < 2000) {
+      last = mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+    expect(safety).toBeLessThan(2000);
+    expect(last.mode).toBe("idle");
+    expect(group.position.x).not.toBeCloseTo(-200, 6);
+    expect(Math.abs(group.position.x - -200)).toBeLessThanOrEqual(60);
+  });
+
   it("clear() stops an in-progress move", () => {
     const world = createMockWorld(
       [

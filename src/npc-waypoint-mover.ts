@@ -49,6 +49,11 @@ export function createWaypointMover(world: World): WaypointMover {
   const TURN_SPEED = 10;
   const TRAFFIC_WAIT_MIN_MS = 1000;
   const TRAFFIC_WAIT_MAX_MS = 15000;
+  // Intermediate waypoint "gate" radius. NPCs only need to pass through this area; they do not need to snap to the exact waypoint coordinate.
+  // This prevents multiple NPCs from piling into the same point at a node.
+  const INTERMEDIATE_WAYPOINT_GATE_RADIUS = 120;
+  // Final destination: try to reach the center, but if it's occupied by another NPC, accept reaching the gate radius.
+  const FINAL_WAYPOINT_GATE_RADIUS = 60;
 
   const hashStringToSeed = (s: string): number => {
     // FNV-1a 32-bit
@@ -258,6 +263,7 @@ export function createWaypointMover(world: World): WaypointMover {
         tmpToTargetHoriz.copy(tmpToTarget);
         tmpToTargetHoriz.y = 0;
         const dist = tmpToTargetHoriz.length();
+        const isFinalTarget = move.nextIndex >= move.route.length - 1;
 
         if (dist > 0) {
           const yaw = Math.atan2(tmpToTargetHoriz.x, tmpToTargetHoriz.z);
@@ -267,9 +273,27 @@ export function createWaypointMover(world: World): WaypointMover {
         }
 
         const maxStep = move.speed * dt;
-        const shouldSnap = dist <= Math.max(move.arriveDistance, maxStep);
 
-        if (shouldSnap) {
+        // Intermediate waypoint "gate": consider the waypoint reached once we enter a small radius.
+        // This allows corner cutting and avoids deadlocks where several NPCs try to occupy the exact same waypoint coordinate.
+        if (!isFinalTarget && dist <= INTERMEDIATE_WAYPOINT_GATE_RADIUS) {
+          move.nextIndex += 1;
+          move.stuckSeconds = 0;
+          continue;
+        }
+
+        // Final destination: try to reach the center, but if we are within the gate radius and the center is occupied
+        // (NPC-vs-NPC blocked), accept stopping within the radius instead of deadlocking.
+        if (isFinalTarget && dist <= move.arriveDistance) {
+          move.nextIndex += 1;
+          move.stuckSeconds = 0;
+          if (move.nextIndex >= move.route.length) move.done = true;
+          continue;
+        }
+
+        const shouldSnapFinal = isFinalTarget && dist <= Math.max(move.arriveDistance, maxStep);
+
+        if (shouldSnapFinal) {
           const r = applyMoveXZ(target.x, target.z, dt);
           moved = moved || r.moved;
           if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
@@ -280,13 +304,21 @@ export function createWaypointMover(world: World): WaypointMover {
               move.done = true;
             }
           } else {
+            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            // If we're already in the destination gate radius and only NPC collision prevents reaching the exact center,
+            // consider the move complete (traffic jam cleared by a "good enough" arrival).
+            if (npcBlocked && dist <= FINAL_WAYPOINT_GATE_RADIUS) {
+              move.nextIndex += 1;
+              move.stuckSeconds = 0;
+              if (move.nextIndex >= move.route.length) move.done = true;
+              continue;
+            }
+
             // Getting blocked by another NPC shouldn't immediately abort the route;
             // they should be able to pass each other after a short avoidance/wait.
-            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
             move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
           }
-        } else {
-          // `shouldSnap === false` implies `dist > 0`.
+        } else if (dist > 0) {
           tmpToTargetHoriz.multiplyScalar(1 / dist);
           const nextX = npcGroup.position.x + tmpToTargetHoriz.x * maxStep;
           const nextZ = npcGroup.position.z + tmpToTargetHoriz.z * maxStep;
@@ -296,6 +328,12 @@ export function createWaypointMover(world: World): WaypointMover {
           if (r.moved) move.stuckSeconds = 0;
           else {
             const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            if (isFinalTarget && npcBlocked && dist <= FINAL_WAYPOINT_GATE_RADIUS) {
+              move.nextIndex += 1;
+              move.stuckSeconds = 0;
+              if (move.nextIndex >= move.route.length) move.done = true;
+              continue;
+            }
             move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
           }
         }
