@@ -205,6 +205,48 @@ describe("npc waypoint mover", () => {
     expect(Math.abs(group.position.x - -200)).toBeLessThanOrEqual(60);
   });
 
+  it("uses a circuit breaker at the final waypoint when inside the gate but not reaching the center", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        // Three X becomes -200
+        { name: "B", position: { x: 200, y: 0, z: 0 } },
+      ],
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    // Constrain the NPC to "orbit" around the target at a fixed radius inside the final gate,
+    // never letting it reach the exact center (simulate avoidance-induced circling).
+    let angle = 0;
+    (group.userData as any).moveConstraint = (_g: any, _x: number, _z: number) => {
+      const cx = -200;
+      const cz = 0;
+      angle += 0.25;
+      _g.position.x = cx + Math.cos(angle) * 40;
+      _g.position.z = cz + Math.sin(angle) * 40;
+      (_g.userData as any)._npcNpcBlocked = false;
+      return { blocked: false, moved: true };
+    };
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    let last = mover.update("npc-1", group, 0.05);
+    let safety = 0;
+    while (last.mode !== "idle" && safety < 200) {
+      last = mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+
+    // Circuit breaker is 2.0s; at 0.05 per tick that is 40 ticks.
+    expect(safety).toBeLessThan(200);
+    expect(last.mode).toBe("idle");
+    expect(Math.abs(group.position.x - -200)).toBeLessThanOrEqual(60);
+  });
+
   it("clear() stops an in-progress move", () => {
     const world = createMockWorld(
       [

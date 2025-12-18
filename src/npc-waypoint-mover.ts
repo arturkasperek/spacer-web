@@ -25,6 +25,7 @@ export type WaypointMoveState = {
   locomotionMode: Exclude<LocomotionMode, "idle">;
   done: boolean;
   stuckSeconds: number;
+  finalGateSeconds: number;
 };
 
 export type WaypointMover = {
@@ -54,6 +55,9 @@ export function createWaypointMover(world: World): WaypointMover {
   const INTERMEDIATE_WAYPOINT_GATE_RADIUS = 120;
   // Final destination: try to reach the center, but if it's occupied by another NPC, accept reaching the gate radius.
   const FINAL_WAYPOINT_GATE_RADIUS = 60;
+  // Circuit breaker: if the NPC stays inside the final gate for long enough without reaching the exact center,
+  // accept arrival to avoid infinite circling.
+  const FINAL_WAYPOINT_GATE_CIRCUIT_BREAKER_SECONDS = 2.0;
 
   const hashStringToSeed = (s: string): number => {
     // FNV-1a 32-bit
@@ -143,6 +147,7 @@ export function createWaypointMover(world: World): WaypointMover {
         locomotionMode: options?.locomotionMode ?? "walk",
         done: false,
         stuckSeconds: 0,
+        finalGateSeconds: 0,
       });
       npcGroup.userData.isScriptControlled = true;
       return true;
@@ -279,6 +284,7 @@ export function createWaypointMover(world: World): WaypointMover {
         if (!isFinalTarget && dist <= INTERMEDIATE_WAYPOINT_GATE_RADIUS) {
           move.nextIndex += 1;
           move.stuckSeconds = 0;
+          move.finalGateSeconds = 0;
           continue;
         }
 
@@ -287,6 +293,7 @@ export function createWaypointMover(world: World): WaypointMover {
         if (isFinalTarget && dist <= move.arriveDistance) {
           move.nextIndex += 1;
           move.stuckSeconds = 0;
+          move.finalGateSeconds = 0;
           if (move.nextIndex >= move.route.length) move.done = true;
           continue;
         }
@@ -310,6 +317,7 @@ export function createWaypointMover(world: World): WaypointMover {
             if (npcBlocked && dist <= FINAL_WAYPOINT_GATE_RADIUS) {
               move.nextIndex += 1;
               move.stuckSeconds = 0;
+              move.finalGateSeconds = 0;
               if (move.nextIndex >= move.route.length) move.done = true;
               continue;
             }
@@ -331,11 +339,34 @@ export function createWaypointMover(world: World): WaypointMover {
             if (isFinalTarget && npcBlocked && dist <= FINAL_WAYPOINT_GATE_RADIUS) {
               move.nextIndex += 1;
               move.stuckSeconds = 0;
+              move.finalGateSeconds = 0;
               if (move.nextIndex >= move.route.length) move.done = true;
               continue;
             }
             move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
           }
+        }
+
+        // Final waypoint circuit breaker: if we remain inside the destination gate radius for long enough without reaching the center,
+        // accept arrival so NPCs don't circle forever.
+        if (isFinalTarget && !move.done) {
+          const dxAfter = target.x - npcGroup.position.x;
+          const dzAfter = target.z - npcGroup.position.z;
+          const distAfter = Math.hypot(dxAfter, dzAfter);
+          if (distAfter <= FINAL_WAYPOINT_GATE_RADIUS && distAfter > move.arriveDistance) {
+            move.finalGateSeconds += dt;
+            if (move.finalGateSeconds >= FINAL_WAYPOINT_GATE_CIRCUIT_BREAKER_SECONDS) {
+              move.nextIndex += 1;
+              move.stuckSeconds = 0;
+              move.finalGateSeconds = 0;
+              if (move.nextIndex >= move.route.length) move.done = true;
+              break;
+            }
+          } else {
+            move.finalGateSeconds = 0;
+          }
+        } else if (!isFinalTarget) {
+          move.finalGateSeconds = 0;
         }
 
         if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {
