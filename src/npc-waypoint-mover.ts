@@ -64,9 +64,10 @@ export function createWaypointMover(world: World): WaypointMover {
   const TURN_SPEED = 10;
   const TRAFFIC_WAIT_MIN_MS = 1000;
   const TRAFFIC_WAIT_MAX_MS = 15000;
-  // Intermediate waypoint "gate" radius. NPCs only need to pass through this area; they do not need to snap to the exact waypoint coordinate.
-  // This prevents multiple NPCs from piling into the same point at a node.
-  const INTERMEDIATE_WAYPOINT_GATE_RADIUS = 120;
+  // Intermediate waypoint handling:
+  // - If another NPC is close to the waypoint, treat it as a small "area" so NPCs don't pile into one coordinate.
+  // - Otherwise, require crossing the exact waypoint coordinate (snap) for reliable pathing.
+  const INTERMEDIATE_WAYPOINT_CROWD_RADIUS = 80;
   // Final destination: try to reach the center, but if it's occupied by another NPC, accept reaching the gate radius.
   const FINAL_WAYPOINT_GATE_RADIUS = 60;
   // Circuit breaker: if the NPC stays inside the final gate for long enough without reaching the exact center,
@@ -98,6 +99,28 @@ export function createWaypointMover(world: World): WaypointMover {
     s ^= (s << 5) >>> 0;
     ud._npcTrafficRngState = s >>> 0;
     return ((s >>> 0) / 4294967296) % 1;
+  };
+
+  const parseNpcInstanceIndex = (npcId: string, npcGroup: THREE.Group): number | null => {
+    const npcData = (npcGroup.userData as any)?.npcData as { instanceIndex?: number } | undefined;
+    if (npcData && typeof npcData.instanceIndex === "number") return npcData.instanceIndex;
+    const m = /^npc-(\d+)$/.exec(npcId);
+    if (m) return Number(m[1]);
+    return null;
+  };
+
+  const isOtherNpcNearWaypoint = (npcId: string, npcGroup: THREE.Group, waypoint: THREE.Vector3, radius: number): boolean => {
+    const colliders = (npcGroup.userData as any)._npcCollidersScratch as Array<{ id?: number; x: number; z: number }> | undefined;
+    if (!colliders || colliders.length === 0) return false;
+    const selfId = parseNpcInstanceIndex(npcId, npcGroup);
+    const r2 = radius * radius;
+    for (const c of colliders) {
+      if (selfId != null && typeof c.id === "number" && c.id === selfId) continue;
+      const dx = c.x - waypoint.x;
+      const dz = c.z - waypoint.z;
+      if (dx * dx + dz * dz <= r2) return true;
+    }
+    return false;
   };
 
   const ensureWaynetGraph = (): WaynetGraph | null => {
@@ -379,13 +402,48 @@ export function createWaypointMover(world: World): WaypointMover {
 
         const maxStep = move.speed * dt;
 
-        // Intermediate waypoint "gate": consider the waypoint reached once we enter a small radius.
-        // This allows corner cutting and avoids deadlocks where several NPCs try to occupy the exact same waypoint coordinate.
-        if (!isFinalTarget && dist <= INTERMEDIATE_WAYPOINT_GATE_RADIUS) {
-          move.nextIndex += 1;
-          move.stuckSeconds = 0;
-          move.finalGateSeconds = 0;
-          continue;
+        if (!isFinalTarget) {
+          const crowded = isOtherNpcNearWaypoint(npcId, npcGroup, target, INTERMEDIATE_WAYPOINT_CROWD_RADIUS);
+          // Only allow "gate" behavior when another NPC is close to this waypoint (traffic).
+          if (crowded && dist <= Math.max(move.arriveDistance, INTERMEDIATE_WAYPOINT_CROWD_RADIUS)) {
+            move.nextIndex += 1;
+            move.stuckSeconds = 0;
+            move.finalGateSeconds = 0;
+            continue;
+          }
+
+          // Otherwise, require crossing the waypoint coordinate (snap) instead of corner-cutting.
+          if (dist <= move.arriveDistance) {
+            move.nextIndex += 1;
+            move.stuckSeconds = 0;
+            move.finalGateSeconds = 0;
+            continue;
+          }
+
+          const shouldSnapIntermediate = dist <= Math.max(move.arriveDistance, maxStep);
+          if (shouldSnapIntermediate) {
+            const r = applyMoveXZ(target.x, target.z, dt);
+            moved = moved || r.moved;
+            if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+            if (Math.abs(npcGroup.position.x - target.x) <= 1e-4 && Math.abs(npcGroup.position.z - target.z) <= 1e-4) {
+              move.nextIndex += 1;
+              move.stuckSeconds = 0;
+              move.finalGateSeconds = 0;
+              continue;
+            }
+
+            const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
+            // If we can't snap because of NPC-vs-NPC collision, treat the waypoint as crowded and allow passing through.
+            if (npcBlocked && dist <= INTERMEDIATE_WAYPOINT_CROWD_RADIUS) {
+              move.nextIndex += 1;
+              move.stuckSeconds = 0;
+              move.finalGateSeconds = 0;
+              continue;
+            }
+
+            move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
+            continue;
+          }
         }
 
         // Final destination: try to reach the center, but if we are within the gate radius and the center is occupied

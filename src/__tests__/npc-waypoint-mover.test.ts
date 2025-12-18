@@ -110,7 +110,7 @@ describe("npc waypoint mover", () => {
     expect(group.position.x).toBeCloseTo(-10, 6);
   });
 
-  it("treats intermediate waypoints as a gate (does not require snapping), but still snaps to final destination", () => {
+  it("treats an intermediate waypoint as a gate only when another NPC is near that waypoint", () => {
     const world = createMockWorld(
       [
         { name: "A", position: { x: 0, y: 0, z: 0 } },
@@ -128,6 +128,9 @@ describe("npc waypoint mover", () => {
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
+
+    // Simulate another NPC close to the intermediate waypoint (traffic).
+    (group.userData as any)._npcCollidersScratch = [{ id: 2, x: -200, z: 0 }];
 
     // If the mover tries to "snap" to B exactly, simulate that it is blocked (like another NPC occupying the node).
     (group.userData as any).moveConstraint = (_g: any, x: number, z: number) => {
@@ -159,6 +162,43 @@ describe("npc waypoint mover", () => {
     }
     expect(safety).toBeLessThan(2000);
     expect(last.mode).toBe("idle");
+    expect(group.position.x).toBeCloseTo(-400, 1);
+  });
+
+  it("requires snapping to an intermediate waypoint when there is no nearby NPC traffic", () => {
+    const world = createMockWorld(
+      [
+        { name: "A", position: { x: 0, y: 0, z: 0 } },
+        // Three X becomes -200
+        { name: "B", position: { x: 200, y: 0, z: 0 } },
+        // Three X becomes -400
+        { name: "C", position: { x: 400, y: 0, z: 0 } },
+      ],
+      [
+        { waypoint_a_index: 0, waypoint_b_index: 1 },
+        { waypoint_a_index: 1, waypoint_b_index: 2 },
+      ]
+    );
+
+    const mover = createWaypointMover(world);
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+
+    expect(mover.startMoveToWaypoint("npc-1", group, "C", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+
+    let sawSnapToB = false;
+    let safety = 0;
+    let last = mover.update("npc-1", group, 0.05);
+    while (last.mode !== "idle" && safety < 2000) {
+      if (Math.abs(group.position.x - -200) <= 1e-4 && Math.abs(group.position.z - 0) <= 1e-4) {
+        sawSnapToB = true;
+      }
+      last = mover.update("npc-1", group, 0.05);
+      safety++;
+    }
+    expect(safety).toBeLessThan(2000);
+    expect(last.mode).toBe("idle");
+    expect(sawSnapToB).toBe(true);
     expect(group.position.x).toBeCloseTo(-400, 1);
   });
 
