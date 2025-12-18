@@ -12,7 +12,6 @@ import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type Lo
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import {
-  collectNpcWorldCollisionDebugSnapshot,
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
   updateNpcFallY,
@@ -21,7 +20,6 @@ import {
   type NpcWorldCollisionConfig,
 } from "./npc-world-collision";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
-import { getNpcCollisionDumpSeq } from "./npc-collision-debug";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
 
 interface NpcRendererProps {
@@ -84,7 +82,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
   const cavalornGroupRef = useRef<THREE.Group | null>(null);
   const collisionCtx = useMemo(() => createNpcWorldCollisionContext(), []);
-  const collisionDumpSeqRef = useRef(0);
   const collisionConfig = useMemo<NpcWorldCollisionConfig>(() => {
     const getMaxSlopeDeg = () => {
       // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
@@ -205,24 +202,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
-  const npcMeetTestClonesCount = useMemo(() => {
-    // Meet-test helper: allow spawning multiple clones to stress-test NPC-vs-NPC avoidance.
-    // Default stays at 1 to preserve current behavior; set `npcMeetTestClonesCount=0` to disable.
-    const defaults = { count: 1, max: 12 };
-    try {
-      if (typeof window === "undefined") return defaults.count;
-      const qs = new URLSearchParams(window.location.search);
-      const raw = qs.get("npcMeetTestClonesCount");
-      if (raw == null) return defaults.count;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return defaults.count;
-      const clamped = Math.max(0, Math.min(defaults.max, Math.floor(n)));
-      return clamped;
-    } catch {
-      return defaults.count;
-    }
-  }, []);
-
   const manualKeysRef = useRef({
     up: false,
     down: false,
@@ -232,26 +211,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const manualRunToggleRef = useRef(false);
   const teleportCavalornSeqRef = useRef(0);
   const teleportCavalornSeqAppliedRef = useRef(0);
-  const npcMeetTestStartedRef = useRef(new Set<string>());
-
-  const maybeStartMeetTestMove = (npcId: string, npcGroup: THREE.Group, npcData: NpcData) => {
-    if (npcMeetTestStartedRef.current.has(npcId)) return;
-    const mover = waypointMoverRef.current;
-    if (!mover) return;
-
-    const sym = (npcData.symbolName || "").trim().toUpperCase();
-    // "tweak things" meet-test: start two NPCs moving on load so we can observe NPC-vs-NPC collision.
-    let target: string | null = null;
-    if (sym === "BDT_1013_BANDIT_L") target = "NW_XARDAS_GOBBO_01";
-    if (sym === "BAU_4300_ADDON_CAVALORN") target = "NW_XARDAS_STAIRS_01";
-    // Extra meet-test clones: move along with originals.
-    if (sym === "BDT_1013_BANDIT_L__MEETTEST_EXTRA") target = "NW_XARDAS_GOBBO_01";
-    if (sym === "BAU_4300_ADDON_CAVALORN__MEETTEST_EXTRA") target = "NW_XARDAS_STAIRS_01";
-    if (!target) return;
-
-    const ok = mover.startMoveToWaypoint(npcId, npcGroup, target, { speed: 140, arriveDistance: 5, locomotionMode: "walk" });
-    if (ok) npcMeetTestStartedRef.current.add(npcId);
-  };
 
   useEffect(() => {
     if (!manualControlCavalornEnabled) return;
@@ -366,38 +325,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
-    // Meet-test helpers: spawn extra NPC clones at the same initial positions to stress-test NPC-vs-NPC avoidance.
-    // - clone bandit at bandit start, route to Cavalorn destination
-    // - clone cavalorn at cavalorn start, route to bandit destination
-    const findBySymbol = (symUpper: string) =>
-      renderableNpcs.find((e) => ((e.npcData.symbolName || "").trim().toUpperCase() === symUpper));
-    const bandit = findBySymbol("BDT_1013_BANDIT_L");
-    const cavalorn = findBySymbol("BAU_4300_ADDON_CAVALORN");
-    if (npcMeetTestClonesCount > 0 && bandit) {
-      for (let i = 0; i < npcMeetTestClonesCount; i++) {
-        const clone: NpcData = {
-          ...(bandit.npcData as any),
-          instanceIndex: bandit.npcData.instanceIndex + 1_000_000 + i,
-          symbolName: `${bandit.npcData.symbolName}__MEETTEST_EXTRA`,
-          name: `${bandit.npcData.name || "Bandyta"} (${i + 2})`,
-        };
-        renderableNpcs.push({ npcData: clone, position: bandit.position.clone() });
-      }
-    }
-    if (npcMeetTestClonesCount > 0 && cavalorn) {
-      for (let i = 0; i < npcMeetTestClonesCount; i++) {
-        const clone: NpcData = {
-          ...(cavalorn.npcData as any),
-          instanceIndex: cavalorn.npcData.instanceIndex + 1_000_000 + i,
-          symbolName: `${cavalorn.npcData.symbolName}__MEETTEST_EXTRA`,
-          name: `${cavalorn.npcData.name || "Cavalorn"} (${i + 2})`,
-        };
-        renderableNpcs.push({ npcData: clone, position: cavalorn.position.clone() });
-      }
-    }
-
     return renderableNpcs;
-  }, [world, npcsKey, enabled, npcMeetTestClonesCount]);
+  }, [world, npcsKey, enabled]);
 
   // Store NPCs with positions for streaming
   useEffect(() => {
@@ -510,58 +439,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const progress = afterDx * dirX + afterDz * dirZ; // signed forward progress
         const lowProgress = progress < origDist * 0.15 && afterDist < origDist * 0.25;
 
-        // Deadlock logging (no query params). Only logs after sustained low-progress blocking to avoid spam.
-        const logDeadlock = (event: string, extra?: Record<string, unknown>) => {
-          const nowMs = Date.now();
-          const lastAt = (npcGroup.userData._npcDeadlockLogLastAt as number | undefined) ?? 0;
-          if (event === "tick" && nowMs - lastAt < 500) return;
-          npcGroup.userData._npcDeadlockLogLastAt = nowMs;
-
-          const npcData = npcGroup.userData.npcData as NpcData | undefined;
-          const self = {
-            id: npcData ? `npc-${npcData.instanceIndex}` : "npc-unknown",
-            instanceIndex: npcData?.instanceIndex ?? null,
-            symbol: (npcData?.symbolName || "").trim(),
-            name: (npcData?.name || "").trim(),
-            pos: { x: startX, y: selfY, z: startZ },
-            desired: { x: origDesiredX, z: origDesiredZ },
-            applied: { x: desiredX, z: desiredZ },
-            blocked: Boolean(npcGroup.userData._npcNpcBlocked),
-            blockedStreak: (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0,
-            avoidSide: (npcGroup.userData.avoidSide as number | undefined) ?? null,
-          };
-
-          const nearest = colliders
-            .map((c) => ({ id: c.id ?? null, x: c.x, y: c.y, z: c.z, dist: Math.hypot(startX - c.x, startZ - c.z) }))
-            .sort((a, b) => a.dist - b.dist)
-            .slice(0, 3);
-
-          const payload = { t: nowMs, event, dt, self, nearest, ...extra };
-          try {
-            console.log("[NPCDeadlockJSON]" + JSON.stringify(payload));
-          } catch {
-            console.log("[NPCDeadlockJSON]", payload);
-          }
-        };
-
+        // Track sustained low-progress blocking to detect NPC-vs-NPC deadlocks (used for candidate-direction escape).
         {
-          const wasActive = Boolean(npcGroup.userData._npcDeadlockActive);
           let streak = (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
           const isCandidate = constrained.blocked && dt > 0 && origDist > 1e-6 && lowProgress;
-          if (isCandidate) streak += dt;
-          else streak = 0;
-          npcGroup.userData._npcDeadlockStreak = streak;
-
-          const isActive = streak >= 0.35;
-          if (isActive && !wasActive) {
-            npcGroup.userData._npcDeadlockActive = true;
-            logDeadlock("enter");
-          } else if (isActive) {
-            logDeadlock("tick");
-          } else if (!isActive && wasActive) {
-            npcGroup.userData._npcDeadlockActive = false;
-            logDeadlock("exit");
-          }
+          npcGroup.userData._npcDeadlockStreak = isCandidate ? streak + dt : 0;
         }
 
         if (constrained.blocked && dt > 0 && origDist > 1e-6 && lowProgress) {
@@ -602,7 +484,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             desiredX = a.x;
             desiredZ = a.z;
             npcGroup.userData._npcNpcBlocked = false;
-            logDeadlock("sidestepResolved", { picked: side, preferredSide, closestId });
           } else {
             const b = trySide(-side);
             if (!b.blocked && (Math.abs(b.x - startX) > 1e-6 || Math.abs(b.z - startZ) > 1e-6)) {
@@ -610,7 +491,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               desiredZ = b.z;
               npcGroup.userData._npcNpcBlocked = false;
               npcGroup.userData.avoidSide = -side;
-              logDeadlock("sidestepResolved", { picked: -side, preferredSide, closestId });
             } else {
               const deadlockStreak = (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
               // Start more aggressive resolution a bit earlier than the logging threshold.
@@ -684,25 +564,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
                       npcGroup.userData._npcTrafficSteerMoved = false;
                     }
                   }
-
-                  logDeadlock("candidateSearchResolved", {
-                    picked: side,
-                    altPicked: -side,
-                    preferredSide,
-                    closestId,
-                    candidate: {
-                      radius: best.radius,
-                      yawRad: best.yaw,
-                      score: best.score,
-                      progress: best.progress,
-                      clearance: best.clearance,
-                    },
-                  });
-                } else {
-                  logDeadlock("sidestepBlocked", { picked: side, altPicked: -side, preferredSide, closestId });
                 }
-              } else {
-                logDeadlock("sidestepBlocked", { picked: side, altPicked: -side, preferredSide, closestId });
               }
             }
           }
@@ -1089,8 +951,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const npcGroup = createNpcMesh(npc.npcData, npc.position);
         loadedNpcsRef.current.set(item.id, npcGroup);
         npcGroup.userData.moveConstraint = applyMoveConstraint;
-        // Trigger the meet-test move as soon as the NPC is loaded (independent of model loading).
-        maybeStartMeetTestMove(item.id, npcGroup, npc.npcData);
         {
           const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
           const displayName = (npc.npcData.name || "").trim().toUpperCase();
@@ -1544,24 +1404,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
-    // One-shot debug dump (button-triggered).
-    const dumpSeq = getNpcCollisionDumpSeq();
-    if (dumpSeq !== collisionDumpSeqRef.current) {
-      collisionDumpSeqRef.current = dumpSeq;
-      const cavalorn = cavalornGroupRef.current;
-      const ground = ensureWorldMesh();
-      if (cavalorn && ground) {
-        const moveDirXZ = (cavalorn.userData.lastMoveDirXZ as { x: number; z: number } | undefined) ?? null;
-        const snapshot = collectNpcWorldCollisionDebugSnapshot(collisionCtx, cavalorn, ground, moveDirXZ, collisionConfig);
-        try {
-          console.log("[NPCCollisionDebugJSON]" + JSON.stringify(snapshot));
-        } catch (e) {
-          console.log("[NPCCollisionDebugJSON]" + JSON.stringify({ error: String(e) }));
-        }
-      } else {
-        console.log("[NPCCollisionDebugJSON]" + JSON.stringify({ error: "Cavalorn or WORLD_MESH not ready" }));
-      }
-    }
   });
 
   // Cleanup on unmount
