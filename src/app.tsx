@@ -17,6 +17,7 @@ import { WorldTimeOverlay } from "./world-time-overlay.js";
 import { WorldTimeLighting } from "./world-time-lighting.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
+import { setFreepointsWorld } from "./npc-freepoints.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -170,6 +171,7 @@ export function App() {
   const handleWorldLoaded = useCallback((loadedWorld: World, loadedZenKit: ZenKit) => {
     setWorld(loadedWorld);
     setZenKit(loadedZenKit);
+    setFreepointsWorld(loadedWorld);
   }, []);
 
   const handleCameraPositionChange = useCallback((position: THREE.Vector3) => {

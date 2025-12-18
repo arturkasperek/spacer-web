@@ -1,3 +1,5 @@
+export {};
+
 type MockWaypoint = { name: string; position: { x: number; y: number; z: number } };
 type MockEdge = { waypoint_a_index: number; waypoint_b_index: number };
 

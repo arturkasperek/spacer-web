@@ -1,5 +1,7 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from './types';
+import { isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints";
+import { enqueueNpcVmCommand } from "./npc-vm-commands";
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -7,6 +9,12 @@ export type { NpcSpawnCallback } from './types';
 export interface VmLoadResult {
   script: DaedalusScript;
   vm: DaedalusVm;
+}
+
+let runtimeVm: DaedalusVm | null = null;
+
+export function getRuntimeVm(): DaedalusVm | null {
+  return runtimeVm;
 }
 
 /**
@@ -44,6 +52,8 @@ export function createVm(zenKit: ZenKit, script: DaedalusScript): DaedalusVm {
 /**
  * Helper to register a single external function
  */
+const registeredExternals = new Set<string>();
+
 function registerExternalSafe(
   vm: DaedalusVm,
   funcName: string,
@@ -55,6 +65,7 @@ function registerExternalSafe(
 
   try {
     vm.registerExternal(funcName, callback);
+    registeredExternals.add(funcName);
   } catch (error) {
     // Function might not be external or already registered, ignore
     console.debug(`Could not register external ${funcName}:`, error);
@@ -132,6 +143,20 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       if (typeof idx === 'number' && Number.isFinite(idx)) return idx;
     }
     return null;
+  };
+
+  const parseNpcAndNameArgs = (a: any, b: any): { npcIndex: number | null; name: string } => {
+    // Daedalus scripts typically call Wld_IsFPAvailable(self, "FP_ROAM") / AI_GotoFP(self, "FP_ROAM"),
+    // but we accept both orders defensively.
+    let npcArg = a;
+    let nameArg = b;
+    if (typeof a === "string" && typeof b !== "string") {
+      npcArg = b;
+      nameArg = a;
+    }
+    const npcIndex = getInstanceIndexFromArg(npcArg);
+    const name = typeof nameArg === "string" ? nameArg : "";
+    return { npcIndex, name };
   };
 
   const normalizeVisualName = (name: string): string => {
@@ -254,6 +279,40 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       currentRoutineEntries = [];
     });
   };
+
+  // -----------------------------------------------------------------------------------
+  // Freepoints (zCVobSpot) - ZenGin-like externals
+  // -----------------------------------------------------------------------------------
+
+  registerExternalSafe(vm, "Wld_IsFPAvailable", (npc: any, fpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
+    if (!npcIndex) return 0;
+    return isFreepointAvailableForNpc(npcIndex, name, true) ? 1 : 0;
+  });
+
+  registerExternalSafe(vm, "Wld_IsNextFPAvailable", (npc: any, fpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
+    if (!npcIndex) return 0;
+    return isFreepointAvailableForNpc(npcIndex, name, false) ? 1 : 0;
+  });
+
+  registerExternalSafe(vm, "Npc_IsOnFP", (npc: any, fpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
+    if (!npcIndex) return 0;
+    return isNpcOnFreepoint(npcIndex, name, 100) ? 1 : 0;
+  });
+
+  registerExternalSafe(vm, "AI_GotoFP", (npc: any, fpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
+    if (!npcIndex || !name) return;
+    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: true });
+  });
+
+  registerExternalSafe(vm, "AI_GotoNextFP", (npc: any, fpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
+    if (!npcIndex || !name) return;
+    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: false });
+  });
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc('Wld_InsertNpc');
@@ -738,6 +797,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
 
   // Register void functions
   voidExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => {
       // Empty implementation
     });
@@ -745,6 +805,7 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
 
   // Register initialization externals (void)
   initExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => {
       // Empty implementation for void functions
     });
@@ -757,22 +818,26 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
 
   // Register int-returning functions (return 0)
   intExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => 0);
   });
 
   // Register instance-returning functions (return null instance object)
   // Must return an object with symbol_index: -1, not null, to avoid WASM binding errors
   instanceExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => ({ symbol_index: -1 }));
   });
 
   // Register string-returning functions (return empty string)
   stringExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => '');
   });
 
   // Register float-returning functions (return 0.0)
   floatExternals.forEach(funcName => {
+    if (registeredExternals.has(funcName)) return;
     registerExternalSafe(vm, funcName, () => 0);
   });
 }
@@ -836,6 +901,8 @@ export async function loadVm(
 
   // Call startup function
   callStartupFunction(vm, startupFunction);
+
+  runtimeVm = vm;
 
   return {
     script,

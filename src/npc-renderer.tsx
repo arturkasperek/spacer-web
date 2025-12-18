@@ -5,12 +5,13 @@ import type { World, ZenKit } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
 import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
-import { findVobByName } from './vob-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
 import { preloadAnimationSequences } from "./character/animation.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
+import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
+import { drainNpcVmCommands } from "./npc-vm-commands";
 import {
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
@@ -21,6 +22,8 @@ import {
 } from "./npc-world-collision";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
+import { getRuntimeVm } from "./vm-manager";
+import { getWorldTime, useWorldTime } from "./world-time";
 
 interface NpcRendererProps {
   world: World | null;
@@ -53,6 +56,7 @@ interface NpcRendererProps {
 export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
+  const worldTime = useWorldTime();
   const tmpObjWorldPos = useMemo(() => new THREE.Vector3(), []);
   const tmpDesiredWorldPos = useMemo(() => new THREE.Vector3(), []);
   const tmpLocalBefore = useMemo(() => new THREE.Vector3(), []);
@@ -77,6 +81,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   });
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
+  const waypointPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  const vobPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  const routineTickKeyRef = useRef<string>("");
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
   const warnedNoWorldMeshRef = useRef(false);
   const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
@@ -259,6 +266,69 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Create a stable serialized key from the Map for dependency tracking
   const npcsKey = getMapKey(npcs);
 
+  const normalizeNameKey = (name: string): string => (name || "").trim().toUpperCase();
+
+  // Build quick lookup maps for waypoints and VOBs so routine-based positioning doesn't re-scan the whole world.
+  useEffect(() => {
+    const wpIndex = new Map<string, THREE.Vector3>();
+    const vobIndex = new Map<string, THREE.Vector3>();
+
+    if (world) {
+      try {
+        const waypointsVector = world.getAllWaypoints() as any;
+        const waypointCount = waypointsVector.size();
+        for (let i = 0; i < waypointCount; i++) {
+          const wp = waypointsVector.get(i);
+          if (!wp?.name) continue;
+          const key = normalizeNameKey(wp.name);
+          if (!key) continue;
+          wpIndex.set(key, new THREE.Vector3(-wp.position.x, wp.position.y, wp.position.z));
+        }
+      } catch {
+        // ignore
+      }
+
+      const stack: any[] = [];
+      try {
+        const roots = world.getVobs();
+        const rootCount = roots.size();
+        for (let i = 0; i < rootCount; i++) {
+          const root = roots.get(i);
+          if (root) stack.push(root);
+        }
+      } catch {
+        // ignore
+      }
+
+      while (stack.length > 0) {
+        const v = stack.pop();
+        if (!v) continue;
+        const keys = [
+          v.name as string | undefined,
+          (v as any).vobName as string | undefined,
+          (v as any).objectName as string | undefined,
+        ];
+        for (const k of keys) {
+          const kk = k ? normalizeNameKey(k) : "";
+          if (!kk) continue;
+          if (!vobIndex.has(kk)) {
+            vobIndex.set(kk, new THREE.Vector3(-v.position.x, v.position.y, v.position.z));
+          }
+        }
+
+        const children = v.children;
+        const n = children?.size?.() ?? 0;
+        for (let i = 0; i < n; i++) {
+          const child = children.get(i);
+          if (child) stack.push(child);
+        }
+      }
+    }
+
+    waypointPosIndexRef.current = wpIndex;
+    vobPosIndexRef.current = vobIndex;
+  }, [world]);
+
   // Convert NPC data to renderable NPCs with spawnpoint positions (only compute positions, not render)
   const npcsWithPositions = useMemo(() => {
     if (!world || !enabled || npcs.size === 0) {
@@ -266,8 +336,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     const renderableNpcs: Array<{ npcData: NpcData; position: THREE.Vector3 }> = [];
-    const CURRENT_HOUR = 10; // Assume current time is 10:00
-    const CURRENT_MINUTE = 0;
+    const CURRENT_HOUR = worldTime.hour;
+    const CURRENT_MINUTE = worldTime.minute;
 
     for (const [, npcData] of npcs.entries()) {
       let position: [number, number, number] | null = null;
@@ -282,35 +352,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         waypointName = npcData.spawnpoint;
       }
 
-      // First, try to find waypoint by name (matching original engine behavior)
-      const wpResult = world.findWaypointByName(waypointName);
-
-      if (wpResult.success && wpResult.data) {
-        const wp = wpResult.data;
-        // Convert Gothic coordinates to Three.js coordinates: (-x, y, z)
-        position = [
-          -wp.position.x,
-          wp.position.y,
-          wp.position.z
-        ];
-      } else {
-        // If waypoint not found, try to find VOB by name (fallback)
-        const vobs = world.getVobs();
-        const vobCount = vobs.size();
-
-        for (let i = 0; i < vobCount; i++) {
-          const rootVob = vobs.get(i);
-          const foundVob = findVobByName(rootVob, waypointName);
-
-          if (foundVob) {
-            // Convert Gothic coordinates to Three.js coordinates: (-x, y, z)
-            position = [
-              -foundVob.position.x,
-              foundVob.position.y,
-              foundVob.position.z
-            ];
-            break;
-          }
+      const npcId = `npc-${npcData.instanceIndex}`;
+      const loaded = loadedNpcsRef.current.get(npcId);
+      if (loaded && !loaded.userData.isDisposed) {
+        position = [loaded.position.x, loaded.position.y, loaded.position.z];
+      } else if (waypointName) {
+        const key = normalizeNameKey(waypointName);
+        const wpPos = waypointPosIndexRef.current.get(key);
+        if (wpPos) {
+          position = [wpPos.x, wpPos.y, wpPos.z];
+        } else {
+          const vPos = vobPosIndexRef.current.get(key);
+          if (vPos) position = [vPos.x, vPos.y, vPos.z];
         }
       }
 
@@ -326,7 +379,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     return renderableNpcs;
-  }, [world, npcsKey, enabled]);
+  }, [world, npcsKey, enabled, worldTime.hour, worldTime.minute]);
 
   // Store NPCs with positions for streaming
   useEffect(() => {
@@ -339,6 +392,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       byId.set(id, entry);
       byIdx.set(entry.npcData.instanceIndex, entry);
       items.push({ id, position: entry.position });
+      updateNpcWorldPosition(entry.npcData.instanceIndex, { x: entry.position.x, y: entry.position.y, z: entry.position.z });
     }
     allNpcsByIdRef.current = byId;
     allNpcsByInstanceIndexRef.current = byIdx;
@@ -347,6 +401,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   useEffect(() => {
     waypointMoverRef.current = world ? createWaypointMover(world) : null;
+  }, [world]);
+
+  useEffect(() => {
+    setFreepointsWorld(world);
   }, [world]);
 
   useEffect(() => {
@@ -840,6 +898,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.userData.startMoveToWaypoint = (targetWaypointName: string, options?: any) => {
         return waypointMoverRef.current?.startMoveToWaypoint(npcId, npcGroup, targetWaypointName, options) ?? false;
       };
+      npcGroup.userData.startMoveToFreepoint = (freepointName: string, options?: any) => {
+        return waypointMoverRef.current?.startMoveToFreepoint(npcId, npcGroup, freepointName, options) ?? false;
+      };
 
       const symbolName = (npcData.symbolName || "").trim().toUpperCase();
       const displayName = (npcData.name || "").trim().toUpperCase();
@@ -980,6 +1041,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const npcGroup = loadedNpcsRef.current.get(npcId);
         if (npcGroup && npcsGroupRef.current) {
           npcGroup.userData.isDisposed = true;
+          const npcData = npcGroup.userData.npcData as NpcData | undefined;
+          if (npcData) removeNpcWorldPosition(npcData.instanceIndex);
           const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
           const isLoading = Boolean(npcGroup.userData.modelLoading);
           if (instance && !isLoading) instance.dispose();
@@ -999,6 +1062,127 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     if (!enabled || loadedNpcsRef.current.size === 0) return;
+
+    // Routine steering: make sure loaded NPCs actually move to the active routine waypoint/spot for the current time.
+    // This keeps things simple: routines at least relocate NPCs when the clock changes.
+    {
+      const t = getWorldTime();
+      const key = `${t.day}:${t.hour}:${t.minute}`;
+      if (routineTickKeyRef.current !== key) {
+        routineTickKeyRef.current = key;
+        const DIST_TO_ROUTE_WP = 500; // TA_DIST_SELFWP_MAX in original scripts
+        for (const g of loadedNpcsRef.current.values()) {
+          if (!g || g.userData.isDisposed) continue;
+          const npcData = g.userData.npcData as NpcData | undefined;
+          if (!npcData) continue;
+
+          const npcId = `npc-${npcData.instanceIndex}`;
+          const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === g;
+          if (isManualCavalorn) continue;
+
+          const routineWp = findActiveRoutineWaypoint(npcData.dailyRoutine, t.hour, t.minute);
+          const desired = routineWp || npcData.spawnpoint;
+          if (!desired) continue;
+
+          const prevDesired = (g.userData as any)._routineDesired as string | undefined;
+          (g.userData as any)._routineDesired = desired;
+
+          const targetKey = normalizeNameKey(desired);
+          const wpPos = waypointPosIndexRef.current.get(targetKey);
+          const vPos = wpPos ? null : vobPosIndexRef.current.get(targetKey);
+          const targetPos = wpPos ?? vPos;
+          if (!targetPos) continue;
+
+          const dx = targetPos.x - g.position.x;
+          const dz = targetPos.z - g.position.z;
+          const distXZ = Math.hypot(dx, dz);
+          if (distXZ <= DIST_TO_ROUTE_WP) continue;
+
+          // Only restart the route when the routine target changes; otherwise let the mover/deadlock solver do its job.
+          const prevMoveTarget = (g.userData as any)._routineMoveTarget as string | undefined;
+          if (prevMoveTarget === desired && prevDesired === desired) continue;
+
+          const mover = waypointMoverRef.current;
+          if (!mover) continue;
+
+          const ok = wpPos
+            ? mover.startMoveToWaypoint(npcId, g, desired, { locomotionMode: "walk" })
+            : mover.startMoveToPosition(npcId, g, targetPos, { locomotionMode: "walk" });
+          if (ok) (g.userData as any)._routineMoveTarget = desired;
+        }
+      }
+    }
+
+    // Run a minimal Daedalus "state loop" tick for loaded NPCs.
+    // This is what triggers scripts like `zs_bandit_loop()` that call `AI_GotoFP(...)`.
+    {
+      const vm = getRuntimeVm();
+      if (vm) {
+        const t = getWorldTime();
+        const nowMs = Date.now();
+        for (const g of loadedNpcsRef.current.values()) {
+          if (!g || g.userData.isDisposed) continue;
+          const npcData = g.userData.npcData as NpcData | undefined;
+          if (!npcData?.dailyRoutine || !npcData.symbolName) continue;
+
+          // Only run the state loop once the NPC is in the vicinity of its routine target.
+          // Otherwise, routines that try to acquire freepoints can pull the NPC away mid-route.
+          const routineWp = findActiveRoutineWaypoint(npcData.dailyRoutine, t.hour, t.minute);
+          const desired = routineWp || npcData.spawnpoint;
+          if (desired) {
+            const targetKey = normalizeNameKey(desired);
+            const wpPos = waypointPosIndexRef.current.get(targetKey);
+            const vPos = wpPos ? null : vobPosIndexRef.current.get(targetKey);
+            const targetPos = wpPos ?? vPos;
+            if (targetPos) {
+              const dx = targetPos.x - g.position.x;
+              const dz = targetPos.z - g.position.z;
+              const distXZ = Math.hypot(dx, dz);
+              if (distXZ > 500) continue;
+            }
+          }
+
+          const nextAt = (g.userData as any)._aiLoopNextAtMs as number | undefined;
+          if (typeof nextAt === "number" && nextAt > nowMs) continue;
+          (g.userData as any)._aiLoopNextAtMs = nowMs + 500; // 2Hz
+
+          const currentTime = t.hour * 60 + t.minute;
+          let activeState: string | null = null;
+          for (const r of npcData.dailyRoutine) {
+            const startM = r.start_h * 60 + (r.start_m ?? 0);
+            const stopM = r.stop_h * 60 + (r.stop_m ?? 0);
+            const wraps = stopM < startM;
+            const isActive = wraps ? currentTime >= startM || currentTime < stopM : currentTime >= startM && currentTime < stopM;
+            if (isActive && r.state) {
+              activeState = r.state;
+              break;
+            }
+          }
+          if (!activeState) continue;
+          const loopFnCandidates = [`${activeState}_loop`, `${activeState}_LOOP`];
+          const loopFn = loopFnCandidates.find((fn) => vm.hasSymbol(fn));
+          if (!loopFn) continue;
+
+          vm.setGlobalSelf(npcData.symbolName);
+          vm.callFunction(loopFn, []);
+        }
+      }
+    }
+
+    // Consume VM-driven movement commands (Daedalus externals like AI_GotoFP/AI_GotoNextFP).
+    // Commands are applied only when the referenced NPC is currently loaded.
+    const cmds = drainNpcVmCommands();
+    for (const cmd of cmds) {
+      const npcId = `npc-${cmd.npcInstanceIndex}`;
+      const g = loadedNpcsRef.current.get(npcId);
+      if (!g || g.userData.isDisposed) continue;
+      if (cmd.type === "gotoFreepoint") {
+        waypointMoverRef.current?.startMoveToFreepoint(npcId, g, cmd.freepointName, {
+          checkDistance: cmd.checkDistance,
+          locomotionMode: "walk",
+        });
+      }
+    }
 
     // Debug helper: teleport Cavalorn in front of the camera (manual control only).
     if (manualControlCavalornEnabled && teleportCavalornSeqAppliedRef.current !== teleportCavalornSeqRef.current) {
@@ -1108,6 +1292,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
+      updateNpcWorldPosition(npcData.instanceIndex, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       let tryingToMoveThisFrame = false;

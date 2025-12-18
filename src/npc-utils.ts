@@ -4,38 +4,39 @@ import type { NpcData, RoutineEntry } from './types';
 import { createTextSprite } from './mesh-utils';
 
 /**
- * Find the active routine entry at a given time (hour:minute)
- * Returns the waypoint name from the active routine, or null if no routine is active
+ * Find the active routine entry at a given time (hour:minute).
  */
-export function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, hour: number, minute: number = 0): string | null {
-  if (!routines || routines.length === 0) {
-    return null;
-  }
+export function findActiveRoutineEntry(
+  routines: RoutineEntry[] | undefined,
+  hour: number,
+  minute: number = 0
+): RoutineEntry | null {
+  if (!routines || routines.length === 0) return null;
 
-  // Convert current time to minutes since midnight for easier comparison
   const currentTime = hour * 60 + minute;
 
   for (const routine of routines) {
-    const startM = (routine.start_h * 60) + (routine.start_m ?? 0);
-    const stopM = (routine.stop_h * 60) + (routine.stop_m ?? 0);
-
-    let isActive = false;
+    const startM = routine.start_h * 60 + (routine.start_m ?? 0);
+    const stopM = routine.stop_h * 60 + (routine.stop_m ?? 0);
 
     // Handle routines that wrap around midnight (end < start)
-    if (stopM < startM) {
-      // Routine wraps: active if currentTime >= startM OR currentTime < stopM
-      isActive = currentTime >= startM || currentTime < stopM;
-    } else {
-      // Normal routine: active if startM <= currentTime < stopM
-      isActive = currentTime >= startM && currentTime < stopM;
-    }
+    const isActive =
+      stopM < startM
+        ? currentTime >= startM || currentTime < stopM
+        : currentTime >= startM && currentTime < stopM;
 
-    if (isActive && routine.waypoint) {
-      return routine.waypoint;
-    }
+    if (isActive) return routine;
   }
 
   return null;
+}
+
+/**
+ * Returns the waypoint name from the active routine, or null if no routine is active.
+ */
+export function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, hour: number, minute: number = 0): string | null {
+  const entry = findActiveRoutineEntry(routines, hour, minute);
+  return entry?.waypoint ?? null;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   type WaynetWaypoint,
 } from "./waynet-pathfinding";
 import type { LocomotionMode } from "./npc-locomotion";
+import { acquireFreepointForNpc } from "./npc-freepoints";
 
 export type WaypointMoveOptions = {
   speed: number;
@@ -26,6 +27,7 @@ export type WaypointMoveState = {
   done: boolean;
   stuckSeconds: number;
   finalGateSeconds: number;
+  finalQuat?: THREE.Quaternion;
 };
 
 export type WaypointMover = {
@@ -34,6 +36,18 @@ export type WaypointMover = {
     npcGroup: THREE.Group,
     targetWaypointName: string,
     options?: Partial<WaypointMoveOptions>
+  ) => boolean;
+  startMoveToPosition: (
+    npcId: string,
+    npcGroup: THREE.Group,
+    targetPos: THREE.Vector3,
+    options?: Partial<WaypointMoveOptions> & { finalQuat?: THREE.Quaternion }
+  ) => boolean;
+  startMoveToFreepoint: (
+    npcId: string,
+    npcGroup: THREE.Group,
+    freepointName: string,
+    options?: Partial<WaypointMoveOptions> & { checkDistance?: boolean; dist?: number; holdMs?: number; arriveDistance?: number }
   ) => boolean;
   update: (npcId: string, npcGroup: THREE.Group, deltaSeconds: number) => { moved: boolean; mode: LocomotionMode };
   clear: () => void;
@@ -148,6 +162,92 @@ export function createWaypointMover(world: World): WaypointMover {
         done: false,
         stuckSeconds: 0,
         finalGateSeconds: 0,
+      });
+      npcGroup.userData.isScriptControlled = true;
+      return true;
+    },
+
+    startMoveToPosition: (npcId, npcGroup, targetPos, options) => {
+      const graph = ensureWaynetGraph();
+      if (!graph) return false;
+
+      const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
+      const goalIndex = findNearestWaypointIndex(graph, targetPos);
+      const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
+
+      const route: THREE.Vector3[] =
+        routeIdx.length > 0
+          ? routeIdx.map(i => {
+              const p = graph.waypoints[i].position;
+              return new THREE.Vector3(p.x, p.y, p.z);
+            })
+          : [npcGroup.position.clone()];
+
+      const last = route[route.length - 1];
+      if (!last || last.distanceToSquared(targetPos) > 1e-6) route.push(targetPos.clone());
+
+      if (route.length < 2) return false;
+
+      moves.set(npcId, {
+        route,
+        nextIndex: 1,
+        speed: options?.speed ?? 140,
+        arriveDistance: options?.arriveDistance ?? 5,
+        locomotionMode: options?.locomotionMode ?? "walk",
+        done: false,
+        stuckSeconds: 0,
+        finalGateSeconds: 0,
+        finalQuat: options?.finalQuat,
+      });
+      npcGroup.userData.isScriptControlled = true;
+      return true;
+    },
+
+    startMoveToFreepoint: (npcId, npcGroup, freepointName, options) => {
+      const graph = ensureWaynetGraph();
+      if (!graph) return false;
+
+      const npcData = (npcGroup.userData as any).npcData as { instanceIndex?: number } | undefined;
+      const instanceIndex = npcData?.instanceIndex;
+      if (typeof instanceIndex !== "number") return false;
+
+      const spot = acquireFreepointForNpc(instanceIndex, freepointName, {
+        checkDistance: options?.checkDistance ?? true,
+        dist: options?.dist ?? 2000,
+        holdMs: options?.holdMs ?? 30_000,
+      });
+      if (!spot) return false;
+
+      const targetPos = new THREE.Vector3(spot.position.x, spot.position.y, spot.position.z);
+      const targetQuat = new THREE.Quaternion(spot.quaternion.x, spot.quaternion.y, spot.quaternion.z, spot.quaternion.w);
+
+      const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
+      const goalIndex = findNearestWaypointIndex(graph, targetPos);
+      const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
+
+      const route: THREE.Vector3[] =
+        routeIdx.length > 0
+          ? routeIdx.map(i => {
+              const p = graph.waypoints[i].position;
+              return new THREE.Vector3(p.x, p.y, p.z);
+            })
+          : [npcGroup.position.clone()];
+
+      const last = route[route.length - 1];
+      if (!last || last.distanceToSquared(targetPos) > 1e-6) route.push(targetPos);
+
+      if (route.length < 2) return false;
+
+      moves.set(npcId, {
+        route,
+        nextIndex: 1,
+        speed: options?.speed ?? 140,
+        arriveDistance: options?.arriveDistance ?? 5,
+        locomotionMode: options?.locomotionMode ?? "walk",
+        done: false,
+        stuckSeconds: 0,
+        finalGateSeconds: 0,
+        finalQuat: targetQuat,
       });
       npcGroup.userData.isScriptControlled = true;
       return true;
@@ -294,7 +394,10 @@ export function createWaypointMover(world: World): WaypointMover {
           move.nextIndex += 1;
           move.stuckSeconds = 0;
           move.finalGateSeconds = 0;
-          if (move.nextIndex >= move.route.length) move.done = true;
+          if (move.nextIndex >= move.route.length) {
+            move.done = true;
+            if (move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
+          }
           continue;
         }
 
@@ -309,6 +412,7 @@ export function createWaypointMover(world: World): WaypointMover {
             move.stuckSeconds = 0;
             if (move.nextIndex >= move.route.length) {
               move.done = true;
+              if (move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
             }
           } else {
             const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
@@ -319,6 +423,7 @@ export function createWaypointMover(world: World): WaypointMover {
               move.stuckSeconds = 0;
               move.finalGateSeconds = 0;
               if (move.nextIndex >= move.route.length) move.done = true;
+              if (move.done && move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
               continue;
             }
 
@@ -341,6 +446,7 @@ export function createWaypointMover(world: World): WaypointMover {
               move.stuckSeconds = 0;
               move.finalGateSeconds = 0;
               if (move.nextIndex >= move.route.length) move.done = true;
+              if (move.done && move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
               continue;
             }
             move.stuckSeconds += npcBlocked ? dt * 0.1 : dt;
@@ -360,6 +466,7 @@ export function createWaypointMover(world: World): WaypointMover {
               move.stuckSeconds = 0;
               move.finalGateSeconds = 0;
               if (move.nextIndex >= move.route.length) move.done = true;
+              if (move.done && move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
               break;
             }
           } else {
@@ -371,6 +478,7 @@ export function createWaypointMover(world: World): WaypointMover {
 
         if (move.stuckSeconds >= STUCK_SECONDS_TO_GIVE_UP) {
           move.done = true;
+          if (move.finalQuat) npcGroup.quaternion.copy(move.finalQuat);
         }
       }
 
