@@ -109,6 +109,10 @@ export function NpcInspectorOverlay({
 
   return (
     <div
+      onWheelCapture={(e) => e.stopPropagation()}
+      onPointerDownCapture={(e) => e.stopPropagation()}
+      onPointerMoveCapture={(e) => e.stopPropagation()}
+      onPointerUpCapture={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
         right: 10,
@@ -116,7 +120,10 @@ export function NpcInspectorOverlay({
         zIndex: 1600,
         width: 420,
         maxHeight: "80vh",
-        overflow: "auto",
+        overflowY: "auto",
+        overflowX: "hidden",
+        overscrollBehavior: "contain",
+        WebkitOverflowScrolling: "touch",
         background: "rgba(0,0,0,0.8)",
         color: "white",
         border: "1px solid rgba(255,255,255,0.25)",
@@ -160,4 +167,3 @@ export function NpcInspectorOverlay({
     </div>
   );
 }
-
