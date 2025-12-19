@@ -18,6 +18,8 @@ import { WorldTimeLighting } from "./world-time-lighting.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
+import { findActiveRoutineEntry } from "./npc-utils.js";
+import { getWorldTime } from "./world-time.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -44,7 +46,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, npcs, onNpcSpawn }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, onNpcClickFromScene, npcs, onNpcSpawn }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -59,6 +61,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   selectedWaypoint: WayPointData | null;
   onVobClickFromScene?: (vob: Vob) => void;
   onWaypointClickFromScene?: (waypoint: WayPointData) => void;
+  onNpcClickFromScene?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
   npcs: Map<number, NpcData>;
   onNpcSpawn: NpcSpawnCallback;
 }>) {
@@ -108,8 +111,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       />
 
       {/* VOB Click Handler */}
-      {(onVobClickFromScene || onWaypointClickFromScene) && (
-        <VobClickHandler onVobClick={onVobClickFromScene} onWaypointClick={onWaypointClickFromScene} />
+      {(onVobClickFromScene || onWaypointClickFromScene || onNpcClickFromScene) && (
+        <VobClickHandler onVobClick={onVobClickFromScene} onWaypointClick={onWaypointClickFromScene} onNpcClick={onNpcClickFromScene} />
       )}
 
       {/* VOB Renderer */}
@@ -241,6 +244,34 @@ export function App() {
     handleWaypointSelect(waypoint);
   }, [handleWaypointSelect]);
 
+  const handleNpcClickFromScene = useCallback((npc: NpcData, npcRoot: THREE.Object3D) => {
+    const t = getWorldTime();
+    const routine = findActiveRoutineEntry(npc.dailyRoutine, t.hour, t.minute);
+    const pos = npcRoot.getWorldPosition(new THREE.Vector3());
+    const quat = npcRoot.getWorldQuaternion(new THREE.Quaternion());
+
+    const info = {
+      instanceIndex: npc.instanceIndex,
+      symbolName: npc.symbolName,
+      name: npc.name,
+      spawnpoint: npc.spawnpoint,
+      routine: routine
+        ? { state: routine.state, waypoint: routine.waypoint, start: `${routine.start_h}:${routine.start_m ?? 0}`, stop: `${routine.stop_h}:${routine.stop_m ?? 0}` }
+        : null,
+      worldTime: { day: t.day, hour: t.hour, minute: t.minute },
+      worldPos: { x: pos.x, y: pos.y, z: pos.z },
+      worldQuat: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
+      userData: {
+        isScriptControlled: Boolean((npcRoot.userData as any)?.isScriptControlled),
+        isSliding: Boolean((npcRoot.userData as any)?.isSliding),
+        isFalling: Boolean((npcRoot.userData as any)?.isFalling),
+      },
+    };
+
+    console.log("[NPC] Clicked", info);
+    console.log(`[NPCInfoJSON]${JSON.stringify(info)}`);
+  }, []);
+
   const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {
     if (size.length() === 0 || !shouldUpdateCameraRef.current || !cameraControlsRef.current) {
       return;
@@ -333,7 +364,7 @@ export function App() {
         }}
         style={{ background: '#222222' }}
       >
-        <Scene
+          <Scene
           cameraControlsRef={cameraControlsRef}
           worldPath={worldPath}
           onLoadingStatus={handleLoadingStatus}
@@ -348,6 +379,7 @@ export function App() {
           selectedWaypoint={selectedWaypoint}
           onVobClickFromScene={handleVobClickFromScene}
           onWaypointClickFromScene={handleWaypointClickFromScene}
+          onNpcClickFromScene={handleNpcClickFromScene}
           npcs={npcs}
           onNpcSpawn={handleNpcSpawn}
         />

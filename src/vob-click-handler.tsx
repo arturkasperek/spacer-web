@@ -2,17 +2,19 @@ import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Vob, WayPointData } from '@kolarz3/zenkit';
+import type { NpcData } from './types';
 
 interface VobClickHandlerProps {
   onVobClick?: (vob: Vob) => void;
   onWaypointClick?: (waypoint: WayPointData) => void;
+  onNpcClick?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
 }
 
-export function VobClickHandler({ onVobClick, onWaypointClick }: VobClickHandlerProps) {
+export function VobClickHandler({ onVobClick, onWaypointClick, onNpcClick }: VobClickHandlerProps) {
   const { camera, scene, gl } = useThree();
 
   useEffect(() => {
-    if (!onVobClick && !onWaypointClick) return;
+    if (!onVobClick && !onWaypointClick && !onNpcClick) return;
 
     const raycaster = new THREE.Raycaster();
 
@@ -48,6 +50,11 @@ export function VobClickHandler({ onVobClick, onWaypointClick }: VobClickHandler
             onWaypointClick?.(waypoint);
             return;
           }
+          if (obj.userData.npcData) {
+            const npc = obj.userData.npcData as NpcData;
+            onNpcClick?.(npc, obj);
+            return;
+          }
           obj = obj.parent;
         }
       }
@@ -58,7 +65,7 @@ export function VobClickHandler({ onVobClick, onWaypointClick }: VobClickHandler
     return () => {
       gl.domElement.removeEventListener('click', handleClick);
     };
-  }, [camera, scene, gl, onVobClick, onWaypointClick]);
+  }, [camera, scene, gl, onVobClick, onWaypointClick, onNpcClick]);
 
   return null;
 }

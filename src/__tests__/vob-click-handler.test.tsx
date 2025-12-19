@@ -34,6 +34,7 @@ const mockUseThree = require('@react-three/fiber').useThree;
 describe('VobClickHandler', () => {
   let mockOnVobClick: jest.Mock;
   let mockOnWaypointClick: jest.Mock;
+  let mockOnNpcClick: jest.Mock;
   let mockCamera: any;
   let mockScene: any;
   let mockGl: any;
@@ -45,6 +46,7 @@ describe('VobClickHandler', () => {
 
     mockOnVobClick = jest.fn();
     mockOnWaypointClick = jest.fn();
+    mockOnNpcClick = jest.fn();
 
     mockDomElement = document.createElement('canvas');
     mockDomElement.getBoundingClientRect = jest.fn(() => ({
@@ -105,6 +107,13 @@ describe('VobClickHandler', () => {
   it('adds click listener when onWaypointClick is provided', () => {
     const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
     render(<VobClickHandler onWaypointClick={mockOnWaypointClick} />);
+    expect(addEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function));
+    addEventListenerSpy.mockRestore();
+  });
+
+  it('adds click listener when onNpcClick is provided', () => {
+    const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
+    render(<VobClickHandler onNpcClick={mockOnNpcClick} />);
     expect(addEventListenerSpy).toHaveBeenCalledWith('click', expect.any(Function));
     addEventListenerSpy.mockRestore();
   });
@@ -336,6 +345,51 @@ describe('VobClickHandler', () => {
     clickHandler(clickEvent);
 
     expect(mockOnWaypointClick).toHaveBeenCalledWith(mockWaypoint);
+
+    addEventListenerSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('calls onNpcClick when clicking on object with NPC reference', () => {
+    const mockNpc: any = { instanceIndex: 123, symbolName: 'TEST_NPC', name: 'Test', spawnpoint: 'WP_A', dailyRoutine: [] };
+
+    const childMesh: any = new THREE.Mesh();
+    const parentGroup: any = new THREE.Group();
+    parentGroup.userData = { npcData: mockNpc };
+    parentGroup.add(childMesh);
+    childMesh.parent = parentGroup;
+
+    mockScene.children = [parentGroup];
+
+    const mockIntersect = {
+      object: childMesh,
+      distance: 10,
+      point: new THREE.Vector3(),
+      face: null,
+      faceIndex: 0,
+      uv: new THREE.Vector2(),
+    };
+
+    const mockRaycaster = {
+      setFromCamera: jest.fn(),
+      intersectObjects: jest.fn(() => [mockIntersect]),
+    };
+
+    jest.spyOn(THREE, 'Raycaster').mockImplementation(() => mockRaycaster as any);
+
+    const addEventListenerSpy = jest.spyOn(mockDomElement, 'addEventListener');
+    render(<VobClickHandler onNpcClick={mockOnNpcClick} />);
+    const clickHandler = addEventListenerSpy.mock.calls.find(call => call[0] === 'click')?.[1] as (e: MouseEvent) => void;
+
+    const clickEvent = new MouseEvent('click', {
+      button: 0,
+      clientX: 400,
+      clientY: 300,
+    });
+
+    clickHandler(clickEvent);
+
+    expect(mockOnNpcClick).toHaveBeenCalledWith(mockNpc, parentGroup);
 
     addEventListenerSpy.mockRestore();
     jest.restoreAllMocks();
