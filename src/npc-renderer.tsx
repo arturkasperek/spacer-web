@@ -1464,7 +1464,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
-        if (!suppress || locomotionMode !== "idle") {
+        const scriptIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
+        if (scriptIdle && locomotionMode === "idle") {
+          instance.setAnimation(scriptIdle, { loop: true, resetTime: false });
+        } else if (!suppress || locomotionMode !== "idle") {
           locomotion?.update(instance, locomotionMode);
         }
       }

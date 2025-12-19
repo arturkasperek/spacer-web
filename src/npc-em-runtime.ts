@@ -85,17 +85,51 @@ function startMessageAsJob(
       if (!q) return null;
       return { type: "turn", targetQuat: q.clone(), timeoutMs: 1500 };
     }
+    case "alignToFreepoint": {
+      const st = mover?.getMoveState?.(npcId);
+      const q = st?.finalQuat;
+      if (!q) return null;
+      return { type: "turn", targetQuat: q.clone(), timeoutMs: 1500 };
+    }
     case "waitMs":
       return { type: "wait", remainingMs: Math.max(0, msg.durationMs) };
     case "playAni": {
       const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
       if (!instance) return null;
-      const dur =
-        ctx.estimateAnimationDurationMs?.(msg.animationName) ??
-        (msg.loop ? 1_000_000 : 1500);
-      npcGroup.userData._emSuppressLocomotion = true;
-      instance.setAnimation(msg.animationName, {
-        loop: Boolean(msg.loop),
+      const name = (msg.animationName || "").trim();
+      if (!name) return null;
+
+      const upper = name.toUpperCase();
+      const isLoop = Boolean(msg.loop);
+
+      // Heuristic: many Daedalus states use `AI_PlayAni(T_*...)` expecting the engine to settle into a looping
+      // `S_*` pose (e.g. `T_STAND_2_LGUARD` -> `S_LGUARD`). The original engine resolves this via MDS `next`.
+      // Our character controller needs an explicit `next`, so infer it for common patterns.
+      let derivedNext: { animationName: string; loop?: boolean; fallbackNames?: string[] } | undefined;
+      if (!isLoop && !msg.next) {
+        const idx = upper.indexOf("_2_");
+        if (idx >= 0 && idx + 3 < upper.length) {
+          const after = upper.slice(idx + 3);
+          if (after) derivedNext = { animationName: `S_${after}`, loop: true };
+        } else if (upper.startsWith("T_")) {
+          const parts = upper.split("_").filter(Boolean);
+          const base = parts[1];
+          if (base) derivedNext = { animationName: `S_${base}`, loop: true };
+        }
+      }
+
+      // If this looks like a "leave pose" transition, clear any script-idle override after the ani.
+      const clearsIdleOverride = upper.includes("_2_STAND");
+      if (clearsIdleOverride) {
+        delete (npcGroup.userData as any)._emIdleAnimation;
+      } else if (derivedNext?.animationName) {
+        (npcGroup.userData as any)._emIdleAnimation = derivedNext.animationName;
+      }
+
+      const dur = ctx.estimateAnimationDurationMs?.(name) ?? (isLoop ? 1_000_000 : 1500);
+      (npcGroup.userData as any)._emSuppressLocomotion = true;
+      instance.setAnimation(name, {
+        loop: isLoop,
         resetTime: true,
         fallbackNames: msg.fallbackNames,
         next: msg.next
@@ -105,9 +139,16 @@ function startMessageAsJob(
               resetTime: true,
               fallbackNames: msg.next.fallbackNames,
             }
-          : undefined,
+          : derivedNext
+            ? {
+                animationName: derivedNext.animationName,
+                loop: derivedNext.loop ?? true,
+                resetTime: true,
+                fallbackNames: derivedNext.fallbackNames,
+              }
+            : undefined,
       });
-      return { type: "playAni", remainingMs: msg.loop ? 1_000_000 : Math.max(0, dur) };
+      return { type: "playAni", remainingMs: isLoop ? 1_000_000 : Math.max(0, dur) };
     }
     case "clear": {
       // Clear is handled at a higher level.
@@ -119,7 +160,9 @@ function startMessageAsJob(
 function finishActiveJob(npcInstanceIndex: number, npcGroup: THREE.Group): void {
   const job = activeJobs.get(npcInstanceIndex);
   if (job?.type === "playAni") {
-    delete (npcGroup.userData as any)._emSuppressLocomotion;
+    if (!(npcGroup.userData as any)._emIdleAnimation) {
+      delete (npcGroup.userData as any)._emSuppressLocomotion;
+    }
   }
   activeJobs.set(npcInstanceIndex, null);
 }
@@ -139,6 +182,7 @@ export function updateNpcEventManager(
     finishActiveJob(npcInstanceIndex, npcGroup);
     mover?.clearForNpc?.(npcId);
     delete (npcGroup.userData as any)._emSuppressLocomotion;
+    delete (npcGroup.userData as any)._emIdleAnimation;
   }
 
   // Run any overlay messages (if we add them in the future) that are ahead of the current job.
@@ -171,9 +215,11 @@ export function updateNpcEventManager(
         break;
       }
 
-      const shouldKeep =
-        (next.type === "gotoWaypoint" || next.type === "gotoPosition" || next.type === "gotoFreepoint") &&
-        !ctx.mover;
+      const shouldKeepMove =
+        (next.type === "gotoWaypoint" || next.type === "gotoPosition" || next.type === "gotoFreepoint") && !ctx.mover;
+      const shouldKeepPlayAni =
+        next.type === "playAni" && !(npcGroup.userData as any).characterInstance;
+      const shouldKeep = shouldKeepMove || shouldKeepPlayAni;
       if (shouldKeep) break;
 
       // Drop unstartable message and try the next one.

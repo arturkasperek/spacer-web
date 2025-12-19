@@ -329,6 +329,12 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     enqueueNpcEmMessage(npcIndex, { type: "alignToWaypoint" });
   });
 
+  registerExternalSafe(vm, "AI_AlignToFP", (npc: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    if (!npcIndex) return;
+    enqueueNpcEmMessage(npcIndex, { type: "alignToFreepoint" });
+  });
+
   registerExternalSafe(vm, "AI_PlayAni", (npc: any, aniName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, aniName);
     if (!npcIndex || !name) return;

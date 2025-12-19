@@ -29,6 +29,7 @@ export type NpcEmMessage =
       locomotionMode: NpcEmLocomotion;
     }
   | { type: "alignToWaypoint" }
+  | { type: "alignToFreepoint" }
   | { type: "waitMs"; durationMs: number }
   | {
       type: "playAni";
@@ -88,4 +89,3 @@ export function __getNpcEmQueueState(npcInstanceIndex: number): QueueState | und
 export function __ensureNpcEmQueueState(npcInstanceIndex: number): QueueState {
   return ensureState(npcInstanceIndex);
 }
-
