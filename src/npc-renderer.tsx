@@ -24,6 +24,7 @@ import {
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
 import { getRuntimeVm } from "./vm-manager";
+import { advanceNpcStateTime, setNpcStateTime } from "./vm-manager";
 import { getWorldTime, useWorldTime } from "./world-time";
 
 interface NpcRendererProps {
@@ -1213,9 +1214,24 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             }
           }
           if (!activeState) continue;
+
+          // Reset state timer when the active state changes (roughly matches engine behavior on state switches).
+          const prevState = (g.userData as any)._aiActiveStateName as string | undefined;
+          if (prevState !== activeState) {
+            (g.userData as any)._aiActiveStateName = activeState;
+            setNpcStateTime(npcData.instanceIndex, 0);
+            (g.userData as any)._aiLoopLastAtMs = nowMs;
+          }
+
           const loopFnCandidates = [`${activeState}_loop`, `${activeState}_LOOP`];
           const loopFn = loopFnCandidates.find((fn) => vm.hasSymbol(fn));
           if (!loopFn) continue;
+
+          // Advance script state time by real elapsed time since the last loop tick for this NPC.
+          const lastAt = (g.userData as any)._aiLoopLastAtMs as number | undefined;
+          const dtSec = typeof lastAt === "number" ? Math.max(0, (nowMs - lastAt) / 1000) : 0;
+          (g.userData as any)._aiLoopLastAtMs = nowMs;
+          advanceNpcStateTime(npcData.instanceIndex, dtSec);
 
           vm.setGlobalSelf(npcData.symbolName);
           vm.callFunction(loopFn, []);
@@ -1465,10 +1481,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
         const scriptIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
-        if (scriptIdle && locomotionMode === "idle") {
-          instance.setAnimation(scriptIdle, { loop: true, resetTime: false });
-        } else if (!suppress || locomotionMode !== "idle") {
-          locomotion?.update(instance, locomotionMode);
+
+        // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
+        if (!suppress) {
+          if (scriptIdle && locomotionMode === "idle") {
+            instance.setAnimation(scriptIdle, { loop: true, resetTime: false });
+          } else {
+            locomotion?.update(instance, locomotionMode);
+          }
         }
       }
 

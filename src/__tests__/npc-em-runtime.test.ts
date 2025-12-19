@@ -78,4 +78,22 @@ describe("npc event manager runtime", () => {
     updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover });
     expect(clearForNpc).toHaveBeenCalledWith(npcId);
   });
+
+  it("clears locomotion suppression after a one-shot playAni completes", () => {
+    const npcIndex = 789;
+    const npcId = `npc-${npcIndex}`;
+    const group = new THREE.Group();
+    group.userData.characterInstance = {
+      setAnimation: jest.fn(),
+    } as any;
+    (group.userData as any)._emIdleAnimation = "S_LGUARD";
+
+    enqueueNpcEmMessage(npcIndex, { type: "playAni", animationName: "T_LGUARD_SCRATCH", loop: false });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover: null, estimateAnimationDurationMs: () => 1000 });
+    expect((group.userData as any)._emSuppressLocomotion).toBe(true);
+
+    // Advance enough time to finish the job.
+    updateNpcEventManager(npcIndex, npcId, group, 2.0, { mover: null, estimateAnimationDurationMs: () => 1000 });
+    expect((group.userData as any)._emSuppressLocomotion).toBeUndefined();
+  });
 });

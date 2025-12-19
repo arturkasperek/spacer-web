@@ -13,6 +13,34 @@ export interface VmLoadResult {
 
 let runtimeVm: DaedalusVm | null = null;
 
+// ---------------------------------------------------------------------------
+// Script state-time (Npc_GetStateTime / Npc_SetStateTime)
+// ---------------------------------------------------------------------------
+//
+// In the original engine, `Npc_GetStateTime` returns the elapsed time (seconds)
+// since the current state started (or since `Npc_SetStateTime` was called).
+// Many TA_* state loops use this for "every N seconds do random idle ani" logic.
+//
+// We advance it from the NPC renderer's VM tick (currently throttled to ~2Hz).
+const npcStateTimeSeconds = new Map<number, number>();
+
+export function advanceNpcStateTime(npcInstanceIndex: number, deltaSeconds: number): void {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
+  const prev = npcStateTimeSeconds.get(npcInstanceIndex) ?? 0;
+  const next = prev + Math.max(0, deltaSeconds);
+  npcStateTimeSeconds.set(npcInstanceIndex, next);
+}
+
+export function getNpcStateTime(npcInstanceIndex: number): number {
+  return npcStateTimeSeconds.get(npcInstanceIndex) ?? 0;
+}
+
+export function setNpcStateTime(npcInstanceIndex: number, seconds: number): void {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
+  const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  npcStateTimeSeconds.set(npcInstanceIndex, s);
+}
+
 export function getRuntimeVm(): DaedalusVm | null {
   return runtimeVm;
 }
@@ -359,6 +387,20 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const npcIndex = getInstanceIndexFromArg(npc);
     if (!npcIndex) return;
     requestNpcEmClear(npcIndex);
+  });
+
+  // State time helpers used by many TA_* state loops
+  registerExternalSafe(vm, "Npc_GetStateTime", (npc: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    if (!npcIndex) return 0;
+    return getNpcStateTime(npcIndex);
+  });
+
+  registerExternalSafe(vm, "Npc_SetStateTime", (npc: any, seconds: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    const secs = Number(seconds);
+    if (!npcIndex || !Number.isFinite(secs)) return;
+    setNpcStateTime(npcIndex, secs);
   });
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions

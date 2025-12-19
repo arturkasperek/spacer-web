@@ -160,9 +160,7 @@ function startMessageAsJob(
 function finishActiveJob(npcInstanceIndex: number, npcGroup: THREE.Group): void {
   const job = activeJobs.get(npcInstanceIndex);
   if (job?.type === "playAni") {
-    if (!(npcGroup.userData as any)._emIdleAnimation) {
-      delete (npcGroup.userData as any)._emSuppressLocomotion;
-    }
+    delete (npcGroup.userData as any)._emSuppressLocomotion;
   }
   activeJobs.set(npcInstanceIndex, null);
 }
