@@ -50,6 +50,8 @@ export type WaypointMover = {
     options?: Partial<WaypointMoveOptions> & { checkDistance?: boolean; dist?: number; holdMs?: number; arriveDistance?: number }
   ) => boolean;
   update: (npcId: string, npcGroup: THREE.Group, deltaSeconds: number) => { moved: boolean; mode: LocomotionMode };
+  getMoveState: (npcId: string) => WaypointMoveState | null;
+  clearForNpc: (npcId: string) => void;
   clear: () => void;
 };
 
@@ -652,6 +654,14 @@ export function createWaypointMover(world: World): WaypointMover {
       }
 
       return { moved, mode: move.done ? "idle" : move.locomotionMode };
+    },
+
+    getMoveState: (npcId: string) => {
+      return moves.get(npcId) ?? null;
+    },
+
+    clearForNpc: (npcId: string) => {
+      moves.delete(npcId);
     },
 
     clear: () => {

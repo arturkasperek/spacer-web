@@ -1,7 +1,7 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from './types';
 import { isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints";
-import { enqueueNpcVmCommand } from "./npc-vm-commands";
+import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -307,13 +307,52 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   registerExternalSafe(vm, "AI_GotoFP", (npc: any, fpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
     if (!npcIndex || !name) return;
-    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: true, dist: SCRIPT_FREEPOINT_DIST });
+    enqueueNpcEmMessage(npcIndex, { type: "gotoFreepoint", freepointName: name, checkDistance: true, dist: SCRIPT_FREEPOINT_DIST, locomotionMode: "walk" });
   });
 
   registerExternalSafe(vm, "AI_GotoNextFP", (npc: any, fpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
     if (!npcIndex || !name) return;
-    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: false, dist: SCRIPT_FREEPOINT_DIST });
+    enqueueNpcEmMessage(npcIndex, { type: "gotoFreepoint", freepointName: name, checkDistance: false, dist: SCRIPT_FREEPOINT_DIST, locomotionMode: "walk" });
+  });
+
+  // Movement / animation actions (minimal, queued via NPC EM)
+  registerExternalSafe(vm, "AI_GotoWP", (npc: any, wpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, wpName);
+    if (!npcIndex || !name) return;
+    enqueueNpcEmMessage(npcIndex, { type: "gotoWaypoint", waypointName: name, locomotionMode: "walk" });
+  });
+
+  registerExternalSafe(vm, "AI_AlignToWP", (npc: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    if (!npcIndex) return;
+    enqueueNpcEmMessage(npcIndex, { type: "alignToWaypoint" });
+  });
+
+  registerExternalSafe(vm, "AI_PlayAni", (npc: any, aniName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, aniName);
+    if (!npcIndex || !name) return;
+    enqueueNpcEmMessage(npcIndex, { type: "playAni", animationName: name, loop: false });
+  });
+
+  registerExternalSafe(vm, "AI_Wait", (npc: any, seconds: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    const secs = Number(seconds);
+    if (!npcIndex || !Number.isFinite(secs)) return;
+    enqueueNpcEmMessage(npcIndex, { type: "waitMs", durationMs: Math.max(0, secs) * 1000 });
+  });
+
+  registerExternalSafe(vm, "AI_WaitMS", (npc: any, ms: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    const dur = Number(ms);
+    if (!npcIndex || !Number.isFinite(dur)) return;
+    enqueueNpcEmMessage(npcIndex, { type: "waitMs", durationMs: Math.max(0, dur) });
+  });
+
+  registerExternalSafe(vm, "Npc_ClearAIQueue", (npc: any) => {
+    const npcIndex = getInstanceIndexFromArg(npc);
+    if (!npcIndex) return;
+    requestNpcEmClear(npcIndex);
   });
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions

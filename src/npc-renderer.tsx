@@ -11,7 +11,7 @@ import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type Lo
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
-import { drainNpcVmCommands } from "./npc-vm-commands";
+import { updateNpcEventManager } from "./npc-em-runtime";
 import {
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
@@ -82,6 +82,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
   const waypointPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  const waypointDirIndexRef = useRef<Map<string, THREE.Quaternion>>(new Map());
   const vobPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
   const routineTickKeyRef = useRef<string>("");
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
@@ -271,6 +272,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Build quick lookup maps for waypoints and VOBs so routine-based positioning doesn't re-scan the whole world.
   useEffect(() => {
     const wpIndex = new Map<string, THREE.Vector3>();
+    const wpDirIndex = new Map<string, THREE.Quaternion>();
     const vobIndex = new Map<string, THREE.Vector3>();
 
     if (world) {
@@ -283,6 +285,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const key = normalizeNameKey(wp.name);
           if (!key) continue;
           wpIndex.set(key, new THREE.Vector3(-wp.position.x, wp.position.y, wp.position.z));
+
+          const dir = (wp as any).direction as { x: number; y: number; z: number } | undefined;
+          if (dir && (dir.x !== 0 || dir.y !== 0 || dir.z !== 0)) {
+            const direction = new THREE.Vector3(-dir.x, dir.y, dir.z);
+            const up = new THREE.Vector3(0, 1, 0);
+            const matrix = new THREE.Matrix4();
+            matrix.lookAt(new THREE.Vector3(0, 0, 0), direction, up);
+            const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
+            const yRot = new THREE.Quaternion().setFromAxisAngle(up, Math.PI);
+            q.multiply(yRot);
+            wpDirIndex.set(key, q);
+          }
         }
       } catch {
         // ignore
@@ -326,8 +340,41 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     waypointPosIndexRef.current = wpIndex;
+    waypointDirIndexRef.current = wpDirIndex;
     vobPosIndexRef.current = vobIndex;
   }, [world]);
+
+  const estimateAnimationDurationMs = useMemo(() => {
+    return (animationName: string): number | null => {
+      const caches = characterCachesRef.current;
+      const key = `HUMANS:${(animationName || "").trim().toUpperCase()}`;
+      const seq: any = caches?.animations?.get(key);
+      const dur = seq?.totalTimeMs;
+      return typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : null;
+    };
+  }, []);
+
+  const getNearestWaypointDirectionQuat = useMemo(() => {
+    return (pos: THREE.Vector3): THREE.Quaternion | null => {
+      const wpPos = waypointPosIndexRef.current;
+      const wpDir = waypointDirIndexRef.current;
+      let bestKey: string | null = null;
+      let bestD2 = Infinity;
+      for (const [k, p] of wpPos.entries()) {
+        if (!wpDir.has(k)) continue;
+        const dx = p.x - pos.x;
+        const dz = p.z - pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          bestKey = k;
+        }
+      }
+      if (!bestKey) return null;
+      const q = wpDir.get(bestKey);
+      return q ? q.clone() : null;
+    };
+  }, []);
 
   // Convert NPC data to renderable NPCs with spawnpoint positions (only compute positions, not render)
   const npcsWithPositions = useMemo(() => {
@@ -1169,22 +1216,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
-    // Consume VM-driven movement commands (Daedalus externals like AI_GotoFP/AI_GotoNextFP).
-    // Commands are applied only when the referenced NPC is currently loaded.
-    const cmds = drainNpcVmCommands();
-    for (const cmd of cmds) {
-      const npcId = `npc-${cmd.npcInstanceIndex}`;
-      const g = loadedNpcsRef.current.get(npcId);
-      if (!g || g.userData.isDisposed) continue;
-      if (cmd.type === "gotoFreepoint") {
-        waypointMoverRef.current?.startMoveToFreepoint(npcId, g, cmd.freepointName, {
-          checkDistance: cmd.checkDistance,
-          dist: cmd.dist ?? 700,
-          locomotionMode: "walk",
-        });
-      }
-    }
-
     // Debug helper: teleport Cavalorn in front of the camera (manual control only).
     if (manualControlCavalornEnabled && teleportCavalornSeqAppliedRef.current !== teleportCavalornSeqRef.current) {
       const cavalorn = cavalornGroupRef.current;
@@ -1369,10 +1400,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
         locomotionMode = movedThisFrame ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
       } else {
-        const moveResult = waypointMoverRef.current?.update(npcId, npcGroup, delta);
-        movedThisFrame = Boolean(moveResult?.moved);
-        locomotionMode = moveResult?.mode ?? "idle";
-        tryingToMoveThisFrame = locomotionMode !== "idle";
+        const mover = waypointMoverRef.current;
+        const em = updateNpcEventManager(npcData.instanceIndex, npcId, npcGroup, delta, {
+          mover,
+          estimateAnimationDurationMs,
+          getNearestWaypointDirectionQuat,
+        });
+        movedThisFrame = Boolean(em.moved);
+        locomotionMode = em.mode ?? "idle";
+        tryingToMoveThisFrame = locomotionMode !== "idle" || Boolean(mover?.getMoveState(npcId)?.done === false);
       }
 
       // ZenGin-like slope sliding:
@@ -1420,7 +1456,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
-        locomotion?.update(instance, locomotionMode);
+        const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
+        if (!suppress || locomotionMode !== "idle") {
+          locomotion?.update(instance, locomotionMode);
+        }
       }
 
       if (shouldLogMotion) {
