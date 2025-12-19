@@ -12,6 +12,7 @@ import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager } from "./npc-em-runtime";
+import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 import {
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
@@ -1123,7 +1124,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const npcData = g.userData.npcData as NpcData | undefined;
           if (!npcData) continue;
 
-          const npcId = `npc-${npcData.instanceIndex}`;
           const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === g;
           if (isManualCavalorn) continue;
 
@@ -1149,13 +1149,20 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const prevMoveTarget = (g.userData as any)._routineMoveTarget as string | undefined;
           if (prevMoveTarget === desired && prevDesired === desired) continue;
 
-          const mover = waypointMoverRef.current;
-          if (!mover) continue;
-
-          const ok = wpPos
-            ? mover.startMoveToWaypoint(npcId, g, desired, { locomotionMode: "walk" })
-            : mover.startMoveToPosition(npcId, g, targetPos, { locomotionMode: "walk" });
-          if (ok) (g.userData as any)._routineMoveTarget = desired;
+          // Route routine relocation through the per-NPC event manager queue so the inspector/debug UI reflects it.
+          requestNpcEmClear(npcData.instanceIndex);
+          if (wpPos) {
+            enqueueNpcEmMessage(npcData.instanceIndex, { type: "gotoWaypoint", waypointName: desired, locomotionMode: "walk" });
+          } else {
+            enqueueNpcEmMessage(npcData.instanceIndex, {
+              type: "gotoPosition",
+              x: targetPos.x,
+              y: targetPos.y,
+              z: targetPos.z,
+              locomotionMode: "walk",
+            });
+          }
+          (g.userData as any)._routineMoveTarget = desired;
         }
       }
     }

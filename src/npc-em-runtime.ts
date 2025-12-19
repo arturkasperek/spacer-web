@@ -21,6 +21,22 @@ type ActiveJob =
 
 const activeJobs = new Map<number, ActiveJob | null>();
 
+export function __getNpcEmActiveJob(
+  npcInstanceIndex: number
+):
+  | null
+  | { type: "move" }
+  | { type: "wait"; remainingMs: number }
+  | { type: "turn"; timeoutMs: number }
+  | { type: "playAni"; remainingMs: number } {
+  const j = activeJobs.get(npcInstanceIndex) ?? null;
+  if (!j) return null;
+  if (j.type === "move") return { type: "move" };
+  if (j.type === "wait") return { type: "wait", remainingMs: j.remainingMs };
+  if (j.type === "turn") return { type: "turn", timeoutMs: j.timeoutMs };
+  return { type: "playAni", remainingMs: j.remainingMs };
+}
+
 function isOverlayMessage(msg: NpcEmMessage): boolean {
   // For now we only model non-overlay jobs used by movement/animation.
   // This hook exists to make future overlay messages (look-at, output overlay) easy to add.
@@ -38,26 +54,29 @@ function startMessageAsJob(
   switch (msg.type) {
     case "gotoWaypoint": {
       if (!mover) return null;
-      mover.startMoveToWaypoint(npcId, npcGroup, msg.waypointName, { locomotionMode: msg.locomotionMode });
+      const ok = mover.startMoveToWaypoint(npcId, npcGroup, msg.waypointName, { locomotionMode: msg.locomotionMode });
+      if (!ok) return null;
       npcGroup.userData.isScriptControlled = true;
       return { type: "move" };
     }
     case "gotoPosition": {
       if (!mover) return null;
-      mover.startMoveToPosition(npcId, npcGroup, new THREE.Vector3(msg.x, msg.y, msg.z), {
+      const ok = mover.startMoveToPosition(npcId, npcGroup, new THREE.Vector3(msg.x, msg.y, msg.z), {
         locomotionMode: msg.locomotionMode,
         finalQuat: msg.finalQuat ? new THREE.Quaternion(msg.finalQuat.x, msg.finalQuat.y, msg.finalQuat.z, msg.finalQuat.w) : undefined,
       });
+      if (!ok) return null;
       npcGroup.userData.isScriptControlled = true;
       return { type: "move" };
     }
     case "gotoFreepoint": {
       if (!mover) return null;
-      mover.startMoveToFreepoint(npcId, npcGroup, msg.freepointName, {
+      const ok = mover.startMoveToFreepoint(npcId, npcGroup, msg.freepointName, {
         checkDistance: msg.checkDistance,
         dist: msg.dist,
         locomotionMode: msg.locomotionMode,
       });
+      if (!ok) return null;
       npcGroup.userData.isScriptControlled = true;
       return { type: "move" };
     }
@@ -117,7 +136,6 @@ export function updateNpcEventManager(
 
   if (s.clearRequested) {
     s.clearRequested = false;
-    s.queue.length = 0;
     finishActiveJob(npcInstanceIndex, npcGroup);
     mover?.clearForNpc?.(npcId);
     delete (npcGroup.userData as any)._emSuppressLocomotion;
@@ -141,10 +159,26 @@ export function updateNpcEventManager(
 
   // Start at most one non-overlay message per tick, like zCEventManager.
   if (!job && s.queue.length > 0) {
-    const next = s.queue.shift()!;
-    const started = startMessageAsJob(npcId, npcGroup, next, ctx);
-    job = started;
-    activeJobs.set(npcInstanceIndex, job);
+    // If the head message can't start yet (e.g. mover/model not ready), keep it and retry next tick.
+    // For non-critical messages (align/playAni), drop them if they can't start to avoid stalling the queue.
+    for (let tries = 0; tries < 4 && !job && s.queue.length > 0; tries++) {
+      const next = s.queue[0]!;
+      const started = startMessageAsJob(npcId, npcGroup, next, ctx);
+      if (started) {
+        s.queue.shift();
+        job = started;
+        activeJobs.set(npcInstanceIndex, job);
+        break;
+      }
+
+      const shouldKeep =
+        (next.type === "gotoWaypoint" || next.type === "gotoPosition" || next.type === "gotoFreepoint") &&
+        !ctx.mover;
+      if (shouldKeep) break;
+
+      // Drop unstartable message and try the next one.
+      s.queue.shift();
+    }
   }
 
   if (!job) {

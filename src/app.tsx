@@ -15,11 +15,10 @@ import { logVobDetails } from "./vob-utils.js";
 import { WorldTimeTicker } from "./world-time-ticker.js";
 import { WorldTimeOverlay } from "./world-time-overlay.js";
 import { WorldTimeLighting } from "./world-time-lighting.js";
+import { NpcInspectorOverlay } from "./npc-inspector-overlay.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
-import { findActiveRoutineEntry } from "./npc-utils.js";
-import { getWorldTime } from "./world-time.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -195,6 +194,7 @@ export function App() {
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<WayPointData | null>(null);
+  const [inspectedNpc, setInspectedNpc] = useState<{ npc: NpcData; npcRoot: THREE.Object3D } | null>(null);
   const shouldUpdateCameraRef = useRef(false);
 
   // NPC state management
@@ -245,31 +245,7 @@ export function App() {
   }, [handleWaypointSelect]);
 
   const handleNpcClickFromScene = useCallback((npc: NpcData, npcRoot: THREE.Object3D) => {
-    const t = getWorldTime();
-    const routine = findActiveRoutineEntry(npc.dailyRoutine, t.hour, t.minute);
-    const pos = npcRoot.getWorldPosition(new THREE.Vector3());
-    const quat = npcRoot.getWorldQuaternion(new THREE.Quaternion());
-
-    const info = {
-      instanceIndex: npc.instanceIndex,
-      symbolName: npc.symbolName,
-      name: npc.name,
-      spawnpoint: npc.spawnpoint,
-      routine: routine
-        ? { state: routine.state, waypoint: routine.waypoint, start: `${routine.start_h}:${routine.start_m ?? 0}`, stop: `${routine.stop_h}:${routine.stop_m ?? 0}` }
-        : null,
-      worldTime: { day: t.day, hour: t.hour, minute: t.minute },
-      worldPos: { x: pos.x, y: pos.y, z: pos.z },
-      worldQuat: { x: quat.x, y: quat.y, z: quat.z, w: quat.w },
-      userData: {
-        isScriptControlled: Boolean((npcRoot.userData as any)?.isScriptControlled),
-        isSliding: Boolean((npcRoot.userData as any)?.isSliding),
-        isFalling: Boolean((npcRoot.userData as any)?.isFalling),
-      },
-    };
-
-    console.log("[NPC] Clicked", info);
-    console.log(`[NPCInfoJSON]${JSON.stringify(info)}`);
+    setInspectedNpc({ npc, npcRoot });
   }, []);
 
   const handleSelectedVobBoundingBox = useCallback((center: THREE.Vector3, size: THREE.Vector3) => {
@@ -311,6 +287,7 @@ export function App() {
   return (
     <>
       <WorldTimeOverlay />
+      <NpcInspectorOverlay selected={inspectedNpc} onClose={() => setInspectedNpc(null)} />
       {/* VOB Tree - left side panel */}
       <VOBTree
         world={world}
