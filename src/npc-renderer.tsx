@@ -1179,6 +1179,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (cmd.type === "gotoFreepoint") {
         waypointMoverRef.current?.startMoveToFreepoint(npcId, g, cmd.freepointName, {
           checkDistance: cmd.checkDistance,
+          dist: cmd.dist ?? 700,
           locomotionMode: "walk",
         });
       }

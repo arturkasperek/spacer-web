@@ -1,5 +1,5 @@
 export type NpcVmCommand =
-  | { type: "gotoFreepoint"; npcInstanceIndex: number; freepointName: string; checkDistance: boolean }
+  | { type: "gotoFreepoint"; npcInstanceIndex: number; freepointName: string; checkDistance: boolean; dist?: number }
   | { type: "alignToFreepoint"; npcInstanceIndex: number };
 
 const queue: NpcVmCommand[] = [];
@@ -14,4 +14,3 @@ export function drainNpcVmCommands(): NpcVmCommand[] {
   queue.length = 0;
   return out;
 }
-

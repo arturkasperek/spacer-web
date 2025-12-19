@@ -26,6 +26,16 @@ const FPBOX_DIMENSION_Y = FPBOX_DIMENSION * 2;
 
 const toUpperKey = (s: string): string => (s || "").trim().toUpperCase();
 
+function expandFreepointQueryKey(keyUpper: string): string[] {
+  if (!keyUpper) return [];
+  // Scripts often use group names like "STAND" rather than explicit "FP_*" names.
+  // Some "stand" states still use generic roam points when no dedicated stand FP exists nearby.
+  // This avoids picking unrelated far-away stand-only spots (e.g. FP_STAND_DEMENTOR_17) when ROAM is closer.
+  if (keyUpper === "STAND") return ["FP_STAND", "FP_ROAM"];
+  if (keyUpper.startsWith("FP_")) return [keyUpper];
+  return [`FP_${keyUpper}`];
+}
+
 function iterVobsDepthFirst(root: Vob, out: Vob[]) {
   out.push(root);
   const children = root.children;
@@ -159,6 +169,8 @@ export function findFreepointForNpc(
 
   const key = toUpperKey(freepointName);
   if (!key) return null;
+  const queryKeys = expandFreepointQueryKey(key);
+  if (queryKeys.length === 0) return null;
 
   const dist = options?.dist ?? 2000;
   const checkDistance = options?.checkDistance ?? true;
@@ -178,7 +190,7 @@ export function findFreepointForNpc(
     if (p.x < bboxMinX || p.x > bboxMaxX) continue;
     if (p.y < bboxMinY || p.y > bboxMaxY) continue;
     if (p.z < bboxMinZ || p.z > bboxMaxZ) continue;
-    if (s.nameUpper.indexOf(key) < 0) continue;
+    if (!queryKeys.some(q => s.nameUpper.indexOf(q) >= 0)) continue;
     if (!isSpotAvailable(s, npcInstanceIndex, nowMs)) continue;
     if (avoidCurrentSpot && isInSpotBBox(s, npcPos)) continue;
     candidates.push(s);
@@ -218,7 +230,8 @@ export function acquireFreepointForNpc(
 }
 
 export function isFreepointAvailableForNpc(npcInstanceIndex: number, freepointName: string, checkDistance: boolean): boolean {
-  return Boolean(findFreepointForNpc(npcInstanceIndex, freepointName, { checkDistance }));
+  // Gothic uses oCNpc::FindSpot(name, checkDistance, dist=700) for most FP queries.
+  return Boolean(findFreepointForNpc(npcInstanceIndex, freepointName, { checkDistance, dist: 700 }));
 }
 
 export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string, dist: number = 100): boolean {
@@ -231,4 +244,3 @@ export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string
   const dz = npcPos.z - spot.position.z;
   return dx * dx + dy * dy + dz * dz <= dist * dist;
 }
-

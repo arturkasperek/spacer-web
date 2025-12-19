@@ -284,6 +284,8 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   // Freepoints (zCVobSpot) - ZenGin-like externals
   // -----------------------------------------------------------------------------------
 
+  const SCRIPT_FREEPOINT_DIST = 700;
+
   registerExternalSafe(vm, "Wld_IsFPAvailable", (npc: any, fpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
     if (!npcIndex) return 0;
@@ -305,13 +307,13 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   registerExternalSafe(vm, "AI_GotoFP", (npc: any, fpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
     if (!npcIndex || !name) return;
-    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: true });
+    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: true, dist: SCRIPT_FREEPOINT_DIST });
   });
 
   registerExternalSafe(vm, "AI_GotoNextFP", (npc: any, fpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, fpName);
     if (!npcIndex || !name) return;
-    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: false });
+    enqueueNpcVmCommand({ type: "gotoFreepoint", npcInstanceIndex: npcIndex, freepointName: name, checkDistance: false, dist: SCRIPT_FREEPOINT_DIST });
   });
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions

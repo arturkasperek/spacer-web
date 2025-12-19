@@ -32,11 +32,12 @@ describe("npc freepoints", () => {
   let updateNpcWorldPosition: typeof import("../npc-freepoints").updateNpcWorldPosition;
   let acquireFreepointForNpc: typeof import("../npc-freepoints").acquireFreepointForNpc;
   let findFreepointForNpc: typeof import("../npc-freepoints").findFreepointForNpc;
+  let isFreepointAvailableForNpc: typeof import("../npc-freepoints").isFreepointAvailableForNpc;
 
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
-    ({ setFreepointsWorld, updateNpcWorldPosition, acquireFreepointForNpc, findFreepointForNpc } = await import("../npc-freepoints"));
+    ({ setFreepointsWorld, updateNpcWorldPosition, acquireFreepointForNpc, findFreepointForNpc, isFreepointAvailableForNpc } = await import("../npc-freepoints"));
   });
 
   afterEach(() => {
@@ -137,5 +138,62 @@ describe("npc freepoints", () => {
 
     const spot = findFreepointForNpc(10, "FP_ROAM", { checkDistance: false });
     expect(spot?.vobId).toBe(spotB.id);
+  });
+
+  it("treats STAND as STAND-or-ROAM to avoid far stand-only spots", () => {
+    const roamNear = {
+      id: 41,
+      type: 11,
+      vobName: "FP_ROAM_NW_FARM1_PATH_SPAWN_05_03",
+      name: "zCVobSpot",
+      position: { x: 10, y: 0, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+    const standFar = {
+      id: 42,
+      type: 11,
+      vobName: "FP_STAND_DEMENTOR_17",
+      name: "zCVobSpot",
+      position: { x: 1500, y: 0, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([roamNear, standFar]),
+      },
+    ]);
+
+    setFreepointsWorld(world);
+    updateNpcWorldPosition(123, { x: 0, y: 0, z: 0 });
+
+    const picked = acquireFreepointForNpc(123, "STAND", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(picked?.vobId).toBe(roamNear.id);
+  });
+
+  it("uses a 700-unit search radius for script-style freepoint availability checks", () => {
+    const far = {
+      id: 51,
+      type: 11,
+      vobName: "FP_ROAM_FAR",
+      name: "zCVobSpot",
+      position: { x: 1500, y: 0, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([far]) }]);
+
+    setFreepointsWorld(world);
+    updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
+
+    // Original engine uses dist~700 for FindSpot() in Wld_IsFPAvailable/AI_GotoFP.
+    expect(isFreepointAvailableForNpc(1, "FP_ROAM", true)).toBe(false);
   });
 });
