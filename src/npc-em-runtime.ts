@@ -111,10 +111,11 @@ function startMessageAsJob(
         if (idx >= 0 && idx + 3 < upper.length) {
           const after = upper.slice(idx + 3);
           if (after) derivedNext = { animationName: `S_${after}`, loop: true };
-        } else if (upper.startsWith("T_")) {
-          const parts = upper.split("_").filter(Boolean);
-          const base = parts[1];
-          if (base) derivedNext = { animationName: `S_${base}`, loop: true };
+        } else {
+          // Most `T_*` animations are short one-shots (scratch/stretch/etc). If the NPC already has a scripted idle
+          // pose, return to it rather than guessing an `S_*` that might not exist (e.g. `S_PLUNDER`).
+          const existingIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
+          if (existingIdle) derivedNext = { animationName: existingIdle, loop: true };
         }
       }
 
