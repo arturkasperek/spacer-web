@@ -2,6 +2,13 @@ import type { CharacterInstance } from "./character/human-character.js";
 
 export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack" | "fallDown" | "fall" | "fallBack";
 
+export type AnimationRef = {
+  animationName: string;
+  modelName?: string;
+};
+
+export type AnimationResolver = (animationName: string) => AnimationRef | null;
+
 export type LocomotionAnimationSpec = {
   name: string;
   loop: boolean;
@@ -28,27 +35,36 @@ export type LocomotionSpec = {
 };
 
 export type LocomotionController = {
-  update: (instance: CharacterInstance, mode: LocomotionMode) => void;
+  update: (instance: CharacterInstance, mode: LocomotionMode, resolve?: AnimationResolver) => void;
 };
 
 export function createLocomotionController(spec: LocomotionSpec): LocomotionController {
   let initialized = false;
   let lastMode: LocomotionMode = "idle";
 
-  const play = (instance: CharacterInstance, anim: LocomotionAnimationSpec, next?: LocomotionAnimationSpec) => {
+  const play = (
+    instance: CharacterInstance,
+    anim: LocomotionAnimationSpec,
+    next?: LocomotionAnimationSpec,
+    resolve?: AnimationResolver
+  ) => {
+    const ref = resolve?.(anim.name) ?? { animationName: anim.name };
+    const nextRef = next ? (resolve?.(next.name) ?? { animationName: next.name }) : null;
     (instance as any).__debugLocomotionRequested = {
       name: anim.name,
       loop: anim.loop,
       next: next ? { name: next.name, loop: next.loop } : null,
       atMs: Date.now(),
     };
-    instance.setAnimation(anim.name, {
+    instance.setAnimation(ref.animationName, {
+      modelName: ref.modelName,
       loop: anim.loop,
       resetTime: true,
       fallbackNames: anim.fallbackNames,
       next: next
         ? {
-            animationName: next.name,
+            animationName: nextRef?.animationName ?? next.name,
+            modelName: nextRef?.modelName,
             loop: next.loop,
             resetTime: true,
             fallbackNames: next.fallbackNames,
@@ -58,41 +74,41 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
   };
 
   return {
-    update: (instance, mode) => {
+    update: (instance, mode, resolve) => {
       if (!initialized) {
         initialized = true;
         lastMode = mode;
-        if (mode === "walk") play(instance, spec.walkStart, spec.walkLoop);
-        else if (mode === "run") play(instance, spec.runStart, spec.runLoop);
-        else if (mode === "slide") play(instance, spec.slide);
-        else if (mode === "slideBack") play(instance, spec.slideBack);
-        else if (mode === "fallDown") play(instance, spec.fallDown);
-        else if (mode === "fall") play(instance, spec.fall);
-        else if (mode === "fallBack") play(instance, spec.fallBack);
-        else play(instance, spec.idle);
+        if (mode === "walk") play(instance, spec.walkStart, spec.walkLoop, resolve);
+        else if (mode === "run") play(instance, spec.runStart, spec.runLoop, resolve);
+        else if (mode === "slide") play(instance, spec.slide, undefined, resolve);
+        else if (mode === "slideBack") play(instance, spec.slideBack, undefined, resolve);
+        else if (mode === "fallDown") play(instance, spec.fallDown, undefined, resolve);
+        else if (mode === "fall") play(instance, spec.fall, undefined, resolve);
+        else if (mode === "fallBack") play(instance, spec.fallBack, undefined, resolve);
+        else play(instance, spec.idle, undefined, resolve);
         return;
       }
 
       if (mode === lastMode) return;
 
       if (mode === "walk") {
-        play(instance, spec.walkStart, spec.walkLoop);
+        play(instance, spec.walkStart, spec.walkLoop, resolve);
       } else if (mode === "run") {
-        play(instance, spec.runStart, spec.runLoop);
+        play(instance, spec.runStart, spec.runLoop, resolve);
       } else if (mode === "slide") {
-        play(instance, spec.slide);
+        play(instance, spec.slide, undefined, resolve);
       } else if (mode === "slideBack") {
-        play(instance, spec.slideBack);
+        play(instance, spec.slideBack, undefined, resolve);
       } else if (mode === "fallDown") {
-        play(instance, spec.fallDown);
+        play(instance, spec.fallDown, undefined, resolve);
       } else if (mode === "fall") {
-        play(instance, spec.fall);
+        play(instance, spec.fall, undefined, resolve);
       } else if (mode === "fallBack") {
-        play(instance, spec.fallBack);
+        play(instance, spec.fallBack, undefined, resolve);
       } else {
-        if (lastMode === "walk") play(instance, spec.walkStop, spec.idle);
-        else if (lastMode === "run") play(instance, spec.runStop, spec.idle);
-        else play(instance, spec.idle);
+        if (lastMode === "walk") play(instance, spec.walkStop, spec.idle, resolve);
+        else if (lastMode === "run") play(instance, spec.runStop, spec.idle, resolve);
+        else play(instance, spec.idle, undefined, resolve);
       }
 
       lastMode = mode;

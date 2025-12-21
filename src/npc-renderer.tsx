@@ -7,12 +7,15 @@ import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
 import { preloadAnimationSequences } from "./character/animation.js";
+import { fetchBinaryCached } from "./character/binary-cache.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager } from "./npc-em-runtime";
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
+import { getNpcModelScriptsState } from "./npc-model-scripts";
+import { ModelScriptRegistry } from "./model-script-registry";
 import {
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
@@ -81,6 +84,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     materials: new Map(),
     animations: new Map(),
   });
+  const modelScriptRegistryRef = useRef<ModelScriptRegistry | null>(null);
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
   const waypointPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
@@ -347,9 +351,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   }, [world]);
 
   const estimateAnimationDurationMs = useMemo(() => {
-    return (animationName: string): number | null => {
+    return (modelName: string, animationName: string): number | null => {
       const caches = characterCachesRef.current;
-      const key = `HUMANS:${(animationName || "").trim().toUpperCase()}`;
+      const base = (modelName || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const key = `${base}:${(animationName || "").trim().toUpperCase()}`;
       const seq: any = caches?.animations?.get(key);
       const dur = seq?.totalTimeMs;
       return typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : null;
@@ -377,6 +382,23 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return q ? q.clone() : null;
     };
   }, []);
+
+  const getAnimationMetaForNpc = useMemo(() => {
+    return (npcInstanceIndex: number, animationName: string) => {
+      const reg = modelScriptRegistryRef.current;
+      if (!reg) return null;
+      const scripts = getNpcModelScriptsState(npcInstanceIndex);
+      return reg.getAnimationMetaForNpc(scripts, animationName);
+    };
+  }, []);
+
+  const resolveNpcAnimationRef = useMemo(() => {
+    return (npcInstanceIndex: number, animationName: string) => {
+      const meta = getAnimationMetaForNpc(npcInstanceIndex, animationName);
+      const modelName = (meta?.model || "HUMANS").trim().toUpperCase() || "HUMANS";
+      return { animationName: (animationName || "").trim(), modelName };
+    };
+  }, [getAnimationMetaForNpc]);
 
   // Convert NPC data to renderable NPCs with spawnpoint positions (only compute positions, not render)
   const npcsWithPositions = useMemo(() => {
@@ -895,6 +917,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     );
   }, [enabled, zenKit]);
 
+  useEffect(() => {
+    if (!zenKit) return;
+    if (modelScriptRegistryRef.current) return;
+    modelScriptRegistryRef.current = new ModelScriptRegistry({
+      zenKit,
+      fetchBinary: (url: string) => fetchBinaryCached(url, characterCachesRef.current.binary),
+    });
+    modelScriptRegistryRef.current.startLoadScript("HUMANS");
+  }, [zenKit]);
+
   const loadNpcCharacter = async (npcGroup: THREE.Group, npcData: NpcData) => {
     if (!zenKit) return;
     const visual = npcData.visual;
@@ -1399,7 +1431,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (Boolean(npcGroup.userData.isFalling)) {
         if (instance) {
           const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
-          locomotion?.update(instance, locomotionMode);
+          locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
         }
         const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
         if (entry) entry.position.copy(npcGroup.position);
@@ -1456,6 +1488,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           mover,
           estimateAnimationDurationMs,
           getNearestWaypointDirectionQuat,
+          getAnimationMeta: getAnimationMetaForNpc,
         });
         movedThisFrame = Boolean(em.moved);
         locomotionMode = em.mode ?? "idle";
@@ -1513,9 +1546,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
         if (!suppress) {
           if (scriptIdle && locomotionMode === "idle") {
-            instance.setAnimation(scriptIdle, { loop: true, resetTime: false });
+            const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
+            instance.setAnimation(ref.animationName, { modelName: ref.modelName, loop: true, resetTime: false });
           } else {
-            locomotion?.update(instance, locomotionMode);
+            locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
           }
         }
       }

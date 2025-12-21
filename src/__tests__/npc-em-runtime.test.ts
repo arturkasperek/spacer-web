@@ -49,15 +49,15 @@ describe("npc event manager runtime", () => {
     enqueueNpcEmMessage(npcIndex, { type: "playAni", animationName: "T_STAND_2_LGUARD", loop: false });
 
     // First tick starts the move job; animation should not start yet.
-    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: () => 500 });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: (_model: string, _ani: string) => 500 });
     expect((group.userData.characterInstance as any).setAnimation).not.toHaveBeenCalled();
 
     // Finish movement (2 updates in our mock).
-    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: () => 500 });
-    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: () => 500 });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: (_model: string, _ani: string) => 500 });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: (_model: string, _ani: string) => 500 });
 
     // Next tick starts the play-ani job.
-    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: () => 500 });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover, estimateAnimationDurationMs: (_model: string, _ani: string) => 500 });
     expect((group.userData.characterInstance as any).setAnimation).toHaveBeenCalledWith(
       "T_STAND_2_LGUARD",
       expect.objectContaining({ loop: false, resetTime: true })
@@ -89,11 +89,11 @@ describe("npc event manager runtime", () => {
     (group.userData as any)._emIdleAnimation = "S_LGUARD";
 
     enqueueNpcEmMessage(npcIndex, { type: "playAni", animationName: "T_LGUARD_SCRATCH", loop: false });
-    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover: null, estimateAnimationDurationMs: () => 1000 });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover: null, estimateAnimationDurationMs: (_model: string, _ani: string) => 1000 });
     expect((group.userData as any)._emSuppressLocomotion).toBe(true);
 
     // Advance enough time to finish the job.
-    updateNpcEventManager(npcIndex, npcId, group, 2.0, { mover: null, estimateAnimationDurationMs: () => 1000 });
+    updateNpcEventManager(npcIndex, npcId, group, 2.0, { mover: null, estimateAnimationDurationMs: (_model: string, _ani: string) => 1000 });
     expect((group.userData as any)._emSuppressLocomotion).toBeUndefined();
   });
 });

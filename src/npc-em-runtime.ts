@@ -5,12 +5,14 @@ import type { CharacterInstance } from "./character/human-character.js";
 import type { LocomotionMode } from "./npc-locomotion";
 import type { WaypointMover } from "./npc-waypoint-mover";
 import { __ensureNpcEmQueueState, type NpcEmMessage } from "./npc-em-queue";
+import type { AnimationMeta } from "./model-script-registry";
 
 export type NpcEmUpdateContext = {
   mover: WaypointMover | null;
   nowMs?: () => number;
-  estimateAnimationDurationMs?: (animationName: string) => number | null;
+  estimateAnimationDurationMs?: (modelName: string, animationName: string) => number | null;
   getNearestWaypointDirectionQuat?: (pos: THREE.Vector3) => THREE.Quaternion | null;
+  getAnimationMeta?: (npcInstanceIndex: number, animationName: string) => AnimationMeta | null;
 };
 
 type ActiveJob =
@@ -45,6 +47,7 @@ function isOverlayMessage(msg: NpcEmMessage): boolean {
 }
 
 function startMessageAsJob(
+  npcInstanceIndex: number,
   npcId: string,
   npcGroup: THREE.Group,
   msg: NpcEmMessage,
@@ -101,21 +104,51 @@ function startMessageAsJob(
 
       const upper = name.toUpperCase();
       const isLoop = Boolean(msg.loop);
+      const meta = ctx.getAnimationMeta?.(npcInstanceIndex, name) ?? null;
+      const modelName = (meta?.model || "HUMANS").trim().toUpperCase() || "HUMANS";
 
       // Heuristic: many Daedalus states use `AI_PlayAni(T_*...)` expecting the engine to settle into a looping
       // `S_*` pose (e.g. `T_STAND_2_LGUARD` -> `S_LGUARD`). The original engine resolves this via MDS `next`.
       // Our character controller needs an explicit `next`, so infer it for common patterns.
-      let derivedNext: { animationName: string; loop?: boolean; fallbackNames?: string[] } | undefined;
+      let derivedNext:
+        | { animationName: string; modelName: string; loop?: boolean; fallbackNames?: string[] }
+        | undefined;
       if (!isLoop && !msg.next) {
-        const idx = upper.indexOf("_2_");
-        if (idx >= 0 && idx + 3 < upper.length) {
-          const after = upper.slice(idx + 3);
-          if (after) derivedNext = { animationName: `S_${after}`, loop: true };
+        const mdsNext = (meta?.next || "").trim();
+        if (mdsNext) {
+          const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, mdsNext) ?? null;
+          derivedNext = {
+            animationName: mdsNext,
+            modelName: (nextMeta?.model || modelName).trim().toUpperCase() || modelName,
+            loop: true,
+          };
         } else {
-          // Most `T_*` animations are short one-shots (scratch/stretch/etc). If the NPC already has a scripted idle
-          // pose, return to it rather than guessing an `S_*` that might not exist (e.g. `S_PLUNDER`).
-          const existingIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
-          if (existingIdle) derivedNext = { animationName: existingIdle, loop: true };
+          const idx = upper.indexOf("_2_");
+          if (idx >= 0 && idx + 3 < upper.length) {
+            const after = upper.slice(idx + 3);
+            if (after) {
+              const guess = `S_${after}`;
+              const guessMeta = ctx.getAnimationMeta?.(npcInstanceIndex, guess) ?? null;
+              derivedNext = {
+                animationName: guess,
+                modelName: (guessMeta?.model || modelName).trim().toUpperCase() || modelName,
+                loop: true,
+                fallbackNames: guessMeta ? undefined : ["S_RUN"],
+              };
+            }
+          } else {
+            // Most `T_*` animations are short one-shots (scratch/stretch/etc). If the NPC already has a scripted idle
+            // pose, return to it rather than guessing an `S_*` that might not exist (e.g. `S_PLUNDER`).
+            const existingIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
+            if (existingIdle) {
+              const idleMeta = ctx.getAnimationMeta?.(npcInstanceIndex, existingIdle) ?? null;
+              derivedNext = {
+                animationName: existingIdle,
+                modelName: (idleMeta?.model || modelName).trim().toUpperCase() || modelName,
+                loop: true,
+              };
+            }
+          }
         }
       }
 
@@ -127,22 +160,36 @@ function startMessageAsJob(
         (npcGroup.userData as any)._emIdleAnimation = derivedNext.animationName;
       }
 
-      const dur = ctx.estimateAnimationDurationMs?.(name) ?? (isLoop ? 1_000_000 : 1500);
+      const dur = ctx.estimateAnimationDurationMs?.(modelName, name) ?? (isLoop ? 1_000_000 : 1500);
       (npcGroup.userData as any)._emSuppressLocomotion = true;
-      instance.setAnimation(name, {
-        loop: isLoop,
-        resetTime: true,
-        fallbackNames: msg.fallbackNames,
-        next: msg.next
-          ? {
-              animationName: msg.next.animationName,
+
+      const explicitNext = msg.next
+        ? (() => {
+            const nm = (msg.next.animationName || "").trim();
+            if (!nm) return null;
+            const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, nm) ?? null;
+            const nextModel = (nextMeta?.model || modelName).trim().toUpperCase() || modelName;
+            return {
+              animationName: nm,
+              modelName: nextModel,
               loop: msg.next.loop ?? true,
               resetTime: true,
               fallbackNames: msg.next.fallbackNames,
-            }
+            };
+          })()
+        : null;
+
+      instance.setAnimation(name, {
+        modelName,
+        loop: isLoop,
+        resetTime: true,
+        fallbackNames: msg.fallbackNames,
+        next: explicitNext
+          ? explicitNext
           : derivedNext
             ? {
                 animationName: derivedNext.animationName,
+                modelName: derivedNext.modelName,
                 loop: derivedNext.loop ?? true,
                 resetTime: true,
                 fallbackNames: derivedNext.fallbackNames,
@@ -206,7 +253,7 @@ export function updateNpcEventManager(
     // For non-critical messages (align/playAni), drop them if they can't start to avoid stalling the queue.
     for (let tries = 0; tries < 4 && !job && s.queue.length > 0; tries++) {
       const next = s.queue[0]!;
-      const started = startMessageAsJob(npcId, npcGroup, next, ctx);
+      const started = startMessageAsJob(npcInstanceIndex, npcId, npcGroup, next, ctx);
       if (started) {
         s.queue.shift();
         job = started;

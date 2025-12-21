@@ -23,10 +23,11 @@ export type CharacterInstance = {
   setAnimation: (
     animationName: string,
     options?: {
+      modelName?: string;
       loop?: boolean;
       resetTime?: boolean;
       fallbackNames?: string[];
-      next?: { animationName: string; loop?: boolean; resetTime?: boolean; fallbackNames?: string[] };
+      next?: { animationName: string; modelName?: string; loop?: boolean; resetTime?: boolean; fallbackNames?: string[] };
     }
   ) => void;
   dispose: () => void;
@@ -194,13 +195,14 @@ export async function createHumanCharacterInstance(params: {
     const sequence = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", animationName);
     let currentSequence = sequence;
     let currentAnimationName = animationName;
+    let currentModelName = "HUMANS";
     let currentLoop = loop;
     let currentTimeMs = 0;
     const failedAnis = new Set<string>();
-    let pendingLoad: { name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
+    let pendingLoad: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
     let loadingPromise: Promise<void> | null = null;
     let nextAfterNonLoop:
-      | { animationName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
+      | { animationName: string; modelName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
       | null = null;
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
@@ -221,7 +223,7 @@ export async function createHumanCharacterInstance(params: {
           for (const cand of candidates) {
             const key = cand.toUpperCase();
             if (failedAnis.has(key)) continue;
-            const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", cand);
+            const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, next.modelName, cand);
             if (seq) {
               loaded = { seq, name: cand };
               break;
@@ -232,6 +234,7 @@ export async function createHumanCharacterInstance(params: {
           if (loaded) {
             currentSequence = loaded.seq;
             currentAnimationName = loaded.name;
+            currentModelName = next.modelName;
             currentLoop = next.loop;
             if (next.resetTime) currentTimeMs = 0;
             hasLastRootMotionPos = false;
@@ -246,7 +249,7 @@ export async function createHumanCharacterInstance(params: {
       });
     };
 
-    const tryLoadAnimation = (req: { name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
+    const tryLoadAnimation = (req: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
       const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
       for (const n of names) failedAnis.delete(n.toUpperCase());
       pendingLoad = req;
@@ -256,10 +259,11 @@ export async function createHumanCharacterInstance(params: {
     const setAnimation: CharacterInstance["setAnimation"] = (nextName, options) => {
       const name = (nextName || "").trim();
       if (!name) return;
+      const nextModel = (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
 
-      if (name.toUpperCase() === (currentAnimationName || "").toUpperCase()) {
+      if (name.toUpperCase() === (currentAnimationName || "").toUpperCase() && nextModel === currentModelName) {
         currentLoop = nextLoop;
         if (resetTime) currentTimeMs = 0;
         if (currentLoop) nextAfterNonLoop = null;
@@ -269,6 +273,7 @@ export async function createHumanCharacterInstance(params: {
       if (!nextLoop && options?.next) {
         nextAfterNonLoop = {
           animationName: options.next.animationName,
+          modelName: (options.next.modelName || nextModel || "HUMANS").trim().toUpperCase() || "HUMANS",
           loop: options.next.loop ?? true,
           resetTime: options.next.resetTime ?? true,
           fallbackNames: options.next.fallbackNames,
@@ -277,7 +282,7 @@ export async function createHumanCharacterInstance(params: {
         nextAfterNonLoop = null;
       }
 
-      tryLoadAnimation({ name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
+      tryLoadAnimation({ modelName: nextModel, name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
     };
 
     const update = (deltaSeconds: number) => {
@@ -294,6 +299,7 @@ export async function createHumanCharacterInstance(params: {
         const next = nextAfterNonLoop;
         nextAfterNonLoop = null;
         setAnimation(next.animationName, {
+          modelName: next.modelName,
           loop: next.loop,
           resetTime: next.resetTime,
           fallbackNames: next.fallbackNames,

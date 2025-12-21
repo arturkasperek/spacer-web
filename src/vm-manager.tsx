@@ -2,6 +2,8 @@ import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from './types';
 import { isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints";
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
+import { addNpcOverlayModelScript, removeNpcOverlayModelScript, setNpcBaseModelScript } from "./npc-model-scripts";
+import { normalizeMdsToScriptKey } from "./model-script-registry";
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -226,6 +228,50 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     );
   };
 
+  const registerMdlSetVisual = (name: string) => {
+    registerExternalSafe(vm, name, (npc: any, mdsName: any) => {
+      const npcIndex = getInstanceIndexFromArg(npc);
+      const mds = typeof mdsName === "string" ? mdsName : "";
+      if (!npcIndex || !mds) return;
+      const key = normalizeMdsToScriptKey(mds);
+      if (!key) return;
+      setNpcBaseModelScript(npcIndex, key);
+    });
+  };
+
+  const registerMdlApplyOverlayMds = (name: string) => {
+    registerExternalSafe(vm, name, (npc: any, mdsName: any) => {
+      const npcIndex = getInstanceIndexFromArg(npc);
+      const mds = typeof mdsName === "string" ? mdsName : "";
+      if (!npcIndex || !mds) return;
+      const key = normalizeMdsToScriptKey(mds);
+      if (!key) return;
+      addNpcOverlayModelScript(npcIndex, key);
+    });
+  };
+
+  const registerMdlRemoveOverlayMds = (name: string) => {
+    registerExternalSafe(vm, name, (npc: any, mdsName: any) => {
+      const npcIndex = getInstanceIndexFromArg(npc);
+      const mds = typeof mdsName === "string" ? mdsName : "";
+      if (!npcIndex || !mds) return;
+      const key = normalizeMdsToScriptKey(mds);
+      if (!key) return;
+      removeNpcOverlayModelScript(npcIndex, key);
+    });
+  };
+
+  const registerMdlApplyOverlayMdsTimed = (name: string) => {
+    registerExternalSafe(vm, name, (npc: any, mdsName: any) => {
+      const npcIndex = getInstanceIndexFromArg(npc);
+      const mds = typeof mdsName === "string" ? mdsName : "";
+      if (!npcIndex || !mds) return;
+      const key = normalizeMdsToScriptKey(mds);
+      if (!key) return;
+      addNpcOverlayModelScript(npcIndex, key);
+    });
+  };
+
   // Register Wld_InsertNpc with detailed logging implementation
   // Note: Also try uppercase version for compatibility
   const registerWldInsertNpc = (name: string) => {
@@ -407,8 +453,22 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   registerWldInsertNpc('Wld_InsertNpc');
   registerWldInsertNpc('WLD_INSERTNPC');
 
+  registerMdlSetVisual('Mdl_SetVisual');
+  registerMdlSetVisual('MDL_SETVISUAL');
+
   registerMdlSetVisualBody('Mdl_SetVisualBody');
   registerMdlSetVisualBody('MDL_SETVISUALBODY');
+
+  registerMdlApplyOverlayMds('Mdl_ApplyOverlayMds');
+  registerMdlApplyOverlayMds('Mdl_ApplyOverlayMDS');
+  registerMdlApplyOverlayMds('MDL_APPLYOVERLAYMDS');
+
+  registerMdlApplyOverlayMdsTimed('Mdl_ApplyOverlayMDSTimed');
+  registerMdlApplyOverlayMdsTimed('MDL_APPLYOVERLAYMDSTIMED');
+
+  registerMdlRemoveOverlayMds('Mdl_RemoveOverlayMds');
+  registerMdlRemoveOverlayMds('Mdl_RemoveOverlayMDS');
+  registerMdlRemoveOverlayMds('MDL_REMOVEOVERLAYMDS');
 
   // Helper: Get NPC name without re-initializing (safe to call during NPC execution)
   const getNpcNameSafe = (npcInstanceIndex: number): string => {
