@@ -1215,9 +1215,37 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           }
           if (!activeState) continue;
 
-          // Reset state timer when the active state changes (roughly matches engine behavior on state switches).
+          // On state switches the original engine calls:
+          // - `<STATE>_end()` for the previous state (if present)
+          // - `<STATE>()` for the new state (entry)
+          // and resets the state timer. Many TA_* loops rely on entry to initialize aivars
+          // (e.g. `AIV_TAPOSITION = NOTINPOS`).
           const prevState = (g.userData as any)._aiActiveStateName as string | undefined;
           if (prevState !== activeState) {
+            vm.setGlobalSelf(npcData.symbolName);
+
+            if (prevState) {
+              const endFnCandidates = [`${prevState}_end`, `${prevState}_END`];
+              const endFn = endFnCandidates.find((fn) => vm.hasSymbol(fn));
+              if (endFn) {
+                try {
+                  vm.callFunction(endFn, []);
+                } catch {
+                  // Ignore state-end failures; scripts expect this to be best-effort.
+                }
+              }
+            }
+
+            const entryFnCandidates = [activeState, activeState.toUpperCase()];
+            const entryFn = entryFnCandidates.find((fn) => vm.hasSymbol(fn));
+            if (entryFn) {
+              try {
+                vm.callFunction(entryFn, []);
+              } catch {
+                // Ignore entry failures; the loop tick may still be useful.
+              }
+            }
+
             (g.userData as any)._aiActiveStateName = activeState;
             setNpcStateTime(npcData.instanceIndex, 0);
             (g.userData as any)._aiLoopLastAtMs = nowMs;
