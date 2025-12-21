@@ -5,6 +5,8 @@ import { findActiveRoutineEntry } from "./npc-utils.js";
 import { getWorldTime } from "./world-time.js";
 import { __getNpcEmQueueState } from "./npc-em-queue.js";
 import { __getNpcEmActiveJob } from "./npc-em-runtime.js";
+import { getNpcStateTime } from "./vm-manager.js";
+import { findFreepointForNpc, isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints.js";
 
 type SelectedNpc = {
   npc: NpcData;
@@ -21,6 +23,23 @@ type NpcInspectorInfo = {
   worldPos: { x: number; y: number; z: number };
   worldQuat: { x: number; y: number; z: number; w: number };
   userData: { isScriptControlled: boolean; isSliding: boolean; isFalling: boolean };
+  vm: {
+    activeStateName: string | null;
+    stateTimeSeconds: number;
+    nextLoopInMs: number | null;
+    lastLoopAgoMs: number | null;
+  };
+  freepoints: {
+    primaryTag: string | null;
+    primary: {
+      tag: string;
+      isOn: boolean;
+      isAvailable: boolean;
+      isNextAvailable: boolean;
+      nearest?: { nameUpper: string; vobId: number; dist: number } | null;
+    } | null;
+    checks: Record<string, { isOn: boolean; isAvailable: boolean; isNextAvailable: boolean }>;
+  };
   em: {
     activeJob: ReturnType<typeof __getNpcEmActiveJob>;
     clearRequested: boolean;
@@ -34,6 +53,16 @@ function safeJson(value: unknown): string {
   } catch (e) {
     return JSON.stringify({ error: String(e) }, null, 2);
   }
+}
+
+function inferPrimaryFreepointTag(stateName: string | null | undefined): string | null {
+  const s = (stateName || "").toUpperCase();
+  if (!s) return null;
+  if (s.includes("PICK")) return "PICK";
+  if (s.includes("ARMSCROSSED") || s.includes("STAND") || s.includes("SMALLTALK")) return "STAND";
+  if (s.includes("SLEEP") || s.includes("BED")) return "SLEEP";
+  if (s.includes("SIT")) return "SIT";
+  return null;
 }
 
 export function NpcInspectorOverlay({
@@ -66,6 +95,38 @@ export function NpcInspectorOverlay({
       const q = __getNpcEmQueueState(npc.instanceIndex);
       const activeJob = __getNpcEmActiveJob(npc.instanceIndex);
 
+      const activeStateName = (ud?._aiActiveStateName as string | undefined) ?? (routine?.state as string | undefined) ?? null;
+      const stateTimeSeconds = getNpcStateTime(npc.instanceIndex);
+      const nowMs = Date.now();
+      const nextAt = (ud?._aiLoopNextAtMs as number | undefined) ?? null;
+      const lastAt = (ud?._aiLoopLastAtMs as number | undefined) ?? null;
+
+      const primaryTag = inferPrimaryFreepointTag(routine?.state ?? null);
+      const defaultTags = ["PICK", "STAND", "ROAM"];
+      const checks: Record<string, { isOn: boolean; isAvailable: boolean; isNextAvailable: boolean }> = {};
+      for (const tag of defaultTags) {
+        checks[tag] = {
+          isOn: Boolean(isNpcOnFreepoint(npc.instanceIndex, tag, 100)),
+          isAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, tag, true)),
+          isNextAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, tag, false)),
+        };
+      }
+
+      let primary: NpcInspectorInfo["freepoints"]["primary"] = null;
+      if (primaryTag) {
+        const nearest = findFreepointForNpc(npc.instanceIndex, primaryTag, { checkDistance: true, dist: 3000, avoidCurrentSpot: false });
+        const nearestDist = nearest
+          ? Math.hypot(nearest.position.x - pos.x, nearest.position.y - pos.y, nearest.position.z - pos.z)
+          : null;
+        primary = {
+          tag: primaryTag,
+          isOn: Boolean(isNpcOnFreepoint(npc.instanceIndex, primaryTag, 100)),
+          isAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, primaryTag, true)),
+          isNextAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, primaryTag, false)),
+          nearest: nearest && nearestDist !== null ? { nameUpper: nearest.nameUpper, vobId: nearest.vobId, dist: nearestDist } : null,
+        };
+      }
+
       const info: NpcInspectorInfo = {
         instanceIndex: npc.instanceIndex,
         symbolName: npc.symbolName,
@@ -86,6 +147,17 @@ export function NpcInspectorOverlay({
           isScriptControlled: Boolean(ud?.isScriptControlled),
           isSliding: Boolean(ud?.isSliding),
           isFalling: Boolean(ud?.isFalling),
+        },
+        vm: {
+          activeStateName,
+          stateTimeSeconds,
+          nextLoopInMs: typeof nextAt === "number" ? Math.max(0, nextAt - nowMs) : null,
+          lastLoopAgoMs: typeof lastAt === "number" ? Math.max(0, nowMs - lastAt) : null,
+        },
+        freepoints: {
+          primaryTag,
+          primary,
+          checks,
         },
         em: {
           activeJob,
