@@ -82,6 +82,32 @@ export function WaynetRenderer({ world, zenKit, cameraPosition, enabled = true, 
     }
   }, [world, enabled]);
 
+  // When disabled, remove all waypoint visuals (and reset streaming state so re-enabling works).
+  useEffect(() => {
+    if (enabled) return;
+
+    setSelectedWaypointObject(null);
+
+    for (const mesh of loadedWaypointsRef.current.values()) {
+      disposeObject3D(mesh);
+    }
+    loadedWaypointsRef.current.clear();
+
+    if (waypointsGroupRef.current) {
+      scene.remove(waypointsGroupRef.current);
+      waypointsGroupRef.current = null;
+    }
+
+    if (edgesGroupRef.current) {
+      scene.remove(edgesGroupRef.current);
+      edgesGroupRef.current = null;
+    }
+
+    hasLoadedRef.current = false;
+    allWaypointsRef.current = [];
+    streamingState.current = createStreamingState();
+  }, [enabled, scene]);
+
   useEffect(() => {
     if (!enabled || !world || hasLoadedRef.current) return;
     

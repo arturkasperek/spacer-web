@@ -16,6 +16,8 @@ import { WorldTimeTicker } from "./world-time-ticker.js";
 import { WorldTimeOverlay } from "./world-time-overlay.js";
 import { WorldTimeLighting } from "./world-time-lighting.js";
 import { NpcInspectorOverlay } from "./npc-inspector-overlay.js";
+import { TopMenuBar, TOP_MENU_HEIGHT } from "./top-menu-bar.js";
+import { useViewSettings } from "./view-settings.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
@@ -45,7 +47,7 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
 
 
 
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, onNpcClickFromScene, npcs, onNpcSpawn }: Readonly<{
+function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, onNpcClickFromScene, npcs, onNpcSpawn, viewSettings }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -63,6 +65,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onNpcClickFromScene?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
   npcs: Map<number, NpcData>;
   onNpcSpawn: NpcSpawnCallback;
+  viewSettings: { showWaypoints: boolean; showVobSpots: boolean; showLights: boolean };
 }>) {
   const { camera } = useThree();
   const didInitCameraRef = useRef(false);
@@ -124,6 +127,8 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           onVobStats={onVobStats}
           selectedVob={selectedVob}
           onSelectedVobBoundingBox={onSelectedVobBoundingBox}
+          showVobSpots={viewSettings.showVobSpots}
+          showLights={viewSettings.showLights}
         />
       )}
 
@@ -133,7 +138,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           world={world}
           zenKit={zenKit}
           cameraPosition={cameraPosition}
-          enabled={true}
+          enabled={viewSettings.showWaypoints}
           selectedWaypoint={selectedWaypoint}
         />
       )}
@@ -146,6 +151,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 
 export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
+  const viewSettings = useViewSettings();
   const [loadingStatus, setLoadingStatus] = useState<string>('');
   const [world, setWorld] = useState<World | null>(null);
   const [zenKit, setZenKit] = useState<ZenKit | null>(null);
@@ -286,8 +292,9 @@ export function App() {
 
   return (
     <>
+      <TopMenuBar />
       <WorldTimeOverlay />
-      <NpcInspectorOverlay selected={inspectedNpc} onClose={() => setInspectedNpc(null)} />
+      <NpcInspectorOverlay selected={inspectedNpc} onClose={() => setInspectedNpc(null)} topOffsetPx={TOP_MENU_HEIGHT} />
       {/* VOB Tree - left side panel */}
       <VOBTree
         world={world}
@@ -296,13 +303,14 @@ export function App() {
         onWaypointTeleport={handleWaypointTeleport}
         selectedVob={selectedVob}
         selectedWaypoint={selectedWaypoint}
+        topOffsetPx={TOP_MENU_HEIGHT}
       />
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
         <div style={{
           position: 'absolute',
-          top: '10px',
+          top: `${TOP_MENU_HEIGHT + 10}px`,
           left: '330px', // Adjusted to be after the VOB tree
           background: 'rgba(0, 0, 0, 0.8)',
           color: 'white',
@@ -359,6 +367,7 @@ export function App() {
           onNpcClickFromScene={handleNpcClickFromScene}
           npcs={npcs}
           onNpcSpawn={handleNpcSpawn}
+          viewSettings={viewSettings}
         />
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />

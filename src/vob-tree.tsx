@@ -38,6 +38,7 @@ interface VOBTreeProps {
   onWaypointTeleport?: (waypoint: WayPointData) => void;
   selectedVob?: Vob | null;
   selectedWaypoint?: WayPointData | null;
+  topOffsetPx?: number;
 }
 
 function buildVOBTree(world: World): TreeNode[] {
@@ -163,7 +164,7 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTeleport, selectedVob, selectedWaypoint }: VOBTreeProps) {
+export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTeleport, selectedVob, selectedWaypoint, topOffsetPx = 0 }: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -553,7 +554,7 @@ export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTelepor
       <div style={{
         position: 'absolute',
         left: 0,
-        top: 0,
+        top: topOffsetPx,
         bottom: 0,
         width: '320px',
         background: 'rgba(0, 0, 0, 0.85)',
@@ -576,7 +577,7 @@ export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTelepor
       style={{
         position: 'absolute',
         left: 0,
-        top: 0,
+        top: topOffsetPx,
         bottom: 0,
         width: '320px',
         background: 'rgba(0, 0, 0, 0.85)',

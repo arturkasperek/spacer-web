@@ -39,9 +39,11 @@ function safeJson(value: unknown): string {
 export function NpcInspectorOverlay({
   selected,
   onClose,
+  topOffsetPx = 0,
 }: {
   selected: SelectedNpc | null;
   onClose: () => void;
+  topOffsetPx?: number;
 }) {
   const [snapshot, setSnapshot] = useState<NpcInspectorInfo | null>(null);
 
@@ -116,7 +118,7 @@ export function NpcInspectorOverlay({
       style={{
         position: "absolute",
         right: 10,
-        top: 10,
+        top: topOffsetPx + 10,
         zIndex: 1600,
         width: 420,
         maxHeight: "80vh",

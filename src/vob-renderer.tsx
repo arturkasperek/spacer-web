@@ -16,7 +16,7 @@ interface VobData {
 }
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
-function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats, selectedVob, onSelectedVobBoundingBox }: Readonly<{
+function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStats, selectedVob, onSelectedVobBoundingBox, showVobSpots = true, showLights = true }: Readonly<{
   world: World | null;
   zenKit: ZenKit | null;
   cameraPosition?: THREE.Vector3;
@@ -24,6 +24,8 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   onVobStats?: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
   selectedVob?: Vob | null;
   onSelectedVobBoundingBox?: (center: THREE.Vector3, size: THREE.Vector3) => void;
+  showVobSpots?: boolean;
+  showLights?: boolean;
 }>) {
   const { scene } = useThree();
   const hasLoadedRef = useRef(false);
@@ -48,6 +50,24 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   const vobLoadQueueRef = useRef<VobData[]>([]);
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
+
+  const applyViewVisibility = (obj: THREE.Object3D, vob: Vob) => {
+    const vobType = getVobType(vob);
+    if (vobType === 10) {
+      obj.visible = Boolean(showLights);
+    } else if (vobType === 11) {
+      obj.visible = Boolean(showVobSpots);
+    }
+  };
+
+  // Apply visibility toggles to already-loaded VOBs.
+  useEffect(() => {
+    for (const obj of loadedVOBsRef.current.values()) {
+      const vob = (obj.userData as any)?.vob as Vob | undefined;
+      if (!vob) continue;
+      applyViewVisibility(obj, vob);
+    }
+  }, [showLights, showVobSpots]);
 
   useEffect(() => {
     // Only load once
@@ -337,6 +357,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       
       // Apply VOB transform
       applyVobTransform(vobMeshObj, vob);
+      applyViewVisibility(vobMeshObj, vob);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -445,6 +466,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         
         // Apply VOB transform
         applyVobTransform(modelGroup, vob);
+        applyViewVisibility(modelGroup, vob);
         scene.add(modelGroup);
         
         if (vobId) {
@@ -540,6 +562,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Apply VOB transform using the same approach as regular VOBs
       applyVobTransform(modelGroup, vob);
+      applyViewVisibility(modelGroup, vob);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -601,6 +624,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);
+      applyViewVisibility(morphMesh, vob);
 
       // Register loaded VOB and add to scene
       if (vobId) {
