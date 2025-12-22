@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
 import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
+import { ensureMeshHasBVH } from "./bvh-utils";
+import { registerCollidableVobObject, unregisterCollidableVobObject } from "./vob-collider-registry";
 import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from "./distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from '@kolarz3/zenkit';
 
@@ -41,6 +43,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
   // Asset caches to avoid reloading
   const meshCacheRef = useRef(new Map<string, ProcessedMeshData>()); // path -> processed mesh data
+  const threeMeshCacheRef = useRef(new Map<string, { geometry: THREE.BufferGeometry; materials: THREE.MeshBasicMaterial[] }>()); // path -> Three.js mesh parts (shared)
   const textureCacheRef = useRef(new Map<string, THREE.DataTexture>()); // path -> THREE.DataTexture
   const materialCacheRef = useRef(new Map<string, THREE.Material>()); // texture path -> THREE.Material
   const modelCacheRef = useRef(new Map<string, Model>()); // path -> ZenKit Model instance
@@ -200,6 +203,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       for (const id of toUnload) {
         const mesh = loadedVOBsRef.current.get(id);
         if (mesh) {
+          unregisterCollidableVobObject(id);
           scene.remove(mesh);
           disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
@@ -324,19 +328,21 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     if (!zenKit) return false;
     
     try {
+      const isCollidableVob = Boolean((vob as any)?.cdStatic) || Boolean((vob as any)?.cdDynamic);
+
       // Load mesh with caching
       const processed = await loadMeshCached(meshPath, zenKit, meshCacheRef.current);
       if (!processed) {
         return false;
       }
 
-      // Build Three.js geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
-        processed,
-        zenKit,
-        textureCacheRef.current,
-        materialCacheRef.current
-      );
+      // Build Three.js geometry/materials once per meshPath so BVHs can be built once and reused by all instances.
+      let cached = threeMeshCacheRef.current.get(meshPath);
+      if (!cached) {
+        cached = await buildThreeJSGeometryAndMaterials(processed, zenKit, textureCacheRef.current, materialCacheRef.current);
+        threeMeshCacheRef.current.set(meshPath, cached);
+      }
+      const { geometry, materials } = cached;
 
       // Verify geometry has data
       if (!geometry || geometry.attributes.position === undefined || geometry.attributes.position.count === 0) {
@@ -349,6 +355,10 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       
       // Store VOB reference for click detection
       vobMeshObj.userData.vob = vob;
+      vobMeshObj.userData.isCollidableVob = isCollidableVob;
+      if (isCollidableVob) {
+        ensureCollisionMetadata(vobMeshObj, processed);
+      }
       
       // Verify materials
       if (!materials || (Array.isArray(materials) && materials.length === 0)) {
@@ -359,10 +369,19 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       applyVobTransform(vobMeshObj, vob);
       applyViewVisibility(vobMeshObj, vob);
 
+      // Precompute BVH for collidable VOB meshes (shared via cached geometry).
+      if (isCollidableVob) {
+        await ensureMeshHasBVH(vobMeshObj, { maxLeafTris: 3 });
+      }
+
       // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
         scene.add(vobMeshObj);
+
+        if (isCollidableVob) {
+          registerCollidableVobObject(vobId, vobMeshObj);
+        }
         
         // Verify it's actually in the scene
         if (!scene.children.includes(vobMeshObj)) {
@@ -385,6 +404,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     if (!zenKit) return false;
     
     try {
+      const isCollidableVob = Boolean((vob as any)?.cdStatic) || Boolean((vob as any)?.cdDynamic);
       const visualName = vob.visual.name;
 
       // Build model path - convert to .MDL file
@@ -421,6 +441,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         
         // Store VOB reference for click detection
         modelGroup.userData.vob = vob;
+        modelGroup.userData.isCollidableVob = isCollidableVob;
         
         // Get root translation from hierarchy (similar to OpenGothic's mkBaseTranslation)
         // OpenGothic's mkBaseTranslation() extracts from processed root node transform and negates it
@@ -455,6 +476,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           // Create mesh - soft-skin meshes are positioned relative to root node
           // Apply root node translation offset (similar to OpenGothic's mkBaseTranslation logic)
           const softSkinMeshObj = new THREE.Mesh(geometry, materials);
+          softSkinMeshObj.userData.vob = vob;
+          softSkinMeshObj.userData.isCollidableVob = isCollidableVob;
+          if (isCollidableVob) {
+            ensureCollisionMetadata(softSkinMeshObj, processed);
+            await ensureMeshHasBVH(softSkinMeshObj, { maxLeafTris: 3 });
+          }
           softSkinMeshObj.position.copy(rootNodeTranslation);
 
           modelGroup.add(softSkinMeshObj);
@@ -471,6 +498,9 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         
         if (vobId) {
           loadedVOBsRef.current.set(vobId, modelGroup);
+          if (isCollidableVob) {
+            registerCollidableVobObject(vobId, modelGroup);
+          }
         }
         
         return true;
@@ -484,6 +514,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       
       // Store VOB reference for click detection
       modelGroup.userData.vob = vob;
+      modelGroup.userData.isCollidableVob = isCollidableVob;
 
       // Helper function to accumulate transforms up the hierarchy chain
       function getAccumulatedTransform(nodeIndex: number) {
@@ -546,6 +577,12 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 
         // Create mesh for this attachment
         const attachmentMesh = new THREE.Mesh(geometry, materials);
+        attachmentMesh.userData.vob = vob;
+        attachmentMesh.userData.isCollidableVob = isCollidableVob;
+        if (isCollidableVob) {
+          ensureCollisionMetadata(attachmentMesh, processed);
+          await ensureMeshHasBVH(attachmentMesh, { maxLeafTris: 3 });
+        }
 
         // Apply accumulated hierarchy transform if found
         if (hierarchyNodeIndex >= 0) {
@@ -568,6 +605,10 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
         scene.add(modelGroup);
+
+        if (isCollidableVob) {
+          registerCollidableVobObject(vobId, modelGroup);
+        }
         
         // Verify it's actually in the scene
         if (!scene.children.includes(modelGroup)) {
@@ -590,6 +631,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
     if (!zenKit) return false;
     
     try {
+      const isCollidableVob = Boolean((vob as any)?.cdStatic) || Boolean((vob as any)?.cdDynamic);
       const visualName = vob.visual.name;
 
       // Build morph mesh path - convert to .MMB file
@@ -621,6 +663,11 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       
       // Store VOB reference for click detection
       morphMesh.userData.vob = vob;
+      morphMesh.userData.isCollidableVob = isCollidableVob;
+      if (isCollidableVob) {
+        ensureCollisionMetadata(morphMesh, morphData.processed);
+        await ensureMeshHasBVH(morphMesh, { maxLeafTris: 3 });
+      }
 
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);
@@ -630,6 +677,10 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
         scene.add(morphMesh);
+
+        if (isCollidableVob) {
+          registerCollidableVobObject(vobId, morphMesh);
+        }
         
         // Verify it's actually in the scene
         if (!scene.children.includes(morphMesh)) {
@@ -915,3 +966,20 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
 }
 
 export { VOBRenderer };
+  const ensureCollisionMetadata = (
+    mesh: THREE.Mesh,
+    processed: ProcessedMeshData
+  ): void => {
+    const triCount = processed.materialIds.size();
+    const materialIds = new Int32Array(triCount);
+    for (let i = 0; i < triCount; i++) materialIds[i] = processed.materialIds.get(i);
+    (mesh.geometry as any).userData.materialIds = materialIds;
+
+    const matCount = processed.materials.size();
+    const noCollDetByMaterialId: boolean[] = new Array(matCount);
+    for (let mi = 0; mi < matCount; mi++) {
+      const mat = processed.materials.get(mi) as any;
+      noCollDetByMaterialId[mi] = Boolean(mat?.disableCollision);
+    }
+    (mesh as any).userData.noCollDetByMaterialId = noCollDetByMaterialId;
+  };
