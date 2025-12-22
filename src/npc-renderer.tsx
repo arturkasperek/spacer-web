@@ -29,8 +29,6 @@ import { spreadSpawnXZ } from "./npc-spawn-spread";
 import { getRuntimeVm } from "./vm-manager";
 import { advanceNpcStateTime, setNpcStateTime } from "./vm-manager";
 import { getWorldTime, useWorldTime } from "./world-time";
-import { queryCollidableVobMeshesXZ } from "./vob-collider-registry";
-import { applyNpcVobBVHCollisionXZ } from "./npc-world-collision";
 
 interface NpcRendererProps {
   world: World | null;
@@ -92,7 +90,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const waypointPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
   const waypointDirIndexRef = useRef<Map<string, THREE.Quaternion>>(new Map());
   const vobPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
-  // Collidable VOB meshes are registered by VOBRenderer as they stream in (see vob-collider-registry).
   const routineTickKeyRef = useRef<string>("");
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
   const warnedNoWorldMeshRef = useRef(false);
@@ -157,8 +154,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       fallBackoffDistance: 20,
     };
   }, []);
-
-  // NOTE: no per-world init needed for VOB BVH collisions.
 
   // Distance-based streaming
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -717,22 +712,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
-
-    // Resolve NPC-vs-VOB collisions in XZ using BVH triangle collisions on collidable VOB meshes.
-    {
-      const candidates = queryCollidableVobMeshesXZ(
-        desiredX,
-        desiredZ,
-        Math.max(250, collisionConfig.radius * 4),
-        { maxResults: 32 }
-      );
-      if (candidates.length) {
-        const r = applyNpcVobBVHCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, candidates, collisionConfig);
-        desiredX = r.x;
-        desiredZ = r.z;
-      }
-    }
-
     const worldRes = applyNpcWorldCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, ground, dt, collisionConfig);
     return { blocked: Boolean(npcGroup.userData._npcNpcBlocked) || worldRes.blocked, moved: worldRes.moved };
   };

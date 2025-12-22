@@ -4,7 +4,6 @@ import type { World, ZenKit } from '@kolarz3/zenkit';
 import { loadVm, type NpcSpawnCallback } from './vm-manager';
 import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
 import { tgaNameToCompiledUrl } from './vob-utils';
-import { ensureMeshHasBVH } from "./bvh-utils";
 
 // World Renderer Component - loads ZenKit and renders world mesh
 function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }: Readonly<{
@@ -137,8 +136,18 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         (threeMesh as any).userData.noCollDetByMaterialId = noCollDetByMaterialId;
 
         // Speed up frequent raycasts (NPC ground sampling, picking, etc.) by building a BVH once for the world mesh.
-        if (await ensureMeshHasBVH(threeMesh, { maxLeafTris: 3 })) {
-          console.log("[World] BVH built for WORLD_MESH raycasts");
+        // If the dependency isn't available for some reason, we fall back to Three.js' default raycast.
+        try {
+          const bvhMod = await import("three-mesh-bvh");
+          const MeshBVH = (bvhMod as any).MeshBVH as any;
+          const acceleratedRaycast = (bvhMod as any).acceleratedRaycast as any;
+          if (MeshBVH && acceleratedRaycast) {
+            (geometry as any).boundsTree = new MeshBVH(geometry, { maxLeafTris: 3 });
+            (threeMesh as any).raycast = acceleratedRaycast;
+            console.log("[World] BVH built for WORLD_MESH raycasts");
+          }
+        } catch {
+          // Optional optimization only.
         }
 
         setWorldMesh(threeMesh);
