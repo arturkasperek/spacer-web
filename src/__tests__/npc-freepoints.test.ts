@@ -33,11 +33,13 @@ describe("npc freepoints", () => {
   let acquireFreepointForNpc: typeof import("../npc-freepoints").acquireFreepointForNpc;
   let findFreepointForNpc: typeof import("../npc-freepoints").findFreepointForNpc;
   let isFreepointAvailableForNpc: typeof import("../npc-freepoints").isFreepointAvailableForNpc;
+  let isNpcOnFreepoint: typeof import("../npc-freepoints").isNpcOnFreepoint;
 
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
-    ({ setFreepointsWorld, updateNpcWorldPosition, acquireFreepointForNpc, findFreepointForNpc, isFreepointAvailableForNpc } = await import("../npc-freepoints"));
+    ({ setFreepointsWorld, updateNpcWorldPosition, acquireFreepointForNpc, findFreepointForNpc, isFreepointAvailableForNpc, isNpcOnFreepoint } =
+      await import("../npc-freepoints"));
   });
 
   afterEach(() => {
@@ -112,7 +114,7 @@ describe("npc freepoints", () => {
     expect(other2?.vobId).toBe(spot.id);
   });
 
-  it("avoids choosing the spot the NPC is already standing on for checkDistance=false", () => {
+  it("avoids choosing the spot the NPC is currently using for checkDistance=false (FindSpot firstbest)", () => {
     const spotA = {
       id: 31,
       type: 11,
@@ -136,8 +138,35 @@ describe("npc freepoints", () => {
     setFreepointsWorld(world);
     updateNpcWorldPosition(10, { x: 0, y: 0, z: 0 });
 
+    // Mark spotA as used by this NPC (mimics zCVobSpot::inUseVob == npc).
+    jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const acquired = acquireFreepointForNpc(10, "FP_ROAM_A", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(acquired?.vobId).toBe(spotA.id);
+
     const spot = findFreepointForNpc(10, "FP_ROAM", { checkDistance: false });
     expect(spot?.vobId).toBe(spotB.id);
+  });
+
+  it("Npc_IsOnFP requires the NPC to be the spot holder (not just nearby)", () => {
+    const spot = {
+      id: 61,
+      type: 11,
+      vobName: "FP_STAND_TEST",
+      name: "zCVobSpot",
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+
+    setFreepointsWorld(world);
+    updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
+
+    expect(isNpcOnFreepoint(1, "STAND", 100)).toBe(false);
+
+    jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+    acquireFreepointForNpc(1, "STAND", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(isNpcOnFreepoint(1, "STAND", 100)).toBe(true);
   });
 
   it("treats STAND as STAND-or-ROAM to avoid far stand-only spots", () => {

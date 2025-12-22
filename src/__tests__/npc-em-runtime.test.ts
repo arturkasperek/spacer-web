@@ -96,4 +96,55 @@ describe("npc event manager runtime", () => {
     updateNpcEventManager(npcIndex, npcId, group, 2.0, { mover: null, estimateAnimationDurationMs: (_model: string, _ani: string) => 1000 });
     expect((group.userData as any)._emSuppressLocomotion).toBeUndefined();
   });
+
+  it("does not start queued move jobs while a mover movement is already active (engine-like job semantics)", () => {
+    const npcIndex = 900;
+    const npcId = `npc-${npcIndex}`;
+    const group = new THREE.Group();
+
+    const moveState = new Map<string, { done: boolean; stepsLeft: number }>();
+    const startMoveToWaypoint = jest.fn((id: string) => {
+      moveState.set(id, { done: false, stepsLeft: 2 });
+      return true;
+    });
+    const startMoveToFreepoint = jest.fn((_id: string) => true);
+
+    const mover = {
+      startMoveToWaypoint,
+      startMoveToFreepoint,
+      update: (id: string, g: any) => {
+        const st = moveState.get(id);
+        if (!st || st.done) return { moved: false, mode: "idle" as const };
+        st.stepsLeft -= 1;
+        g.position.x += 1;
+        if (st.stepsLeft <= 0) st.done = true;
+        return { moved: true, mode: st.done ? ("idle" as const) : ("walk" as const) };
+      },
+      getMoveState: (id: string) => {
+        const st = moveState.get(id);
+        return st ? ({ done: st.done } as any) : null;
+      },
+      clearForNpc: (id: string) => {
+        moveState.delete(id);
+      },
+    } as any;
+
+    // Movement already started outside the EM queue (e.g. routine relocation).
+    mover.startMoveToWaypoint(npcId, group, "ROUTE_WP", { locomotionMode: "walk" });
+
+    // Script loop spams a gotoFreepoint while movement is active.
+    enqueueNpcEmMessage(npcIndex, { type: "gotoFreepoint", freepointName: "FP_ROAM", checkDistance: true, dist: 700, locomotionMode: "walk" });
+
+    // While moverBusy, queued move should not be started.
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover });
+    expect(startMoveToFreepoint).not.toHaveBeenCalled();
+
+    // Finish external movement.
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover });
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover });
+
+    // Now the queued move can start.
+    updateNpcEventManager(npcIndex, npcId, group, 0.016, { mover });
+    expect(startMoveToFreepoint).toHaveBeenCalledWith(npcId, group, "FP_ROAM", expect.anything());
+  });
 });

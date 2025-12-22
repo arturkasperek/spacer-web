@@ -1212,22 +1212,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const npcData = g.userData.npcData as NpcData | undefined;
           if (!npcData?.dailyRoutine || !npcData.symbolName) continue;
 
-          // Only run the state loop once the NPC is in the vicinity of its routine target.
-          // Otherwise, routines that try to acquire freepoints can pull the NPC away mid-route.
-          const routineWp = findActiveRoutineWaypoint(npcData.dailyRoutine, t.hour, t.minute);
-          const desired = routineWp || npcData.spawnpoint;
-          if (desired) {
-            const targetKey = normalizeNameKey(desired);
-            const wpPos = waypointPosIndexRef.current.get(targetKey);
-            const vPos = wpPos ? null : vobPosIndexRef.current.get(targetKey);
-            const targetPos = wpPos ?? vPos;
-            if (targetPos) {
-              const dx = targetPos.x - g.position.x;
-              const dz = targetPos.z - g.position.z;
-              const distXZ = Math.hypot(dx, dz);
-              if (distXZ > 500) continue;
-            }
-          }
+          // Unlike older spacer-web builds, we do not gate state-loop execution based on distance to the routine waypoint.
+          // The original engine relies on zCEventManager job semantics (and FindSpot filtering) rather than such gating.
 
           const nextAt = (g.userData as any)._aiLoopNextAtMs as number | undefined;
           if (typeof nextAt === "number" && nextAt > nowMs) continue;

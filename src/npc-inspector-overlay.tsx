@@ -28,6 +28,7 @@ type NpcInspectorInfo = {
     stateTimeSeconds: number;
     nextLoopInMs: number | null;
     lastLoopAgoMs: number | null;
+    loopGate: { target: string | null; satisfied: boolean } | null;
   };
   freepoints: {
     primaryTag: string | null;
@@ -100,6 +101,8 @@ export function NpcInspectorOverlay({
       const nowMs = Date.now();
       const nextAt = (ud?._aiLoopNextAtMs as number | undefined) ?? null;
       const lastAt = (ud?._aiLoopLastAtMs as number | undefined) ?? null;
+      const gateTarget = (ud?._aiLoopGateTargetKey as string | undefined) ?? null;
+      const gateSatisfied = Boolean(ud?._aiLoopGateSatisfied);
 
       const primaryTag = inferPrimaryFreepointTag(routine?.state ?? null);
       const defaultTags = ["PICK", "STAND", "ROAM"];
@@ -153,6 +156,7 @@ export function NpcInspectorOverlay({
           stateTimeSeconds,
           nextLoopInMs: typeof nextAt === "number" ? Math.max(0, nextAt - nowMs) : null,
           lastLoopAgoMs: typeof lastAt === "number" ? Math.max(0, nowMs - lastAt) : null,
+          loopGate: gateTarget ? { target: gateTarget, satisfied: gateSatisfied } : null,
         },
         freepoints: {
           primaryTag,

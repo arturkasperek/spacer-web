@@ -124,6 +124,15 @@ function isInSpotBBox(spot: FreepointSpot, npcPos: NpcPose): boolean {
   return Math.abs(dx) <= FPBOX_DIMENSION && Math.abs(dy) <= FPBOX_DIMENSION_Y && Math.abs(dz) <= FPBOX_DIMENSION;
 }
 
+function isSpotInUseByNpc(spot: FreepointSpot, npcInstanceIndex: number, npcPos: NpcPose): boolean {
+  const res = reservations.get(spot.vobId);
+  if (!res || res.byNpcInstanceIndex !== npcInstanceIndex) return false;
+  // ZenGin's zCVobSpot::IsOnFP is a "who owns the spot" flag (inUseVob == vob),
+  // and IsAvailable() keeps/clears that ownership based on whether the owner is still
+  // inside the freepoint bbox (±50, ±100, ±50). We approximate that behavior here.
+  return isInSpotBBox(spot, npcPos);
+}
+
 function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number, nowMs: number): boolean {
   const res = reservations.get(spot.vobId);
   if (!res) return true;
@@ -192,7 +201,7 @@ export function findFreepointForNpc(
     if (p.z < bboxMinZ || p.z > bboxMaxZ) continue;
     if (!queryKeys.some(q => s.nameUpper.indexOf(q) >= 0)) continue;
     if (!isSpotAvailable(s, npcInstanceIndex, nowMs)) continue;
-    if (avoidCurrentSpot && isInSpotBBox(s, npcPos)) continue;
+    if (avoidCurrentSpot && isSpotInUseByNpc(s, npcInstanceIndex, npcPos)) continue;
     candidates.push(s);
   }
 
@@ -237,10 +246,14 @@ export function isFreepointAvailableForNpc(npcInstanceIndex: number, freepointNa
 export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string, dist: number = 100): boolean {
   const npcPos = npcPosByInstanceIndex.get(npcInstanceIndex);
   if (!npcPos) return false;
-  const spot = findFreepointForNpc(npcInstanceIndex, freepointName, { checkDistance: true, dist, avoidCurrentSpot: false });
+  // Gothic's Npc_IsOnFP() does: FindSpot(name, checkDistance=true, dist=100), then spot->IsOnFP(npc).
+  // zCVobSpot::IsOnFP checks "ownership" (inUseVob == npc), and IsAvailable() keeps/clears ownership
+  // based on whether the owner is still inside the freepoint bbox.
+  const spot = findFreepointForNpc(npcInstanceIndex, freepointName, {
+    checkDistance: true,
+    dist,
+    avoidCurrentSpot: false,
+  });
   if (!spot) return false;
-  const dx = npcPos.x - spot.position.x;
-  const dy = npcPos.y - spot.position.y;
-  const dz = npcPos.z - spot.position.z;
-  return dx * dx + dy * dy + dz * dz <= dist * dist;
+  return isSpotInUseByNpc(spot, npcInstanceIndex, npcPos);
 }
