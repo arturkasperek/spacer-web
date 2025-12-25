@@ -162,6 +162,16 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
  * Register external functions with specific implementations
  */
 export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallback): void {
+  const verboseVmLogsEnabled = (() => {
+    try {
+      if (typeof window === "undefined") return false;
+      const qs = new URLSearchParams(window.location.search);
+      return qs.get("vmDebug") === "1" || qs.get("vmLog") === "1";
+    } catch {
+      return false;
+    }
+  })();
+
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
   const npcVisualsByIndex = new Map<number, NpcVisual>();
@@ -305,7 +315,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       }
 
       const detailsStr = details.length > 0 ? ` (${details.join(', ')})` : '';
-      console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+      if (verboseVmLogsEnabled) {
+        console.log(`👤 Wld_InsertNpc: ${nameStr} at "${spawnpoint}"${detailsStr}`);
+      }
 
       // Reset routine entries for this NPC
       currentRoutineEntries = [];
@@ -318,7 +330,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
             // daily_routine is a function symbol index, get the function name
             const routineFuncNameResult = vm.getSymbolNameByIndex(dailyRoutineSymbol);
             if (routineFuncNameResult.success && routineFuncNameResult.data) {
-              console.log(`  ↳ Calling daily_routine: ${routineFuncNameResult.data}()`);
+              if (verboseVmLogsEnabled) {
+                console.log(`  ↳ Calling daily_routine: ${routineFuncNameResult.data}()`);
+              }
 
               // Set self to the NPC instance before calling the routine
               vm.setGlobalSelf(npcInfo.symbolName);
@@ -517,7 +531,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const npcName = getNpcNameSafe(npcInstanceIndex);
     const stateName = getStateName(state);
 
-    console.log(`📅 TA: ${npcName} | ${start_h}:00 - ${stop_h}:00 | State: ${stateName} | Waypoint: "${waypoint}"`);
+    if (verboseVmLogsEnabled) {
+      console.log(`📅 TA: ${npcName} | ${start_h}:00 - ${stop_h}:00 | State: ${stateName} | Waypoint: "${waypoint}"`);
+    }
 
     // Collect routine entry
     currentRoutineEntries.push({
@@ -542,7 +558,9 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const startTime = `${start_h}:${start_m.toString().padStart(2, '0')}`;
     const stopTime = `${stop_h}:${stop_m.toString().padStart(2, '0')}`;
 
-    console.log(`📅 TA_Min: ${npcName} | ${startTime} - ${stopTime} | State: ${stateName} | Waypoint: "${waypoint}"`);
+    if (verboseVmLogsEnabled) {
+      console.log(`📅 TA_Min: ${npcName} | ${startTime} - ${stopTime} | State: ${stateName} | Waypoint: "${waypoint}"`);
+    }
 
     // Collect routine entry
     currentRoutineEntries.push({

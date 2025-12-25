@@ -31,18 +31,6 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         const ZenKitModule = zenkitModule.default as unknown as () => Promise<ZenKit>;
         const zenKit = await ZenKitModule();
 
-        // Load VM script and call startup function
-        onLoadingStatus('Loading VM script...');
-        try {
-          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn);
-          console.log('VM loaded successfully');
-          onLoadingStatus('VM loaded');
-        } catch (vmError) {
-          console.warn('Failed to load VM script:', vmError);
-          onLoadingStatus(`VM loading failed: ${(vmError as Error).message}`);
-          // Continue with world loading even if VM fails
-        }
-
         onLoadingStatus(`Loading ${worldPath}...`);
 
         // Fetch the ZEN file
@@ -152,6 +140,19 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
 
         setWorldMesh(threeMesh);
         onLoadingStatus('World loaded successfully!');
+
+        // Load VM script and call startup function, but only after the world (and thus waypoints/VOBs) is loaded.
+        // This also ensures `onWorldLoaded` can set any global world references used by VM externals.
+        onLoadingStatus('Loading VM script...');
+        try {
+          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn);
+          console.log('VM loaded successfully');
+          onLoadingStatus('VM loaded');
+        } catch (vmError) {
+          console.warn('Failed to load VM script:', vmError);
+          onLoadingStatus(`VM loading failed: ${(vmError as Error).message}`);
+          // Continue with world rendering even if VM fails
+        }
 
       } catch (error) {
         console.error('Failed to load world:', error);

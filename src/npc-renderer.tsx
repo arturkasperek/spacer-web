@@ -87,9 +87,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const modelScriptRegistryRef = useRef<ModelScriptRegistry | null>(null);
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
-  const waypointPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
-  const waypointDirIndexRef = useRef<Map<string, THREE.Quaternion>>(new Map());
-  const vobPosIndexRef = useRef<Map<string, THREE.Vector3>>(new Map());
   const routineTickKeyRef = useRef<string>("");
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
   const warnedNoWorldMeshRef = useRef(false);
@@ -276,78 +273,77 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const normalizeNameKey = (name: string): string => (name || "").trim().toUpperCase();
 
   // Build quick lookup maps for waypoints and VOBs so routine-based positioning doesn't re-scan the whole world.
-  useEffect(() => {
+  // This is synchronous so spawnpoint/routine resolution never races the index-build effect.
+  const { waypointPosIndex, waypointDirIndex, vobPosIndex } = useMemo(() => {
     const wpIndex = new Map<string, THREE.Vector3>();
     const wpDirIndex = new Map<string, THREE.Quaternion>();
     const vobIndex = new Map<string, THREE.Vector3>();
 
-    if (world) {
-      try {
-        const waypointsVector = world.getAllWaypoints() as any;
-        const waypointCount = waypointsVector.size();
-        for (let i = 0; i < waypointCount; i++) {
-          const wp = waypointsVector.get(i);
-          if (!wp?.name) continue;
-          const key = normalizeNameKey(wp.name);
-          if (!key) continue;
-          wpIndex.set(key, new THREE.Vector3(-wp.position.x, wp.position.y, wp.position.z));
+    if (!world) return { waypointPosIndex: wpIndex, waypointDirIndex: wpDirIndex, vobPosIndex: vobIndex };
 
-          const dir = (wp as any).direction as { x: number; y: number; z: number } | undefined;
-          if (dir && (dir.x !== 0 || dir.y !== 0 || dir.z !== 0)) {
-            const direction = new THREE.Vector3(-dir.x, dir.y, dir.z);
-            const up = new THREE.Vector3(0, 1, 0);
-            const matrix = new THREE.Matrix4();
-            matrix.lookAt(new THREE.Vector3(0, 0, 0), direction, up);
-            const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
-            const yRot = new THREE.Quaternion().setFromAxisAngle(up, Math.PI);
-            q.multiply(yRot);
-            wpDirIndex.set(key, q);
-          }
+    try {
+      const waypointsVector = world.getAllWaypoints() as any;
+      const waypointCount = waypointsVector.size();
+      for (let i = 0; i < waypointCount; i++) {
+        const wp = waypointsVector.get(i);
+        if (!wp?.name) continue;
+        const key = normalizeNameKey(wp.name);
+        if (!key) continue;
+        wpIndex.set(key, new THREE.Vector3(-wp.position.x, wp.position.y, wp.position.z));
+
+        const dir = (wp as any).direction as { x: number; y: number; z: number } | undefined;
+        if (dir && (dir.x !== 0 || dir.y !== 0 || dir.z !== 0)) {
+          const direction = new THREE.Vector3(-dir.x, dir.y, dir.z);
+          const up = new THREE.Vector3(0, 1, 0);
+          const matrix = new THREE.Matrix4();
+          matrix.lookAt(new THREE.Vector3(0, 0, 0), direction, up);
+          const q = new THREE.Quaternion().setFromRotationMatrix(matrix);
+          const yRot = new THREE.Quaternion().setFromAxisAngle(up, Math.PI);
+          q.multiply(yRot);
+          wpDirIndex.set(key, q);
         }
-      } catch {
-        // ignore
+      }
+    } catch {
+      // ignore
+    }
+
+    const stack: any[] = [];
+    try {
+      const roots = world.getVobs();
+      const rootCount = roots.size();
+      for (let i = 0; i < rootCount; i++) {
+        const root = roots.get(i);
+        if (root) stack.push(root);
+      }
+    } catch {
+      // ignore
+    }
+
+    while (stack.length > 0) {
+      const v = stack.pop();
+      if (!v) continue;
+      const keys = [
+        v.name as string | undefined,
+        (v as any).vobName as string | undefined,
+        (v as any).objectName as string | undefined,
+      ];
+      for (const k of keys) {
+        const kk = k ? normalizeNameKey(k) : "";
+        if (!kk) continue;
+        if (!vobIndex.has(kk)) {
+          vobIndex.set(kk, new THREE.Vector3(-v.position.x, v.position.y, v.position.z));
+        }
       }
 
-      const stack: any[] = [];
-      try {
-        const roots = world.getVobs();
-        const rootCount = roots.size();
-        for (let i = 0; i < rootCount; i++) {
-          const root = roots.get(i);
-          if (root) stack.push(root);
-        }
-      } catch {
-        // ignore
-      }
-
-      while (stack.length > 0) {
-        const v = stack.pop();
-        if (!v) continue;
-        const keys = [
-          v.name as string | undefined,
-          (v as any).vobName as string | undefined,
-          (v as any).objectName as string | undefined,
-        ];
-        for (const k of keys) {
-          const kk = k ? normalizeNameKey(k) : "";
-          if (!kk) continue;
-          if (!vobIndex.has(kk)) {
-            vobIndex.set(kk, new THREE.Vector3(-v.position.x, v.position.y, v.position.z));
-          }
-        }
-
-        const children = v.children;
-        const n = children?.size?.() ?? 0;
-        for (let i = 0; i < n; i++) {
-          const child = children.get(i);
-          if (child) stack.push(child);
-        }
+      const children = v.children;
+      const n = children?.size?.() ?? 0;
+      for (let i = 0; i < n; i++) {
+        const child = children.get(i);
+        if (child) stack.push(child);
       }
     }
 
-    waypointPosIndexRef.current = wpIndex;
-    waypointDirIndexRef.current = wpDirIndex;
-    vobPosIndexRef.current = vobIndex;
+    return { waypointPosIndex: wpIndex, waypointDirIndex: wpDirIndex, vobPosIndex: vobIndex };
   }, [world]);
 
   const estimateAnimationDurationMs = useMemo(() => {
@@ -363,8 +359,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   const getNearestWaypointDirectionQuat = useMemo(() => {
     return (pos: THREE.Vector3): THREE.Quaternion | null => {
-      const wpPos = waypointPosIndexRef.current;
-      const wpDir = waypointDirIndexRef.current;
+      const wpPos = waypointPosIndex;
+      const wpDir = waypointDirIndex;
       let bestKey: string | null = null;
       let bestD2 = Infinity;
       for (const [k, p] of wpPos.entries()) {
@@ -429,11 +425,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         position = [loaded.position.x, loaded.position.y, loaded.position.z];
       } else if (waypointName) {
         const key = normalizeNameKey(waypointName);
-        const wpPos = waypointPosIndexRef.current.get(key);
+        const wpPos = waypointPosIndex.get(key);
         if (wpPos) {
           position = [wpPos.x, wpPos.y, wpPos.z];
         } else {
-          const vPos = vobPosIndexRef.current.get(key);
+          const vPos = vobPosIndex.get(key);
           if (vPos) position = [vPos.x, vPos.y, vPos.z];
         }
       }
@@ -450,7 +446,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     return renderableNpcs;
-  }, [world, npcsKey, enabled, worldTime.hour, worldTime.minute]);
+  }, [world, npcsKey, enabled, worldTime.hour, worldTime.minute, waypointPosIndex, vobPosIndex]);
 
   // Store NPCs with positions for streaming
   useEffect(() => {
@@ -1168,8 +1164,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           (g.userData as any)._routineDesired = desired;
 
           const targetKey = normalizeNameKey(desired);
-          const wpPos = waypointPosIndexRef.current.get(targetKey);
-          const vPos = wpPos ? null : vobPosIndexRef.current.get(targetKey);
+          const wpPos = waypointPosIndex.get(targetKey);
+          const vPos = wpPos ? null : vobPosIndex.get(targetKey);
           const targetPos = wpPos ?? vPos;
           if (!targetPos) continue;
 
