@@ -3,6 +3,7 @@ import type { ZenKit } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob-utils.js";
 import { loadCompiledTexAsDataTexture } from "../mesh-utils.js";
 import type { CpuSkinningData } from "./cpu-skinning.js";
+import { convertToPacked } from "./cpu-skinning.js";
 
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;
@@ -149,6 +150,9 @@ export async function buildSoftSkinMeshCPU(params: {
     basePositions: new Float32Array(positions),
     baseNormals: new Float32Array(normals),
   };
+
+  // Convert to packed format once at creation time (not every frame!)
+  skinningData.packed = convertToPacked(skinningData);
 
   return { mesh, skinningData };
 }
