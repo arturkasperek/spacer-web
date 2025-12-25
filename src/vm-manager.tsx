@@ -1,6 +1,6 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from '@kolarz3/zenkit';
 import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from './types';
-import { isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints";
+import { getNpcWorldPosition, isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints";
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 import { addNpcOverlayModelScript, removeNpcOverlayModelScript, setNpcBaseModelScript } from "./npc-model-scripts";
 import { normalizeMdsToScriptKey } from "./model-script-registry";
@@ -462,6 +462,24 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     if (!npcIndex || !Number.isFinite(secs)) return;
     setNpcStateTime(npcIndex, secs);
   });
+
+  const registerNpcGetDistToNpc = (name: string) => {
+    registerExternalSafe(vm, name, (a: any, b: any) => {
+      const aIdx = getInstanceIndexFromArg(a);
+      const bIdx = getInstanceIndexFromArg(b);
+      if (!aIdx || !bIdx) return 1_000_000;
+      const ap = getNpcWorldPosition(aIdx);
+      const bp = getNpcWorldPosition(bIdx);
+      if (!ap || !bp) return 1_000_000;
+      const dx = ap.x - bp.x;
+      const dy = ap.y - bp.y;
+      const dz = ap.z - bp.z;
+      return Math.floor(Math.hypot(dx, dy, dz));
+    });
+  };
+
+  registerNpcGetDistToNpc("Npc_GetDistToNpc");
+  registerNpcGetDistToNpc("NPC_GETDISTTONPC");
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc('Wld_InsertNpc');

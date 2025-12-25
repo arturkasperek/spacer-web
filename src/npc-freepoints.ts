@@ -161,6 +161,11 @@ export function removeNpcWorldPosition(instanceIndex: number): void {
   npcPosByInstanceIndex.delete(instanceIndex);
 }
 
+export function getNpcWorldPosition(instanceIndex: number): NpcPose | null {
+  const p = npcPosByInstanceIndex.get(instanceIndex);
+  return p ? { x: p.x, y: p.y, z: p.z } : null;
+}
+
 export type FindFreepointOptions = {
   checkDistance?: boolean;
   dist?: number;
