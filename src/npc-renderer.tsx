@@ -410,6 +410,23 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let position: [number, number, number] | null = null;
       let waypointName: string | null = null;
 
+      // ZenGin-like behavior: routine-driven NPC spawning depends on routine "wayboxes" derived from
+      // existing waynet waypoints. If a routine references no existing waypoint at all, the original game
+      // effectively never spawns the NPC. Mimic that by not rendering it.
+      if (npcData.dailyRoutine && npcData.dailyRoutine.length > 0) {
+        let hasAnyRoutineWaypointInWaynet = false;
+        for (const r of npcData.dailyRoutine) {
+          const k = normalizeNameKey(r?.waypoint ?? "");
+          if (k && waypointPosIndex.has(k)) {
+            hasAnyRoutineWaypointInWaynet = true;
+            break;
+          }
+        }
+        if (!hasAnyRoutineWaypointInWaynet) {
+          continue;
+        }
+      }
+
       // Priority 1: Check routine waypoint at current time (10:00)
       const routineWaypoint = findActiveRoutineWaypoint(npcData.dailyRoutine, CURRENT_HOUR, CURRENT_MINUTE);
       if (routineWaypoint) {
@@ -464,6 +481,27 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     allNpcsByIdRef.current = byId;
     allNpcsByInstanceIndexRef.current = byIdx;
     npcItemsRef.current = items;
+
+    // If some NPCs disappeared from the computed list (e.g. we decided they should never be spawned),
+    // make sure we also unload any already-loaded instances immediately.
+    const toRemove: string[] = [];
+    for (const id of loadedNpcsRef.current.keys()) {
+      if (!byId.has(id)) toRemove.push(id);
+    }
+    for (const npcId of toRemove) {
+      const npcGroup = loadedNpcsRef.current.get(npcId);
+      if (!npcGroup) continue;
+      npcGroup.userData.isDisposed = true;
+      const npcData = npcGroup.userData.npcData as NpcData | undefined;
+      if (npcData) removeNpcWorldPosition(npcData.instanceIndex);
+      const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+      const isLoading = Boolean(npcGroup.userData.modelLoading);
+      if (instance && !isLoading) instance.dispose();
+      if (npcsGroupRef.current) npcsGroupRef.current.remove(npcGroup);
+      disposeObject3D(npcGroup);
+      loadedNpcsRef.current.delete(npcId);
+      if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
+    }
   }, [npcsWithPositions]);
 
   useEffect(() => {
