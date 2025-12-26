@@ -1232,6 +1232,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
+    // Sync current world positions for all loaded NPCs before the VM/state-loop tick.
+    // This ensures builtins like `Npc_IsOnFP` / `Wld_IsFPAvailable` see up-to-date coordinates.
+    for (const g of loadedNpcsRef.current.values()) {
+      if (!g || g.userData.isDisposed) continue;
+      const npcData = g.userData.npcData as NpcData | undefined;
+      if (!npcData) continue;
+      updateNpcWorldPosition(npcData.instanceIndex, { x: g.position.x, y: g.position.y, z: g.position.z });
+    }
+
     // Run a minimal Daedalus "state loop" tick for loaded NPCs.
     // This is what triggers scripts like `zs_bandit_loop()` that call `AI_GotoFP(...)`.
     {
@@ -1425,7 +1434,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
-      updateNpcWorldPosition(npcData.instanceIndex, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       let tryingToMoveThisFrame = false;
