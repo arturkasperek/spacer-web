@@ -467,19 +467,33 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     registerExternalSafe(vm, name, (a: any, b: any) => {
       const aIdx = getInstanceIndexFromArg(a);
       const bIdx = getInstanceIndexFromArg(b);
-      if (!aIdx || !bIdx) return 1_000_000;
+      if (aIdx == null || bIdx == null || aIdx <= 0 || bIdx <= 0) return 1_000_000;
       const ap = getNpcWorldPosition(aIdx);
       const bp = getNpcWorldPosition(bIdx);
       if (!ap || !bp) return 1_000_000;
       const dx = ap.x - bp.x;
-      const dy = ap.y - bp.y;
       const dz = ap.z - bp.z;
-      return Math.floor(Math.hypot(dx, dy, dz));
+      return Math.floor(Math.hypot(dx, dz));
     });
   };
 
   registerNpcGetDistToNpc("Npc_GetDistToNpc");
   registerNpcGetDistToNpc("NPC_GETDISTTONPC");
+
+  const registerNpcGetHeightToNpc = (name: string) => {
+    registerExternalSafe(vm, name, (a: any, b: any) => {
+      const aIdx = getInstanceIndexFromArg(a);
+      const bIdx = getInstanceIndexFromArg(b);
+      if (aIdx == null || bIdx == null || aIdx <= 0 || bIdx <= 0) return 1_000_000;
+      const ap = getNpcWorldPosition(aIdx);
+      const bp = getNpcWorldPosition(bIdx);
+      if (!ap || !bp) return 1_000_000;
+      return Math.floor(Math.abs(ap.y - bp.y));
+    });
+  };
+
+  registerNpcGetHeightToNpc("Npc_GetHeightToNpc");
+  registerNpcGetHeightToNpc("NPC_GETHEIGHTTONPC");
 
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc('Wld_InsertNpc');

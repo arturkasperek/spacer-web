@@ -1156,8 +1156,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const npcGroup = loadedNpcsRef.current.get(npcId);
         if (npcGroup && npcsGroupRef.current) {
           npcGroup.userData.isDisposed = true;
-          const npcData = npcGroup.userData.npcData as NpcData | undefined;
-          if (npcData) removeNpcWorldPosition(npcData.instanceIndex);
           const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
           const isLoading = Boolean(npcGroup.userData.modelLoading);
           if (instance && !isLoading) instance.dispose();
