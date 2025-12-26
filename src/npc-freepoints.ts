@@ -113,7 +113,6 @@ function ensureSpotIndex(): FreepointSpot[] {
   }
 
   spotIndex = spots;
-  reservations.clear();
   return spots;
 }
 
