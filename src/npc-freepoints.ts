@@ -22,7 +22,7 @@ const reservations = new Map<number, SpotReservation>();
 const npcPosByInstanceIndex = new Map<number, NpcPose>();
 
 const FPBOX_DIMENSION = 50;
-const FPBOX_DIMENSION_Y = FPBOX_DIMENSION * 2;
+const FPBOX_DIMENSION_Y = 200;
 
 const toUpperKey = (s: string): string => (s || "").trim().toUpperCase();
 
@@ -168,6 +168,7 @@ export function getNpcWorldPosition(instanceIndex: number): NpcPose | null {
 export type FindFreepointOptions = {
   checkDistance?: boolean;
   dist?: number;
+  distY?: number;
   avoidCurrentSpot?: boolean;
 };
 
@@ -186,14 +187,15 @@ export function findFreepointForNpc(
   if (queryKeys.length === 0) return null;
 
   const dist = options?.dist ?? 2000;
+  const distY = options?.distY ?? dist;
   const checkDistance = options?.checkDistance ?? true;
   const avoidCurrentSpot = options?.avoidCurrentSpot ?? !checkDistance;
   const nowMs = Date.now();
 
   const bboxMinX = npcPos.x - dist;
   const bboxMaxX = npcPos.x + dist;
-  const bboxMinY = npcPos.y - dist;
-  const bboxMaxY = npcPos.y + dist;
+  const bboxMinY = npcPos.y - distY;
+  const bboxMaxY = npcPos.y + distY;
   const bboxMinZ = npcPos.z - dist;
   const bboxMaxZ = npcPos.z + dist;
 
@@ -253,9 +255,12 @@ export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string
   // Gothic's Npc_IsOnFP() does: FindSpot(name, checkDistance=true, dist=100), then spot->IsOnFP(npc).
   // zCVobSpot::IsOnFP checks "ownership" (inUseVob == npc), and IsAvailable() keeps/clears ownership
   // based on whether the owner is still inside the freepoint bbox.
+  // In spacer-web, freepoints can be vertically offset from walkable ground (missing collision / stacked geometry),
+  // so we allow a wider vertical search window than `dist` while still keeping the original bbox ownership check.
   const spot = findFreepointForNpc(npcInstanceIndex, freepointName, {
     checkDistance: true,
     dist,
+    distY: Math.max(dist, FPBOX_DIMENSION_Y),
     avoidCurrentSpot: false,
   });
   if (!spot) return false;

@@ -194,6 +194,28 @@ describe("npc freepoints", () => {
     expect(isNpcOnFreepoint(1, "STAND", 100)).toBe(true);
   });
 
+  it("Npc_IsOnFP tolerates vertical offsets between spot and NPC position", () => {
+    const spot = {
+      id: 72,
+      type: 11,
+      vobName: "FP_PICK_TEST",
+      name: "zCVobSpot",
+      position: { x: 0, y: 150, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+
+    setFreepointsWorld(world);
+    updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
+
+    jest.spyOn(Date, "now").mockReturnValue(1_000_000);
+    acquireFreepointForNpc(1, "FP_PICK_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+
+    // With missing collision or stacked geometry, the NPC can be far below the spot in Y but still "on" it logically.
+    expect(isNpcOnFreepoint(1, "FP_PICK_TEST", 100)).toBe(true);
+  });
+
   it("treats STAND as STAND-or-ROAM to avoid far stand-only spots", () => {
     const roamNear = {
       id: 41,
