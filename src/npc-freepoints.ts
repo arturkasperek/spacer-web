@@ -14,6 +14,12 @@ type SpotReservation = {
   untilMs: number;
 };
 
+export type FreepointReservationInfo = {
+  spotVobId: number;
+  byNpcInstanceIndex: number;
+  untilMs: number;
+};
+
 type NpcPose = { x: number; y: number; z: number };
 
 let worldRef: World | null = null;
@@ -173,6 +179,18 @@ export function removeNpcWorldPosition(instanceIndex: number): void {
 export function getNpcWorldPosition(instanceIndex: number): NpcPose | null {
   const p = npcPosByInstanceIndex.get(instanceIndex);
   return p ? { x: p.x, y: p.y, z: p.z } : null;
+}
+
+export function getFreepointReservationsSnapshot(): FreepointReservationInfo[] {
+  const out: FreepointReservationInfo[] = [];
+  for (const [spotVobId, res] of reservations.entries()) {
+    out.push({ spotVobId, byNpcInstanceIndex: res.byNpcInstanceIndex, untilMs: res.untilMs });
+  }
+  return out;
+}
+
+export function getFreepointSpotsSnapshot(): ReadonlyArray<FreepointSpot> {
+  return ensureSpotIndex();
 }
 
 export type FindFreepointOptions = {
