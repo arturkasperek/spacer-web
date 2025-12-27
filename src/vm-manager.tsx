@@ -4,6 +4,9 @@ import { getNpcWorldPosition, isFreepointAvailableForNpc, isNpcOnFreepoint } fro
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 import { addNpcOverlayModelScript, removeNpcOverlayModelScript, setNpcBaseModelScript } from "./npc-model-scripts";
 import { normalizeMdsToScriptKey } from "./model-script-registry";
+import { getWorldTime } from "./world-time";
+import { getNpcRoutineWaypointName } from "./npc-routine-runtime";
+import { getWaynetWaypointPosition } from "./waynet-index";
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -172,9 +175,40 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     }
   })();
 
+  const routineDebug = (() => {
+    try {
+      if (typeof window === "undefined") return { enabled: false, npc: "" };
+      const qs = new URLSearchParams(window.location.search);
+      const enabled = qs.get("npcRoutineDebug") === "1";
+      const npc = (qs.get("npcRoutineDebugNpc") || "BAU_952_VINO").trim().toUpperCase();
+      return { enabled, npc };
+    } catch {
+      return { enabled: false, npc: "" };
+    }
+  })();
+
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
   const npcVisualsByIndex = new Map<number, NpcVisual>();
+
+  const isTimeBetweenLikeZenGin = (h1: number, m1: number, h2: number, m2: number, nowH: number, nowM: number): boolean => {
+    const time1 = Math.floor(h1) * 60 + Math.floor(m1);
+    let time2 = Math.floor(h2) * 60 + Math.floor(m2);
+    // ZenGin: "end time minus 1 minute" to avoid overlaps (unless both times are equal).
+    if (time2 !== time1) time2 -= 1;
+    const worldTime = Math.floor(nowH) * 60 + Math.floor(nowM);
+    if (time2 < time1) return worldTime >= time1 || worldTime <= time2;
+    return time1 <= worldTime && worldTime <= time2;
+  };
+
+  // World-time externals (used widely in scripts, including some routine schedulers).
+  registerExternalSafe(vm, "Wld_GetDay", () => getWorldTime().day);
+  registerExternalSafe(vm, "Wld_GetHour", () => getWorldTime().hour);
+  registerExternalSafe(vm, "Wld_GetMinute", () => getWorldTime().minute);
+  registerExternalSafe(vm, "Wld_IsTime", (h1: number, m1: number, h2: number, m2: number) => {
+    const t = getWorldTime();
+    return isTimeBetweenLikeZenGin(h1, m1, h2, m2, t.hour, t.minute) ? 1 : 0;
+  });
 
   const getInstanceIndexFromArg = (arg: any): number | null => {
     if (typeof arg === 'number' && Number.isFinite(arg)) return arg;
@@ -407,8 +441,53 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   // Movement / animation actions (minimal, queued via NPC EM)
   registerExternalSafe(vm, "AI_GotoWP", (npc: any, wpName: any) => {
     const { npcIndex, name } = parseNpcAndNameArgs(npc, wpName);
-    if (!npcIndex || !name) return;
-    enqueueNpcEmMessage(npcIndex, { type: "gotoWaypoint", waypointName: name, locomotionMode: "walk" });
+    if (!npcIndex) return;
+    const resolved = name && name.trim() ? name : getNpcRoutineWaypointName(npcIndex);
+    if (!resolved) return;
+    if (routineDebug.enabled) {
+      const sym = vm.getSymbolNameByIndex(npcIndex);
+      const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
+      if (npcSym === routineDebug.npc) {
+        console.log(`[vm] AI_GotoWP ${npcSym}`, { raw: name, resolved });
+      }
+    }
+    enqueueNpcEmMessage(npcIndex, { type: "gotoWaypoint", waypointName: resolved, locomotionMode: "walk" });
+  });
+
+  // Distance helpers (used heavily by TA_* states)
+  registerExternalSafe(vm, "Npc_GetDistToWP", (npc: any, wpName: any) => {
+    const { npcIndex, name } = parseNpcAndNameArgs(npc, wpName);
+    if (!npcIndex) return 0;
+    const resolved = name && name.trim() ? name : getNpcRoutineWaypointName(npcIndex);
+    if (!resolved) return 0;
+    const npcPos = getNpcWorldPosition(npcIndex);
+    if (!npcPos) {
+      if (routineDebug.enabled) {
+        const sym = vm.getSymbolNameByIndex(npcIndex);
+        const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
+        if (npcSym === routineDebug.npc) console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, reason: "no npcPos" });
+      }
+      return 0;
+    }
+    const wpPos = getWaynetWaypointPosition(resolved);
+    if (!wpPos) {
+      if (routineDebug.enabled) {
+        const sym = vm.getSymbolNameByIndex(npcIndex);
+        const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
+        if (npcSym === routineDebug.npc)
+          console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, reason: "no wpPos" });
+      }
+      return 0;
+    }
+    const dx = wpPos.x - npcPos.x;
+    const dz = wpPos.z - npcPos.z;
+    const dist = Math.floor(Math.sqrt(dx * dx + dz * dz));
+    if (routineDebug.enabled) {
+      const sym = vm.getSymbolNameByIndex(npcIndex);
+      const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
+      if (npcSym === routineDebug.npc) console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, dist });
+    }
+    return dist;
   });
 
   registerExternalSafe(vm, "AI_AlignToWP", (npc: any) => {
