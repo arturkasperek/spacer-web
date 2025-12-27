@@ -11,12 +11,11 @@ import { fetchBinaryCached } from "./character/binary-cache.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
-import { getFreepointReservationsSnapshot, getFreepointSpotsSnapshot, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
+import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager } from "./npc-em-runtime";
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
-import { createTextSprite } from "./mesh-utils";
 import {
   applyNpcWorldCollisionXZ,
   createNpcWorldCollisionContext,
@@ -30,6 +29,7 @@ import { spreadSpawnXZ } from "./npc-spawn-spread";
 import { getRuntimeVm } from "./vm-manager";
 import { advanceNpcStateTime, setNpcStateTime } from "./vm-manager";
 import { getWorldTime, useWorldTime } from "./world-time";
+import { createFreepointOwnerOverlay } from "./freepoint-owner-overlay";
 
 interface NpcRendererProps {
   world: World | null;
@@ -214,16 +214,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
-  const freepointOwnersGroupRef = useRef<THREE.Group | null>(null);
-  const freepointOwnerSpritesRef = useRef(new Map<number, { sprite: THREE.Sprite; text: string }>());
-  const freepointSpotByIdRef = useRef<Map<number, { x: number; y: number; z: number }> | null>(null);
-
-  const disposeTextSprite = (sprite: THREE.Sprite) => {
-    const mat: any = sprite.material as any;
-    const tex: any = mat?.map;
-    if (tex?.dispose) tex.dispose();
-    if (mat?.dispose) mat.dispose();
-  };
+  const freepointOwnerOverlayRef = useRef<ReturnType<typeof createFreepointOwnerOverlay> | null>(null);
 
   const manualKeysRef = useRef({
     up: false,
@@ -521,8 +512,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   }, [world]);
 
   useEffect(() => {
+    freepointOwnerOverlayRef.current?.dispose();
+    freepointOwnerOverlayRef.current = createFreepointOwnerOverlay(scene);
+    return () => {
+      freepointOwnerOverlayRef.current?.dispose();
+      freepointOwnerOverlayRef.current = null;
+    };
+  }, [scene]);
+
+  useEffect(() => {
     setFreepointsWorld(world);
-    freepointSpotByIdRef.current = null;
+    freepointOwnerOverlayRef.current?.onWorldChanged();
   }, [world]);
 
   useEffect(() => {
@@ -1187,70 +1187,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       updateNpcStreaming();
     }
 
-    // Optional debug overlay: show current freepoint reservation owner instance index above the spot.
-    if (!enabled) {
-      if (freepointOwnersGroupRef.current) {
-        for (const entry of freepointOwnerSpritesRef.current.values()) {
-          freepointOwnersGroupRef.current.remove(entry.sprite);
-          disposeTextSprite(entry.sprite);
-          disposeObject3D(entry.sprite);
-        }
-        freepointOwnerSpritesRef.current.clear();
-        scene.remove(freepointOwnersGroupRef.current);
-        freepointOwnersGroupRef.current = null;
-      }
-      freepointSpotByIdRef.current = null;
-    } else {
-      if (!freepointOwnersGroupRef.current) {
-        const g = new THREE.Group();
-        g.name = "FreepointOwners";
-        freepointOwnersGroupRef.current = g;
-        scene.add(g);
-      }
-
-      if (!freepointSpotByIdRef.current) {
-        const map = new Map<number, { x: number; y: number; z: number }>();
-        for (const s of getFreepointSpotsSnapshot()) {
-          map.set(s.vobId, { x: s.position.x, y: s.position.y, z: s.position.z });
-        }
-        freepointSpotByIdRef.current = map;
-      }
-
-      const spotById = freepointSpotByIdRef.current;
-      const reservations = getFreepointReservationsSnapshot();
-      const keep = new Set<number>();
-
-      for (const r of reservations) {
-        const spot = spotById.get(r.spotVobId);
-        if (!spot) continue;
-        keep.add(r.spotVobId);
-
-        const text = String(r.byNpcInstanceIndex);
-        const prev = freepointOwnerSpritesRef.current.get(r.spotVobId);
-        if (!prev || prev.text !== text) {
-          if (prev) {
-            freepointOwnersGroupRef.current.remove(prev.sprite);
-            disposeTextSprite(prev.sprite);
-            disposeObject3D(prev.sprite);
-          }
-          const sprite = createTextSprite(text);
-          sprite.position.set(spot.x, spot.y + 320, spot.z);
-          sprite.scale.set(80, 20, 1);
-          freepointOwnersGroupRef.current.add(sprite);
-          freepointOwnerSpritesRef.current.set(r.spotVobId, { sprite, text });
-        } else {
-          prev.sprite.position.set(spot.x, spot.y + 320, spot.z);
-        }
-      }
-
-      for (const [spotId, entry] of freepointOwnerSpritesRef.current.entries()) {
-        if (keep.has(spotId)) continue;
-        freepointOwnersGroupRef.current.remove(entry.sprite);
-        disposeTextSprite(entry.sprite);
-        disposeObject3D(entry.sprite);
-        freepointOwnerSpritesRef.current.delete(spotId);
-      }
-    }
+    freepointOwnerOverlayRef.current?.update(Boolean(enabled));
 
     if (!enabled || loadedNpcsRef.current.size === 0) return;
 
