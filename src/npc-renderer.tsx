@@ -2,7 +2,7 @@ import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
-import { createStreamingState, shouldUpdateStreaming, getItemsToLoadUnload, disposeObject3D } from './distance-streaming';
+import { createStreamingState, shouldUpdateStreaming, disposeObject3D } from './distance-streaming';
 import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
 import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
@@ -13,7 +13,6 @@ import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager } from "./npc-em-runtime";
-import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
 import {
@@ -30,6 +29,7 @@ import { getRuntimeVm } from "./vm-manager";
 import { advanceNpcStateTime, setNpcStateTime } from "./vm-manager";
 import { getWorldTime, useWorldTime } from "./world-time";
 import { createFreepointOwnerOverlay } from "./freepoint-owner-overlay";
+import { aabbIntersects, buildRoutineWaybox, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
 
 interface NpcRendererProps {
   world: World | null;
@@ -40,14 +40,14 @@ interface NpcRendererProps {
 }
 
 /**
- * NPC Renderer Component - renders NPCs at spawnpoint locations with distance-based streaming
+ * NPC Renderer Component - renders NPCs at spawnpoint locations with ZenGin-like streaming
  * Uses imperative Three.js rendering (like VOBs) for better performance
  * 
  * Features:
  * - Looks up spawnpoints by name (waypoints first, then VOBs) - matching original engine behavior
  * - Renders NPCs as character models with name labels (falls back to green placeholder while loading)
  * - Handles coordinate conversion from Gothic to Three.js space
- * - Distance-based streaming: only renders NPCs near the camera for performance
+ * - Waybox-based streaming: loads NPCs when the camera active area intersects their routine waybox
  * - Prioritizes routine waypoints: NPCs are positioned at their routine waypoint for the current time (10:00)
  * 
  * Waypoint lookup priority:
@@ -88,7 +88,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const modelScriptRegistryRef = useRef<ModelScriptRegistry | null>(null);
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
-  const routineTickKeyRef = useRef<string>("");
   const worldMeshRef = useRef<THREE.Object3D | null>(null);
   const warnedNoWorldMeshRef = useRef(false);
   const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
@@ -153,14 +152,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     };
   }, []);
 
-  // Distance-based streaming
+  // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
-  const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3 }>>([]); // All NPC data
-  const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3 }>());
-  const allNpcsByInstanceIndexRef = useRef(new Map<number, { npcData: NpcData; position: THREE.Vector3 }>());
-  const npcItemsRef = useRef<Array<{ id: string; position: THREE.Vector3 }>>([]);
-  const NPC_LOAD_DISTANCE = 5000; // Load NPCs within this distance
-  const NPC_UNLOAD_DISTANCE = 6000; // Unload NPCs beyond this distance
+  const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
+  const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());
+  const allNpcsByInstanceIndexRef = useRef(new Map<number, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());
+  const npcItemsRef = useRef<Array<{ id: string; waybox: Aabb }>>([]);
+  const NPC_LOAD_DISTANCE = 5000; // Active-area half size in X/Z for loading
+  const NPC_UNLOAD_DISTANCE = 6000; // Active-area half size in X/Z for unloading (hysteresis)
+  const NPC_ACTIVE_BBOX_HALF_Y = 100000; // Effectively ignore Y for active-area checks
 
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
@@ -349,6 +349,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     return { waypointPosIndex: wpIndex, waypointDirIndex: wpDirIndex, vobPosIndex: vobIndex };
   }, [world]);
 
+  const npcRoutineWayboxIndex = useMemo(() => {
+    const out = new Map<number, Aabb | null>();
+    if (!world || !enabled || npcs.size === 0) return out;
+
+    for (const [, npcData] of npcs.entries()) {
+      const waybox = buildRoutineWaybox(npcData.dailyRoutine, waypointPosIndex);
+      out.set(npcData.instanceIndex, waybox);
+    }
+    return out;
+  }, [world, enabled, npcsKey, waypointPosIndex]);
+
   const estimateAnimationDurationMs = useMemo(() => {
     return (modelName: string, animationName: string): number | null => {
       const caches = characterCachesRef.current;
@@ -405,7 +416,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return [];
     }
 
-    const renderableNpcs: Array<{ npcData: NpcData; position: THREE.Vector3 }> = [];
+    const renderableNpcs: Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }> = [];
     const CURRENT_HOUR = worldTime.hour;
     const CURRENT_MINUTE = worldTime.minute;
 
@@ -413,22 +424,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let position: [number, number, number] | null = null;
       let waypointName: string | null = null;
 
+      const routineWaybox = npcRoutineWayboxIndex.get(npcData.instanceIndex) ?? null;
+
       // ZenGin-like behavior: routine-driven NPC spawning depends on routine "wayboxes" derived from
       // existing waynet waypoints. If a routine references no existing waypoint at all, the original game
       // effectively never spawns the NPC. Mimic that by not rendering it.
-      if (npcData.dailyRoutine && npcData.dailyRoutine.length > 0) {
-        let hasAnyRoutineWaypointInWaynet = false;
-        for (const r of npcData.dailyRoutine) {
-          const k = normalizeNameKey(r?.waypoint ?? "");
-          if (k && waypointPosIndex.has(k)) {
-            hasAnyRoutineWaypointInWaynet = true;
-            break;
-          }
-        }
-        if (!hasAnyRoutineWaypointInWaynet) {
-          continue;
-        }
-      }
+      if (npcData.dailyRoutine && npcData.dailyRoutine.length > 0 && !routineWaybox) continue;
 
       // Priority 1: Check routine waypoint at current time (10:00)
       const routineWaypoint = findActiveRoutineWaypoint(npcData.dailyRoutine, CURRENT_HOUR, CURRENT_MINUTE);
@@ -455,9 +456,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
 
       if (position) {
+        const pos = new THREE.Vector3(position[0], position[1], position[2]);
+        const waybox =
+          routineWaybox ??
+          createAabbAroundPoint(pos, {
+            x: 1,
+            y: 1,
+            z: 1,
+          });
         renderableNpcs.push({
           npcData,
-          position: new THREE.Vector3(position[0], position[1], position[2])
+          position: pos,
+          waybox,
         });
       } else {
         const source = routineWaypoint ? `routine waypoint "${routineWaypoint}"` : `spawnpoint "${npcData.spawnpoint}"`;
@@ -466,24 +476,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
 
     return renderableNpcs;
-  }, [world, npcsKey, enabled, worldTime.hour, worldTime.minute, waypointPosIndex, vobPosIndex]);
+  }, [world, npcsKey, enabled, worldTime.hour, worldTime.minute, npcRoutineWayboxIndex, waypointPosIndex, vobPosIndex]);
 
   // Store NPCs with positions for streaming
   useEffect(() => {
     allNpcsRef.current = npcsWithPositions;
-    const byId = new Map<string, { npcData: NpcData; position: THREE.Vector3 }>();
-    const byIdx = new Map<number, { npcData: NpcData; position: THREE.Vector3 }>();
-    const items: Array<{ id: string; position: THREE.Vector3 }> = [];
+    const byId = new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>();
+    const byIdx = new Map<number, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>();
+    const items: Array<{ id: string; waybox: Aabb }> = [];
     for (const entry of npcsWithPositions) {
       const id = `npc-${entry.npcData.instanceIndex}`;
       byId.set(id, entry);
       byIdx.set(entry.npcData.instanceIndex, entry);
-      items.push({ id, position: entry.position });
+      items.push({ id, waybox: entry.waybox });
       updateNpcWorldPosition(entry.npcData.instanceIndex, { x: entry.position.x, y: entry.position.y, z: entry.position.z });
     }
     allNpcsByIdRef.current = byId;
     allNpcsByInstanceIndexRef.current = byIdx;
     npcItemsRef.current = items;
+    streamingState.current.isFirstUpdate.current = true;
 
     // If some NPCs disappeared from the computed list (e.g. we decided they should never be spawned),
     // make sure we also unload any already-loaded instances immediately.
@@ -1069,7 +1080,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   };
 
-  // Streaming NPC loader - loads/unloads based on camera distance
+  // Streaming NPC loader - loads/unloads based on intersection with routine wayboxes (ZenGin-like)
   const updateNpcStreaming = () => {
     if (!enabled || allNpcsRef.current.length === 0 || !world) {
       return;
@@ -1091,92 +1102,101 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       config
     );
 
-    if (shouldUpdate) {
-      // Convert NPCs to streamable items with positions for distance checking
-      const npcItems = npcItemsRef.current;
+    if (!shouldUpdate) return;
 
-      // Keep already-loaded NPCs in sync with their latest computed positions
-      for (const [id, npcGroup] of loadedNpcsRef.current.entries()) {
-        const entry = allNpcsByIdRef.current.get(id);
-        if (entry) npcGroup.position.copy(entry.position);
+    const loadBox = createAabbAroundPoint(cameraPos, {
+      x: config.loadDistance,
+      y: NPC_ACTIVE_BBOX_HALF_Y,
+      z: config.loadDistance,
+    });
+    const unloadBox = createAabbAroundPoint(cameraPos, {
+      x: config.unloadDistance,
+      y: NPC_ACTIVE_BBOX_HALF_Y,
+      z: config.unloadDistance,
+    });
+
+    const toLoad: string[] = [];
+    for (const item of npcItemsRef.current) {
+      if (loadedNpcsRef.current.has(item.id)) continue;
+      if (!aabbIntersects(item.waybox, loadBox)) continue;
+      toLoad.push(item.id);
+    }
+
+    const toUnload: string[] = [];
+    for (const id of loadedNpcsRef.current.keys()) {
+      const entry = allNpcsByIdRef.current.get(id);
+      if (!entry) continue;
+      if (aabbIntersects(entry.waybox, unloadBox)) continue;
+      toUnload.push(id);
+    }
+
+    // Load new NPCs
+    for (const npcId of toLoad) {
+      const npc = allNpcsByIdRef.current.get(npcId);
+      if (!npc) continue;
+
+      // Create NPC mesh imperatively
+      // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
+      // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
+      const spreadRadius = collisionConfig.radius * 0.6;
+      const existing: Array<{ x: number; z: number; y?: number }> = [];
+      for (const other of loadedNpcsRef.current.values()) {
+        if (!other || other.userData.isDisposed) continue;
+        existing.push({ x: other.position.x, z: other.position.z, y: other.position.y });
+      }
+      const spread = spreadSpawnXZ({
+        baseX: npc.position.x,
+        baseZ: npc.position.z,
+        baseY: npc.position.y,
+        existing,
+        minSeparation: spreadRadius * 2 + 0.05,
+        maxTries: 24,
+        maxYDelta: 200,
+      });
+      if (spread.applied) {
+        npc.position.x = spread.x;
+        npc.position.z = spread.z;
       }
 
-      // Find NPCs to load/unload using shared utility
-      const { toLoad, toUnload } = getItemsToLoadUnload(
-        npcItems,
-        cameraPos,
-        config,
-        loadedNpcsRef.current
-      );
-
-      // Load new NPCs
-      for (const item of toLoad) {
-        const npc = allNpcsByIdRef.current.get(item.id);
-        if (!npc) continue;
-
-        // Create NPC mesh imperatively
-        // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
-        // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
-        const spreadRadius = collisionConfig.radius * 0.6;
-        const existing: Array<{ x: number; z: number; y?: number }> = [];
-        for (const other of loadedNpcsRef.current.values()) {
-          if (!other || other.userData.isDisposed) continue;
-          existing.push({ x: other.position.x, z: other.position.z, y: other.position.y });
+      const npcGroup = createNpcMesh(npc.npcData, npc.position);
+      loadedNpcsRef.current.set(npcId, npcGroup);
+      npcGroup.userData.moveConstraint = applyMoveConstraint;
+      {
+        const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
+        const displayName = (npc.npcData.name || "").trim().toUpperCase();
+        const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
+        if (isCavalorn) {
+          npcGroup.userData.isCavalorn = true;
+          cavalornGroupRef.current = npcGroup;
         }
-        const spread = spreadSpawnXZ({
-          baseX: npc.position.x,
-          baseZ: npc.position.z,
-          baseY: npc.position.y,
-          existing,
-          minSeparation: spreadRadius * 2 + 0.05,
-          maxTries: 24,
-          maxYDelta: 200,
-        });
-        if (spread.applied) {
-          npc.position.x = spread.x;
-          npc.position.z = spread.z;
-        }
-
-        const npcGroup = createNpcMesh(npc.npcData, npc.position);
-        loadedNpcsRef.current.set(item.id, npcGroup);
-        npcGroup.userData.moveConstraint = applyMoveConstraint;
-        {
-          const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
-          const displayName = (npc.npcData.name || "").trim().toUpperCase();
-          const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
-          if (isCavalorn) {
-            npcGroup.userData.isCavalorn = true;
-            cavalornGroupRef.current = npcGroup;
-          }
-        }
-
-        // Ensure NPCs group exists
-        if (!npcsGroupRef.current) {
-          const group = new THREE.Group();
-          group.name = 'NPCs';
-          npcsGroupRef.current = group;
-          scene.add(group);
-        }
-        npcsGroupRef.current.add(npcGroup);
-        snapNpcToGroundOrDefer(npcGroup);
-
-        // Load real model asynchronously (replaces placeholder)
-        void loadNpcCharacter(npcGroup, npc.npcData);
       }
 
-      // Unload distant NPCs
-      for (const npcId of toUnload) {
-        const npcGroup = loadedNpcsRef.current.get(npcId);
-        if (npcGroup && npcsGroupRef.current) {
-          npcGroup.userData.isDisposed = true;
-          const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
-          const isLoading = Boolean(npcGroup.userData.modelLoading);
-          if (instance && !isLoading) instance.dispose();
-          npcsGroupRef.current.remove(npcGroup);
-          disposeObject3D(npcGroup);
-          loadedNpcsRef.current.delete(npcId);
-          if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
-        }
+      // Ensure NPCs group exists
+      if (!npcsGroupRef.current) {
+        const group = new THREE.Group();
+        group.name = 'NPCs';
+        npcsGroupRef.current = group;
+        scene.add(group);
+      }
+      npcsGroupRef.current.add(npcGroup);
+      snapNpcToGroundOrDefer(npcGroup);
+
+      // Load real model asynchronously (replaces placeholder)
+      void loadNpcCharacter(npcGroup, npc.npcData);
+    }
+
+    // Unload NPCs outside the active area (with hysteresis)
+    for (const npcId of toUnload) {
+      const npcGroup = loadedNpcsRef.current.get(npcId);
+      if (npcGroup && npcsGroupRef.current) {
+        npcGroup.userData.isDisposed = true;
+        const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+        const isLoading = Boolean(npcGroup.userData.modelLoading);
+        if (instance && !isLoading) instance.dispose();
+        npcsGroupRef.current.remove(npcGroup);
+        disposeObject3D(npcGroup);
+        loadedNpcsRef.current.delete(npcId);
+        if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
       }
     }
   };
@@ -1190,62 +1210,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     freepointOwnerOverlayRef.current?.update(Boolean(enabled));
 
     if (!enabled || loadedNpcsRef.current.size === 0) return;
-
-    // Routine steering: make sure loaded NPCs actually move to the active routine waypoint/spot for the current time.
-    // This keeps things simple: routines at least relocate NPCs when the clock changes.
-    {
-      const t = getWorldTime();
-      const key = `${t.day}:${t.hour}:${t.minute}`;
-      if (routineTickKeyRef.current !== key) {
-        routineTickKeyRef.current = key;
-        const DIST_TO_ROUTE_WP = 500; // TA_DIST_SELFWP_MAX in original scripts
-        for (const g of loadedNpcsRef.current.values()) {
-          if (!g || g.userData.isDisposed) continue;
-          const npcData = g.userData.npcData as NpcData | undefined;
-          if (!npcData) continue;
-
-          const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === g;
-          if (isManualCavalorn) continue;
-
-          const routineWp = findActiveRoutineWaypoint(npcData.dailyRoutine, t.hour, t.minute);
-          const desired = routineWp || npcData.spawnpoint;
-          if (!desired) continue;
-
-          const prevDesired = (g.userData as any)._routineDesired as string | undefined;
-          (g.userData as any)._routineDesired = desired;
-
-          const targetKey = normalizeNameKey(desired);
-          const wpPos = waypointPosIndex.get(targetKey);
-          const vPos = wpPos ? null : vobPosIndex.get(targetKey);
-          const targetPos = wpPos ?? vPos;
-          if (!targetPos) continue;
-
-          const dx = targetPos.x - g.position.x;
-          const dz = targetPos.z - g.position.z;
-          const distXZ = Math.hypot(dx, dz);
-          if (distXZ <= DIST_TO_ROUTE_WP) continue;
-
-          // Only restart the route when the routine target changes; otherwise let the mover/deadlock solver do its job.
-          const prevMoveTarget = (g.userData as any)._routineMoveTarget as string | undefined;
-          if (prevMoveTarget === desired && prevDesired === desired) continue;
-
-          // Route routine relocation through the per-NPC event manager queue so the inspector/debug UI reflects it.
-          requestNpcEmClear(npcData.instanceIndex);
-          if (wpPos) {
-            enqueueNpcEmMessage(npcData.instanceIndex, { type: "gotoWaypoint", waypointName: desired, locomotionMode: "walk" });
-          } else {
-            enqueueNpcEmMessage(npcData.instanceIndex, {
-              type: "gotoPosition",
-              x: targetPos.x,
-              y: targetPos.y,
-              z: targetPos.z,
-              locomotionMode: "walk",
-            });
-          }
-          (g.userData as any)._routineMoveTarget = desired;
-        }
-      }
-    }
 
     // Sync current world positions for all loaded NPCs before the VM/state-loop tick.
     // This ensures builtins like `Npc_IsOnFP` / `Wld_IsFPAvailable` see up-to-date coordinates.
