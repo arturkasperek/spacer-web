@@ -123,19 +123,29 @@ function isInSpotBBox(spot: FreepointSpot, npcPos: NpcPose): boolean {
   return Math.abs(dx) <= FPBOX_DIMENSION && Math.abs(dy) <= FPBOX_DIMENSION_Y && Math.abs(dz) <= FPBOX_DIMENSION;
 }
 
-function isSpotInUseByNpc(spot: FreepointSpot, npcInstanceIndex: number, npcPos: NpcPose): boolean {
+function isSpotInUseByNpc(spot: FreepointSpot, npcInstanceIndex: number): boolean {
   const res = reservations.get(spot.vobId);
   if (!res || res.byNpcInstanceIndex !== npcInstanceIndex) return false;
-  // ZenGin's zCVobSpot::IsOnFP is a "who owns the spot" flag (inUseVob == vob),
-  // and IsAvailable() keeps/clears that ownership based on whether the owner is still
-  // inside the freepoint bbox (±50, ±100, ±50). We approximate that behavior here.
-  return isInSpotBBox(spot, npcPos);
+  // ZenGin's zCVobSpot::IsOnFP is only an ownership check (inUseVob == vob).
+  // The bbox check belongs to IsAvailable(), which may clear ownership if the owner left the box.
+  // We mimic that split: "in use by" means "reserved by", regardless of current position.
+  return true;
 }
 
 function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number, nowMs: number): boolean {
   const res = reservations.get(spot.vobId);
   if (!res) return true;
-  if (res.byNpcInstanceIndex === requesterNpcInstanceIndex) return true;
+
+  // Match ZenGin's zCVobSpot::IsAvailable() semantics:
+  // - The owner can "auto-release" the spot early if they are no longer inside the FP bbox.
+  // - Other NPCs can't force-release within the hold window (timer).
+  if (res.byNpcInstanceIndex === requesterNpcInstanceIndex) {
+    const holderPos = npcPosByInstanceIndex.get(res.byNpcInstanceIndex);
+    if (!holderPos || !isInSpotBBox(spot, holderPos)) {
+      reservations.delete(spot.vobId);
+    }
+    return true;
+  }
   if (nowMs < res.untilMs) return false;
 
   const holderPos = npcPosByInstanceIndex.get(res.byNpcInstanceIndex);
@@ -207,7 +217,7 @@ export function findFreepointForNpc(
     if (p.z < bboxMinZ || p.z > bboxMaxZ) continue;
     if (!queryKeys.some(q => s.nameUpper.indexOf(q) >= 0)) continue;
     if (!isSpotAvailable(s, npcInstanceIndex, nowMs)) continue;
-    if (avoidCurrentSpot && isSpotInUseByNpc(s, npcInstanceIndex, npcPos)) continue;
+    if (avoidCurrentSpot && isSpotInUseByNpc(s, npcInstanceIndex)) continue;
     candidates.push(s);
   }
 
@@ -250,13 +260,11 @@ export function isFreepointAvailableForNpc(npcInstanceIndex: number, freepointNa
 }
 
 export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string, dist: number = 100): boolean {
-  const npcPos = npcPosByInstanceIndex.get(npcInstanceIndex);
-  if (!npcPos) return false;
+  if (!npcPosByInstanceIndex.has(npcInstanceIndex)) return false;
   // Gothic's Npc_IsOnFP() does: FindSpot(name, checkDistance=true, dist=100), then spot->IsOnFP(npc).
-  // zCVobSpot::IsOnFP checks "ownership" (inUseVob == npc), and IsAvailable() keeps/clears ownership
-  // based on whether the owner is still inside the freepoint bbox.
+  // zCVobSpot::IsOnFP is only an ownership check (inUseVob == npc); bbox membership is handled in IsAvailable().
   // In spacer-web, freepoints can be vertically offset from walkable ground (missing collision / stacked geometry),
-  // so we allow a wider vertical search window than `dist` while still keeping the original bbox ownership check.
+  // so we allow a wider vertical search window than `dist`.
   const spot = findFreepointForNpc(npcInstanceIndex, freepointName, {
     checkDistance: true,
     dist,
@@ -264,5 +272,6 @@ export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string
     avoidCurrentSpot: false,
   });
   if (!spot) return false;
-  return isSpotInUseByNpc(spot, npcInstanceIndex, npcPos);
+  const res = reservations.get(spot.vobId);
+  return Boolean(res && res.byNpcInstanceIndex === npcInstanceIndex);
 }

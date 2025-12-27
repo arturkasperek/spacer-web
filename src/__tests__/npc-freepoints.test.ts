@@ -115,6 +115,41 @@ describe("npc freepoints", () => {
     expect(other2?.vobId).toBe(spot.id);
   });
 
+  it("lets the owner auto-release a reserved spot by leaving the freepoint bbox (before hold timeout)", () => {
+    const spot = {
+      id: 22,
+      type: 11,
+      vobName: "FP_TEST",
+      name: "zCVobSpot",
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { toArray: () => createIdentityRotArray() },
+      children: createMockChildren([]),
+    };
+    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+
+    setFreepointsWorld(world);
+    updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
+    updateNpcWorldPosition(2, { x: 0, y: 0, z: 0 });
+
+    const nowSpy = jest.spyOn(Date, "now");
+    nowSpy.mockReturnValue(1_000_000);
+    const acquired = acquireFreepointForNpc(1, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(acquired?.vobId).toBe(spot.id);
+
+    // Owner leaves the freepoint bbox (±50 in X/Z) but stays within FindSpot(dist=100),
+    // so Npc_IsOnFP() will still "see" the spot and can trigger early release.
+    updateNpcWorldPosition(1, { x: 80, y: 0, z: 0 });
+    const otherBeforeRelease = acquireFreepointForNpc(2, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(otherBeforeRelease).toBeNull();
+
+    // Owner checks "on fp" which triggers IsAvailable(owner) semantics and clears ownership.
+    expect(isNpcOnFreepoint(1, "FP_TEST", 100)).toBe(false);
+
+    // Now another NPC can take it immediately (even though the original hold time hasn't advanced).
+    const otherAfterRelease = acquireFreepointForNpc(2, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    expect(otherAfterRelease?.vobId).toBe(spot.id);
+  });
+
   it("does not drop reservations when the spot index is built lazily", () => {
     const spot = {
       id: 71,
