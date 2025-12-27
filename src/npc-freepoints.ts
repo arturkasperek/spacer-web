@@ -12,6 +12,7 @@ export type FreepointSpot = {
 type SpotReservation = {
   byNpcInstanceIndex: number;
   untilMs: number;
+  confirmedOnSpot: boolean;
 };
 
 export type FreepointReservationInfo = {
@@ -147,7 +148,10 @@ function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number,
   // - Other NPCs can't force-release within the hold window (timer).
   if (res.byNpcInstanceIndex === requesterNpcInstanceIndex) {
     const holderPos = npcPosByInstanceIndex.get(res.byNpcInstanceIndex);
-    if (!holderPos || !isInSpotBBox(spot, holderPos)) {
+    if (holderPos && isInSpotBBox(spot, holderPos)) {
+      res.confirmedOnSpot = true;
+      reservations.set(spot.vobId, res);
+    } else if (res.confirmedOnSpot) {
       reservations.delete(spot.vobId);
     }
     return true;
@@ -258,7 +262,11 @@ export function findFreepointForNpc(
 
 export function reserveFreepoint(spotVobId: number, npcInstanceIndex: number, holdMs: number): void {
   const nowMs = Date.now();
-  reservations.set(spotVobId, { byNpcInstanceIndex: npcInstanceIndex, untilMs: nowMs + Math.max(0, holdMs) });
+  reservations.set(spotVobId, {
+    byNpcInstanceIndex: npcInstanceIndex,
+    untilMs: nowMs + Math.max(0, holdMs),
+    confirmedOnSpot: false,
+  });
 }
 
 export function acquireFreepointForNpc(
@@ -278,7 +286,8 @@ export function isFreepointAvailableForNpc(npcInstanceIndex: number, freepointNa
 }
 
 export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string, dist: number = 100): boolean {
-  if (!npcPosByInstanceIndex.has(npcInstanceIndex)) return false;
+  const npcPos = npcPosByInstanceIndex.get(npcInstanceIndex);
+  if (!npcPos) return false;
   // Gothic's Npc_IsOnFP() does: FindSpot(name, checkDistance=true, dist=100), then spot->IsOnFP(npc).
   // zCVobSpot::IsOnFP is only an ownership check (inUseVob == npc); bbox membership is handled in IsAvailable().
   // In spacer-web, freepoints can be vertically offset from walkable ground (missing collision / stacked geometry),
@@ -291,5 +300,11 @@ export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string
   });
   if (!spot) return false;
   const res = reservations.get(spot.vobId);
-  return Boolean(res && res.byNpcInstanceIndex === npcInstanceIndex);
+  if (!res || res.byNpcInstanceIndex !== npcInstanceIndex) return false;
+  if (!isInSpotBBox(spot, npcPos)) return false;
+  if (!res.confirmedOnSpot) {
+    res.confirmedOnSpot = true;
+    reservations.set(spot.vobId, res);
+  }
+  return true;
 }
