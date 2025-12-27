@@ -13,7 +13,7 @@ import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
-import { requestNpcEmClear } from "./npc-em-queue";
+import { __getNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
 import {
@@ -66,18 +66,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group>(null);
   const worldTime = useWorldTime();
-  const routineDebug = useMemo(() => {
-    try {
-      if (typeof window === "undefined") return { enabled: false, npc: "" };
-      const qs = new URLSearchParams(window.location.search);
-      const enabled = qs.get("npcRoutineDebug") === "1";
-      const npc = (qs.get("npcRoutineDebugNpc") || "BAU_952_VINO").trim().toUpperCase();
-      return { enabled, npc };
-    } catch {
-      return { enabled: false, npc: "" };
-    }
-  }, []);
-  const routineDebugLastLogMsRef = useRef(new Map<number, number>());
   const tmpObjWorldPos = useMemo(() => new THREE.Vector3(), []);
   const tmpDesiredWorldPos = useMemo(() => new THREE.Vector3(), []);
   const tmpLocalBefore = useMemo(() => new THREE.Vector3(), []);
@@ -1290,33 +1278,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const currentKey = (g.userData as any)._aiActiveRoutineKey as string | undefined;
           const currentState = (g.userData as any)._aiActiveStateName as string | undefined;
 
+          const npcId = `npc-${npcData.instanceIndex}`;
+          const mover = waypointMoverRef.current;
+          const moveState = mover?.getMoveState?.(npcId);
+          const emJob = __getNpcEmActiveJob(npcData.instanceIndex);
+          const q = __getNpcEmQueueState(npcData.instanceIndex);
+          const emEmpty =
+            !emJob &&
+            !(moveState && moveState.done === false) &&
+            !q?.clearRequested &&
+            (q?.queue?.length ?? 0) === 0;
+
           const pending = (g.userData as any)._aiPendingRoutine as
             | { key: string; state: string; waypoint: string; startM: number; stopM: number; sinceMs: number }
             | undefined;
 
-          const shouldDeferSwitch = () => {
-            const job = __getNpcEmActiveJob(npcData.instanceIndex);
-            if (!job) return false;
-            // Allow short one-shot animations to finish (e.g. plunder/rake loops), but don't block forever on loop poses.
-            return job.type === "playAni" && job.remainingMs > 0 && job.remainingMs < 10_000;
-          };
-
-          const activateRoutineEntry = (nextState: string, nextKey: string, nextWaypoint: string, startM: number, stopM: number) => {
-            if (routineDebug.enabled && npcData.symbolName.trim().toUpperCase() === routineDebug.npc) {
-              const prev = routineDebugLastLogMsRef.current.get(npcData.instanceIndex) ?? 0;
-              if (nowMs - prev > 300) {
-                routineDebugLastLogMsRef.current.set(npcData.instanceIndex, nowMs);
-                console.log(
-                  `[routine] ${npcData.symbolName} t=${t.hour}:${String(t.minute).padStart(2, "0")} switch`,
-                  {
-                    from: { state: currentState, key: currentKey, pending: pending?.key },
-                    to: { state: nextState, key: nextKey, wp: (nextWaypoint || "").trim().toUpperCase(), startM, stopM },
-                    emJob: __getNpcEmActiveJob(npcData.instanceIndex),
-                  }
-                );
-              }
-            }
-
+          const activateRoutineEntry = (
+            nextState: string,
+            nextKey: string,
+            nextWaypoint: string,
+            startM: number,
+            stopM: number,
+            opts?: { forceClear?: boolean }
+          ) => {
             // Update the routine runtime before calling the entry function so builtins like
             // `Npc_GetDistToWP(self, self.wp)` / `AI_GotoWP(self, self.wp)` resolve to the NEW routine waypoint.
             setNpcRoutineRuntime(npcData.instanceIndex, {
@@ -1328,9 +1312,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
             vm.setGlobalSelf(npcData.symbolName);
 
-            // Routine switches are forced by the routine manager at schedule boundaries.
-            // If we switch now, interrupt queued jobs (like ZenGin's `ClearEM()` behavior).
-            requestNpcEmClear(npcData.instanceIndex);
+            if (opts?.forceClear) {
+              requestNpcEmClear(npcData.instanceIndex);
+            }
 
             if (currentState) {
               const endFnCandidates = [`${currentState}_end`, `${currentState}_END`];
@@ -1363,12 +1347,37 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             (g.userData as any)._aiLoopLastAtMs = nowMs;
           };
 
-          // Initialize state on first tick; otherwise switch when the scheduled routine entry changes.
+          // Advance script state time regardless of EM state (ZenGin-style: stateTime advances even while EM is busy).
+          {
+            const lastAt = (g.userData as any)._aiLoopLastAtMs as number | undefined;
+            const dtSec = typeof lastAt === "number" ? Math.max(0, (nowMs - lastAt) / 1000) : 0;
+            (g.userData as any)._aiLoopLastAtMs = nowMs;
+            advanceNpcStateTime(npcData.instanceIndex, dtSec);
+          }
+
+          // ZenGin-like "EM empty" gating:
+          // - don't start/switch routine states while EM is busy,
+          // - don't run `_loop` while EM is busy (prevents repeated enqueue spam),
+          // - defer routine changes until EM becomes empty, with a last-resort timeout.
+          const FORCE_AFTER_MS = 60_000;
+
           if (!currentKey || !currentState) {
-            activateRoutineEntry(desiredEntry.state, desiredKey, desiredEntry.waypoint, desiredEntry.startM, desiredEntry.stopM);
-            delete (g.userData as any)._aiPendingRoutine;
-          } else if (currentKey !== desiredKey) {
-            if (shouldDeferSwitch()) {
+            if (emEmpty) {
+              activateRoutineEntry(desiredEntry.state, desiredKey, desiredEntry.waypoint, desiredEntry.startM, desiredEntry.stopM);
+              delete (g.userData as any)._aiPendingRoutine;
+            } else {
+              (g.userData as any)._aiPendingRoutine = {
+                key: desiredKey,
+                state: desiredEntry.state,
+                waypoint: (desiredEntry.waypoint || "").trim().toUpperCase(),
+                startM: desiredEntry.startM,
+                stopM: desiredEntry.stopM,
+                sinceMs: nowMs,
+              };
+              continue;
+            }
+          } else {
+            if (currentKey !== desiredKey) {
               if (!pending || pending.key !== desiredKey) {
                 (g.userData as any)._aiPendingRoutine = {
                   key: desiredKey,
@@ -1378,51 +1387,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
                   stopM: desiredEntry.stopM,
                   sinceMs: nowMs,
                 };
-                if (routineDebug.enabled && npcData.symbolName.trim().toUpperCase() === routineDebug.npc) {
-                  const prev = routineDebugLastLogMsRef.current.get(npcData.instanceIndex) ?? 0;
-                  if (nowMs - prev > 300) {
-                    routineDebugLastLogMsRef.current.set(npcData.instanceIndex, nowMs);
-                    console.log(
-                      `[routine] ${npcData.symbolName} t=${t.hour}:${String(t.minute).padStart(2, "0")} defer switch`,
-                      { currentKey, desiredKey, emJob: __getNpcEmActiveJob(npcData.instanceIndex) }
-                    );
-                  }
-                }
               }
-            } else {
-              activateRoutineEntry(desiredEntry.state, desiredKey, desiredEntry.waypoint, desiredEntry.startM, desiredEntry.stopM);
+            } else if (pending) {
               delete (g.userData as any)._aiPendingRoutine;
             }
-          } else if (pending) {
-            // Target routine is already active; drop any stale pending request.
-            delete (g.userData as any)._aiPendingRoutine;
-          }
 
-          // If a switch is pending, wait for the current one-shot animation to finish, but do NOT keep running the old loop
-          // (it would keep enqueueing more actions and we might never reach the switch point).
-          {
             const p = (g.userData as any)._aiPendingRoutine as
               | { key: string; state: string; waypoint: string; startM: number; stopM: number; sinceMs: number }
               | undefined;
-            if (p) {
+            if (p && p.key !== currentKey) {
               const waitedMs = Math.max(0, nowMs - (p.sinceMs ?? nowMs));
-              const forceAfterMs = 15_000;
-              const stillPlaying = shouldDeferSwitch() && waitedMs < forceAfterMs;
-              if (routineDebug.enabled && npcData.symbolName.trim().toUpperCase() === routineDebug.npc) {
-                const prev = routineDebugLastLogMsRef.current.get(npcData.instanceIndex) ?? 0;
-                if (nowMs - prev > 1000) {
-                  routineDebugLastLogMsRef.current.set(npcData.instanceIndex, nowMs);
-                  console.log(
-                    `[routine] ${npcData.symbolName} pending`,
-                    { waitedMs, stillPlaying, forceAfterMs, pendingKey: p.key, emJob: __getNpcEmActiveJob(npcData.instanceIndex) }
-                  );
-                }
-              }
-              if (stillPlaying) {
+              if (emEmpty || waitedMs >= FORCE_AFTER_MS) {
+                activateRoutineEntry(p.state, p.key, p.waypoint, p.startM, p.stopM, { forceClear: !emEmpty });
+                delete (g.userData as any)._aiPendingRoutine;
+              } else {
+                // While waiting for EM to become empty, do not run the old state's loop.
                 continue;
               }
-              activateRoutineEntry(p.state, p.key, p.waypoint, p.startM, p.stopM);
-              delete (g.userData as any)._aiPendingRoutine;
+            }
+
+            if (!emEmpty) {
+              // If EM is busy, do not run loop ticks for this NPC.
+              continue;
             }
           }
 
@@ -1430,21 +1416,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const runningWaypoint = ((g.userData as any)._aiActiveRoutineWaypoint as string | undefined) || (desiredEntry.waypoint || "").trim().toUpperCase();
           const runningStartM = (g.userData as any)._aiActiveRoutineStartM as number | undefined;
           const runningStopM = (g.userData as any)._aiActiveRoutineStopM as number | undefined;
-          if (routineDebug.enabled && npcData.symbolName.trim().toUpperCase() === routineDebug.npc) {
-            const prev = routineDebugLastLogMsRef.current.get(npcData.instanceIndex) ?? 0;
-            if (nowMs - prev > 2000) {
-              routineDebugLastLogMsRef.current.set(npcData.instanceIndex, nowMs);
-              console.log(
-                `[routine] ${npcData.symbolName} tick t=${t.hour}:${String(t.minute).padStart(2, "0")}`,
-                {
-                  desired: { state: desiredEntry.state, wp: (desiredEntry.waypoint || "").trim().toUpperCase(), key: desiredKey },
-                  running: { state: runningState, wp: runningWaypoint, key: (g.userData as any)._aiActiveRoutineKey },
-                  pendingKey: (g.userData as any)._aiPendingRoutine?.key,
-                  emJob: __getNpcEmActiveJob(npcData.instanceIndex),
-                }
-              );
-            }
-          }
           if (runningState && runningWaypoint) {
             setNpcRoutineRuntime(npcData.instanceIndex, {
               stateName: runningState,
@@ -1457,12 +1428,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const loopFnCandidates = [`${runningState}_loop`, `${runningState}_LOOP`];
           const loopFn = loopFnCandidates.find((fn) => vm.hasSymbol(fn));
           if (!loopFn) continue;
-
-          // Advance script state time by real elapsed time since the last loop tick for this NPC.
-          const lastAt = (g.userData as any)._aiLoopLastAtMs as number | undefined;
-          const dtSec = typeof lastAt === "number" ? Math.max(0, (nowMs - lastAt) / 1000) : 0;
-          (g.userData as any)._aiLoopLastAtMs = nowMs;
-          advanceNpcStateTime(npcData.instanceIndex, dtSec);
 
           vm.setGlobalSelf(npcData.symbolName);
           vm.callFunction(loopFn, []);

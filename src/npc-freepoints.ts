@@ -25,13 +25,27 @@ type NpcPose = { x: number; y: number; z: number };
 
 let worldRef: World | null = null;
 let spotIndex: FreepointSpot[] | null = null;
+let spotIndexById: Map<number, FreepointSpot> | null = null;
 const reservations = new Map<number, SpotReservation>();
+const reservationsByNpc = new Map<number, Set<number>>();
 const npcPosByInstanceIndex = new Map<number, NpcPose>();
 
 const FPBOX_DIMENSION = 50;
 const FPBOX_DIMENSION_Y = 200;
 
 const toUpperKey = (s: string): string => (s || "").trim().toUpperCase();
+
+function deleteReservation(spotVobId: number): void {
+  const res = reservations.get(spotVobId);
+  if (res) {
+    const s = reservationsByNpc.get(res.byNpcInstanceIndex);
+    if (s) {
+      s.delete(spotVobId);
+      if (s.size === 0) reservationsByNpc.delete(res.byNpcInstanceIndex);
+    }
+  }
+  reservations.delete(spotVobId);
+}
 
 function expandFreepointQueryKey(keyUpper: string): string[] {
   if (!keyUpper) return [];
@@ -120,6 +134,7 @@ function ensureSpotIndex(): FreepointSpot[] {
   }
 
   spotIndex = spots;
+  spotIndexById = new Map(spots.map((s) => [s.vobId, s]));
   return spots;
 }
 
@@ -152,7 +167,7 @@ function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number,
       res.confirmedOnSpot = true;
       reservations.set(spot.vobId, res);
     } else if (res.confirmedOnSpot) {
-      reservations.delete(spot.vobId);
+      deleteReservation(spot.vobId);
     }
     return true;
   }
@@ -161,19 +176,43 @@ function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number,
   const holderPos = npcPosByInstanceIndex.get(res.byNpcInstanceIndex);
   if (holderPos && isInSpotBBox(spot, holderPos)) return false;
 
-  reservations.delete(spot.vobId);
+  deleteReservation(spot.vobId);
   return true;
 }
 
 export function setFreepointsWorld(world: World | null): void {
   worldRef = world;
   spotIndex = null;
+  spotIndexById = null;
   reservations.clear();
+  reservationsByNpc.clear();
 }
 
 export function updateNpcWorldPosition(instanceIndex: number, pos: NpcPose): void {
   if (!Number.isFinite(instanceIndex)) return;
-  npcPosByInstanceIndex.set(instanceIndex, { x: pos.x, y: pos.y, z: pos.z });
+  const nextPos = { x: pos.x, y: pos.y, z: pos.z };
+  npcPosByInstanceIndex.set(instanceIndex, nextPos);
+
+  // Keep reservations responsive even if the script loop is gated on "EM empty".
+  // If an NPC leaves a spot after having been confirmed inside its bbox at least once,
+  // release it immediately (mirrors "owner left bbox" auto-release behavior).
+  const owned = reservationsByNpc.get(instanceIndex);
+  if (!owned || owned.size === 0) return;
+  if (!spotIndexById) return;
+
+  for (const spotVobId of Array.from(owned)) {
+    const res = reservations.get(spotVobId);
+    if (!res || res.byNpcInstanceIndex !== instanceIndex) {
+      owned.delete(spotVobId);
+      continue;
+    }
+    if (!res.confirmedOnSpot) continue;
+    const spot = spotIndexById.get(spotVobId);
+    if (!spot) continue;
+    if (!isInSpotBBox(spot, nextPos)) {
+      deleteReservation(spotVobId);
+    }
+  }
 }
 
 export function removeNpcWorldPosition(instanceIndex: number): void {
@@ -267,6 +306,12 @@ export function reserveFreepoint(spotVobId: number, npcInstanceIndex: number, ho
     untilMs: nowMs + Math.max(0, holdMs),
     confirmedOnSpot: false,
   });
+  let s = reservationsByNpc.get(npcInstanceIndex);
+  if (!s) {
+    s = new Set<number>();
+    reservationsByNpc.set(npcInstanceIndex, s);
+  }
+  s.add(spotVobId);
 }
 
 export function acquireFreepointForNpc(

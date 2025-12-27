@@ -175,18 +175,6 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     }
   })();
 
-  const routineDebug = (() => {
-    try {
-      if (typeof window === "undefined") return { enabled: false, npc: "" };
-      const qs = new URLSearchParams(window.location.search);
-      const enabled = qs.get("npcRoutineDebug") === "1";
-      const npc = (qs.get("npcRoutineDebugNpc") || "BAU_952_VINO").trim().toUpperCase();
-      return { enabled, npc };
-    } catch {
-      return { enabled: false, npc: "" };
-    }
-  })();
-
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
   const npcVisualsByIndex = new Map<number, NpcVisual>();
@@ -444,13 +432,6 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     if (!npcIndex) return;
     const resolved = name && name.trim() ? name : getNpcRoutineWaypointName(npcIndex);
     if (!resolved) return;
-    if (routineDebug.enabled) {
-      const sym = vm.getSymbolNameByIndex(npcIndex);
-      const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
-      if (npcSym === routineDebug.npc) {
-        console.log(`[vm] AI_GotoWP ${npcSym}`, { raw: name, resolved });
-      }
-    }
     enqueueNpcEmMessage(npcIndex, { type: "gotoWaypoint", waypointName: resolved, locomotionMode: "walk" });
   });
 
@@ -461,33 +442,12 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     const resolved = name && name.trim() ? name : getNpcRoutineWaypointName(npcIndex);
     if (!resolved) return 0;
     const npcPos = getNpcWorldPosition(npcIndex);
-    if (!npcPos) {
-      if (routineDebug.enabled) {
-        const sym = vm.getSymbolNameByIndex(npcIndex);
-        const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
-        if (npcSym === routineDebug.npc) console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, reason: "no npcPos" });
-      }
-      return 0;
-    }
+    if (!npcPos) return 0;
     const wpPos = getWaynetWaypointPosition(resolved);
-    if (!wpPos) {
-      if (routineDebug.enabled) {
-        const sym = vm.getSymbolNameByIndex(npcIndex);
-        const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
-        if (npcSym === routineDebug.npc)
-          console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, reason: "no wpPos" });
-      }
-      return 0;
-    }
+    if (!wpPos) return 0;
     const dx = wpPos.x - npcPos.x;
     const dz = wpPos.z - npcPos.z;
-    const dist = Math.floor(Math.sqrt(dx * dx + dz * dz));
-    if (routineDebug.enabled) {
-      const sym = vm.getSymbolNameByIndex(npcIndex);
-      const npcSym = sym.success && sym.data ? sym.data.trim().toUpperCase() : "";
-      if (npcSym === routineDebug.npc) console.log(`[vm] Npc_GetDistToWP ${npcSym}`, { raw: name, resolved, dist });
-    }
-    return dist;
+    return Math.floor(Math.sqrt(dx * dx + dz * dz));
   });
 
   registerExternalSafe(vm, "AI_AlignToWP", (npc: any) => {
