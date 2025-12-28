@@ -26,7 +26,7 @@ import {
 } from "./npc-world-collision";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
-import { getRuntimeVm } from "./vm-manager";
+import { getNpcSpawnOrder, getRuntimeVm } from "./vm-manager";
 import { advanceNpcStateTime, setNpcStateTime } from "./vm-manager";
 import { getWorldTime, useWorldTime } from "./world-time";
 import { createFreepointOwnerOverlay } from "./freepoint-owner-overlay";
@@ -1141,6 +1141,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (!aabbIntersects(item.waybox, loadBox)) continue;
       toLoad.push(item.id);
     }
+    toLoad.sort((a, b) => {
+      const ai = Number(String(a).slice(4));
+      const bi = Number(String(b).slice(4));
+      if (!Number.isFinite(ai) || !Number.isFinite(bi)) return a.localeCompare(b);
+      const ao = getNpcSpawnOrder(ai);
+      const bo = getNpcSpawnOrder(bi);
+      if (ao != null && bo != null && ao !== bo) return ao - bo;
+      if (ao != null && bo == null) return -1;
+      if (ao == null && bo != null) return 1;
+      return ai - bi;
+    });
 
     const toUnload: string[] = [];
     for (const id of loadedNpcsRef.current.keys()) {
@@ -1254,7 +1265,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (vm) {
         const t = getWorldTime();
         const nowMs = Date.now();
-        for (const g of loadedNpcsRef.current.values()) {
+        const groups = Array.from(loadedNpcsRef.current.values());
+        groups.sort((a, b) => {
+          const ia = (a?.userData?.npcData as NpcData | undefined)?.instanceIndex ?? 0;
+          const ib = (b?.userData?.npcData as NpcData | undefined)?.instanceIndex ?? 0;
+          const ao = getNpcSpawnOrder(ia);
+          const bo = getNpcSpawnOrder(ib);
+          if (ao != null && bo != null && ao !== bo) return ao - bo;
+          if (ao != null && bo == null) return -1;
+          if (ao == null && bo != null) return 1;
+          return ia - ib;
+        });
+        for (const g of groups) {
           if (!g || g.userData.isDisposed) continue;
           const npcData = g.userData.npcData as NpcData | undefined;
           if (!npcData?.dailyRoutine || !npcData.symbolName) continue;

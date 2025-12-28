@@ -19,6 +19,26 @@ export interface VmLoadResult {
 let runtimeVm: DaedalusVm | null = null;
 
 // ---------------------------------------------------------------------------
+// NPC spawn order (Wld_InsertNpc call order)
+// ---------------------------------------------------------------------------
+//
+// In ZenGin, actual insertion/update order is driven by internal world/spawn-manager lists.
+// In spacer-web, we can approximate deterministic insertion order by remembering the order
+// in which the VM requested spawns via `Wld_InsertNpc`.
+const npcSpawnOrderByInstance = new Map<number, number>();
+let nextNpcSpawnOrder = 1;
+
+export function getNpcSpawnOrder(npcInstanceIndex: number): number | null {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
+  return npcSpawnOrderByInstance.get(npcInstanceIndex) ?? null;
+}
+
+export function __resetNpcSpawnOrderForTests(): void {
+  npcSpawnOrderByInstance.clear();
+  nextNpcSpawnOrder = 1;
+}
+
+// ---------------------------------------------------------------------------
 // Script state-time (Npc_GetStateTime / Npc_SetStateTime)
 // ---------------------------------------------------------------------------
 //
@@ -311,6 +331,10 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       if (npcInstanceIndex <= 0) {
         console.warn(`⚠️  WLD_INSERTNPC: Invalid NPC instance index: ${npcInstanceIndex}`);
         return;
+      }
+
+      if (!npcSpawnOrderByInstance.has(npcInstanceIndex)) {
+        npcSpawnOrderByInstance.set(npcInstanceIndex, nextNpcSpawnOrder++);
       }
 
       const npcInfo = getNpcInfo(vm, npcInstanceIndex);
