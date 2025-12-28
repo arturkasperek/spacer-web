@@ -460,7 +460,9 @@ export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTelepor
               if (node.kind === 'vob' && node.vob) {
                 onVobClick?.(node.vob);
               } else if (node.kind === 'waypoint' && node.waypoint) {
-                onWaypointSelect?.(node.waypoint);
+                // For leaf waypoints, match VOB behavior: selecting should also focus/teleport the camera.
+                // (Double-click still works, but single-click is the common interaction in the tree.)
+                onWaypointTeleport?.(node.waypoint);
               }
             }
           }}
@@ -619,7 +621,7 @@ export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTelepor
           marginTop: '4px',
           fontStyle: 'italic'
         }}>
-          Click: expand | Double-click: teleport
+          Click: select/teleport | Double-click: teleport
         </div>
       </div>
 
