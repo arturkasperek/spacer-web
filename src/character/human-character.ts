@@ -239,6 +239,8 @@ export async function createHumanCharacterInstance(params: {
             if (next.resetTime) currentTimeMs = 0;
             hasLastRootMotionPos = false;
             lastPoseTimeMs = 0;
+            root.userData.__currentAnimationName = currentAnimationName;
+            root.userData.__currentAnimationModel = currentModelName;
           } else {
             currentLoop = next.loop;
           }
@@ -343,6 +345,8 @@ export async function createHumanCharacterInstance(params: {
       disposeObject3D(root);
     };
 
+    root.userData.__currentAnimationName = currentAnimationName;
+    root.userData.__currentAnimationModel = currentModelName;
     return { object: root, update, setAnimation, dispose };
   } catch (error) {
     console.warn("Failed to create human character instance:", error);

@@ -19,9 +19,20 @@ type ActiveJob =
   | { type: "move" }
   | { type: "wait"; remainingMs: number }
   | { type: "turn"; targetQuat: THREE.Quaternion; timeoutMs: number }
-  | { type: "playAni"; remainingMs: number };
+  | {
+      type: "playAni";
+      remainingMs: number;
+      startRequestedAtMs: number;
+      startTimeoutMs: number;
+      acceptedNamesUpper: string[];
+      started: boolean;
+    };
 
 const activeJobs = new Map<number, ActiveJob | null>();
+
+export function clearNpcEmRuntimeState(npcInstanceIndex: number): void {
+  activeJobs.delete(npcInstanceIndex);
+}
 
 export function __getNpcEmActiveJob(
   npcInstanceIndex: number
@@ -196,7 +207,19 @@ function startMessageAsJob(
               }
             : undefined,
       });
-      return { type: "playAni", remainingMs: isLoop ? 1_000_000 : Math.max(0, dur) };
+      const nowMs = ctx.nowMs?.() ?? Date.now();
+      const acceptedNamesUpper = [name, ...(msg.fallbackNames || [])]
+        .map((n) => (n || "").trim())
+        .filter(Boolean)
+        .map((n) => n.toUpperCase());
+      return {
+        type: "playAni",
+        remainingMs: isLoop ? 1_000_000 : Math.max(0, dur),
+        startRequestedAtMs: nowMs,
+        startTimeoutMs: 2000,
+        acceptedNamesUpper,
+        started: false,
+      };
     }
     case "clear": {
       // Clear is handled at a higher level.
@@ -315,6 +338,31 @@ export function updateNpcEventManager(
   }
 
   if (job.type === "playAni") {
+    const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+    if (!instance) {
+      finishActiveJob(npcInstanceIndex, npcGroup);
+      return { moved: false, mode: "idle" };
+    }
+
+    const nowMs = ctx.nowMs?.() ?? Date.now();
+    if (!job.started) {
+      const current = ((instance as any).object?.userData?.__currentAnimationName as string | undefined) || "";
+      const currentUpper = current.trim().toUpperCase();
+
+      // If we can't observe the current animation (e.g. tests/mocks), assume it started.
+      if (!currentUpper && !(instance as any).object) {
+        job.started = true;
+      } else if (currentUpper && job.acceptedNamesUpper.includes(currentUpper)) {
+        job.started = true;
+      } else if (nowMs - job.startRequestedAtMs > job.startTimeoutMs) {
+        // If the requested animation can't start (e.g. missing MDS/overlay), don't stall the queue forever.
+        finishActiveJob(npcInstanceIndex, npcGroup);
+        return { moved: false, mode: "idle" };
+      } else {
+        return { moved: false, mode: "idle" };
+      }
+    }
+
     job.remainingMs -= deltaSeconds * 1000;
     if (job.remainingMs <= 0) finishActiveJob(npcInstanceIndex, npcGroup);
     return { moved: false, mode: "idle" };

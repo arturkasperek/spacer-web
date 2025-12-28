@@ -89,3 +89,7 @@ export function __getNpcEmQueueState(npcInstanceIndex: number): QueueState | und
 export function __ensureNpcEmQueueState(npcInstanceIndex: number): QueueState {
   return ensureState(npcInstanceIndex);
 }
+
+export function clearNpcEmQueueState(npcInstanceIndex: number): void {
+  queues.delete(npcInstanceIndex);
+}

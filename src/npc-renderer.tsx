@@ -12,8 +12,8 @@ import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type Lo
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { clearNpcFreepointReservations, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
-import { updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
-import { __getNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
+import { clearNpcEmRuntimeState, updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
+import { __getNpcEmQueueState, clearNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
 import {
@@ -513,6 +513,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (npcData) {
         clearNpcFreepointReservations(npcData.instanceIndex);
         removeNpcWorldPosition(npcData.instanceIndex);
+        clearNpcEmRuntimeState(npcData.instanceIndex);
+        clearNpcEmQueueState(npcData.instanceIndex);
+        waypointMoverRef.current?.clearForNpc?.(npcId);
       }
       const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
       const isLoading = Boolean(npcGroup.userData.modelLoading);
@@ -1207,7 +1210,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (npcGroup && npcsGroupRef.current) {
         npcGroup.userData.isDisposed = true;
         const npcData = npcGroup.userData.npcData as NpcData | undefined;
-        if (npcData) clearNpcFreepointReservations(npcData.instanceIndex);
+        if (npcData) {
+          clearNpcFreepointReservations(npcData.instanceIndex);
+          clearNpcEmRuntimeState(npcData.instanceIndex);
+          clearNpcEmQueueState(npcData.instanceIndex);
+          waypointMoverRef.current?.clearForNpc?.(npcId);
+        }
         const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
         const isLoading = Boolean(npcGroup.userData.modelLoading);
         if (instance && !isLoading) instance.dispose();
