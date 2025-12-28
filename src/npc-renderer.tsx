@@ -11,7 +11,7 @@ import { fetchBinaryCached } from "./character/binary-cache.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
-import { setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
+import { clearNpcFreepointReservations, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
 import { __getNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState } from "./npc-model-scripts";
@@ -510,7 +510,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (!npcGroup) continue;
       npcGroup.userData.isDisposed = true;
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
-      if (npcData) removeNpcWorldPosition(npcData.instanceIndex);
+      if (npcData) {
+        clearNpcFreepointReservations(npcData.instanceIndex);
+        removeNpcWorldPosition(npcData.instanceIndex);
+      }
       const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
       const isLoading = Boolean(npcGroup.userData.modelLoading);
       if (instance && !isLoading) instance.dispose();
@@ -1203,6 +1206,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcGroup = loadedNpcsRef.current.get(npcId);
       if (npcGroup && npcsGroupRef.current) {
         npcGroup.userData.isDisposed = true;
+        const npcData = npcGroup.userData.npcData as NpcData | undefined;
+        if (npcData) clearNpcFreepointReservations(npcData.instanceIndex);
         const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
         const isLoading = Boolean(npcGroup.userData.modelLoading);
         if (instance && !isLoading) instance.dispose();

@@ -314,6 +314,15 @@ export function reserveFreepoint(spotVobId: number, npcInstanceIndex: number, ho
   s.add(spotVobId);
 }
 
+export function clearNpcFreepointReservations(npcInstanceIndex: number): void {
+  const s = reservationsByNpc.get(npcInstanceIndex);
+  if (!s || s.size === 0) return;
+  for (const spotVobId of Array.from(s)) {
+    deleteReservation(spotVobId);
+  }
+  reservationsByNpc.delete(npcInstanceIndex);
+}
+
 export function acquireFreepointForNpc(
   npcInstanceIndex: number,
   freepointName: string,
