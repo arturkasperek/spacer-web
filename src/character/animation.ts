@@ -163,7 +163,17 @@ export function evaluatePose(
       if (options?.outRootMotionPos) options.outRootMotionPos.copy(pos);
       const bind = skeleton.bindLocal[nodeId];
       const bindPos = new THREE.Vector3(bind.elements[12], bind.elements[13], bind.elements[14]);
-      animLocal[nodeId] = new THREE.Matrix4().compose(bindPos, rot, new THREE.Vector3(1, 1, 1));
+      // Keep the animation's vertical offset on the root node so poses like kneeling/crouching don't appear to
+      // "float" when we extract horizontal root motion for moving the VOB/NPC.
+      // Gothic MAN root samples are effectively offsets relative to the bind pose, so keep bind translation and
+      // apply only the animated Y delta here (relative to the first frame baseline).
+      const base = sequence.samples[i];
+      const baseY = base ? base.position.y : 0;
+      animLocal[nodeId] = new THREE.Matrix4().compose(
+        new THREE.Vector3(bindPos.x, bindPos.y + (pos.y - baseY), bindPos.z),
+        rot,
+        new THREE.Vector3(1, 1, 1)
+      );
     } else {
       animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));
     }

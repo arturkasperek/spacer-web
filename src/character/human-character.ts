@@ -308,17 +308,19 @@ export async function createHumanCharacterInstance(params: {
         });
       }
 
-      if (rootMotion && applyRootMotion) {
+      if (rootMotion) {
         const totalTimeMs = currentSequence.totalTimeMs;
         const poseTimeMs = currentLoop
           ? ((currentTimeMs % totalTimeMs) + totalTimeMs) % totalTimeMs
           : Math.max(0, Math.min(totalTimeMs, currentTimeMs));
 
+        rootMotionDelta.set(0, 0, 0);
+
         if (!hasLastRootMotionPos) {
           lastRootMotionPos.copy(rootMotionPos);
           hasLastRootMotionPos = true;
           lastPoseTimeMs = poseTimeMs;
-        } else if (loop && poseTimeMs < lastPoseTimeMs) {
+        } else if (currentLoop && poseTimeMs < lastPoseTimeMs) {
           lastRootMotionPos.copy(rootMotionPos);
           lastPoseTimeMs = poseTimeMs;
         } else {
@@ -328,11 +330,17 @@ export async function createHumanCharacterInstance(params: {
 
           if (mirrorX) rootMotionDelta.x *= -1;
 
-          const target = rootMotionTarget === "parent" ? parent : root;
-          if (rootMotionDelta.x) target.translateX(rootMotionDelta.x);
-          if (rootMotionDelta.y) target.translateY(rootMotionDelta.y);
-          if (rootMotionDelta.z) target.translateZ(rootMotionDelta.z);
+          if (applyRootMotion) {
+            const target = rootMotionTarget === "parent" ? parent : root;
+            if (rootMotionDelta.x) target.translateX(rootMotionDelta.x);
+            if (rootMotionDelta.y) target.translateY(rootMotionDelta.y);
+            if (rootMotionDelta.z) target.translateZ(rootMotionDelta.z);
+          }
         }
+
+        root.userData.__rootMotionDelta = { x: rootMotionDelta.x, y: rootMotionDelta.y, z: rootMotionDelta.z };
+      } else {
+        root.userData.__rootMotionDelta = { x: 0, y: 0, z: 0 };
       }
 
       for (let i = 0; i < skinningDataList.length; i++) {

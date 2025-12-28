@@ -78,6 +78,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpManualRight = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
+  const tmpEmRootMotionWorld = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
   const tmpManualUp = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const tmpTeleportForward = useMemo(() => new THREE.Vector3(), []);
@@ -1641,6 +1642,27 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         movedThisFrame = Boolean(em.moved);
         locomotionMode = em.mode ?? "idle";
         tryingToMoveThisFrame = locomotionMode !== "idle" || Boolean(mover?.getMoveState(npcId)?.done === false);
+      }
+
+      // Apply animation root motion during script-driven one-shot animations (AI_PlayAni / Npc_PlayAni).
+      // This makes e.g. dance/attack "step" animations move the NPC like in the original engine.
+      if (!isManualCavalorn && instance && Boolean((npcGroup.userData as any)._emSuppressLocomotion)) {
+        const d = (instance.object as any)?.userData?.__rootMotionDelta as { x: number; y: number; z: number } | undefined;
+        if (d && (Math.abs(d.x) > 1e-6 || Math.abs(d.z) > 1e-6)) {
+          tmpEmRootMotionWorld.set(d.x, 0, d.z).applyQuaternion(npcGroup.quaternion);
+          const desiredX = npcGroup.position.x + tmpEmRootMotionWorld.x;
+          const desiredZ = npcGroup.position.z + tmpEmRootMotionWorld.z;
+          const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, delta);
+          if (r.moved) {
+            const lenSq = tmpEmRootMotionWorld.x * tmpEmRootMotionWorld.x + tmpEmRootMotionWorld.z * tmpEmRootMotionWorld.z;
+            if (lenSq > 1e-8) {
+              const inv = 1 / Math.sqrt(lenSq);
+              npcGroup.userData.lastMoveDirXZ = { x: tmpEmRootMotionWorld.x * inv, z: tmpEmRootMotionWorld.z * inv };
+            }
+          }
+          movedThisFrame = movedThisFrame || r.moved;
+          if (r.moved) tryingToMoveThisFrame = true;
+        }
       }
 
       // ZenGin-like slope sliding:
