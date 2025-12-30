@@ -1,42 +1,27 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { BinaryCache } from "./binary-cache.js";
-import type { AnimationCache } from "./animation.js";
+import type { CharacterCaches, CharacterInstance } from "./character-instance.js";
 import { fetchBinaryCached } from "./binary-cache.js";
 import { loadAnimationSequence, evaluatePose } from "./animation.js";
 import { buildSkeletonFromHierarchy } from "./skeleton.js";
 import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning.js";
 import { buildSoftSkinMeshCPU } from "./soft-skin.js";
-import { findHeadBoneIndex, loadHeadMesh } from "./head.js";
 import { disposeObject3D } from "../distance-streaming.js";
 
-export type CharacterCaches = {
-  binary: BinaryCache;
-  textures: Map<string, THREE.DataTexture>;
-  materials: Map<string, THREE.Material>;
-  animations: AnimationCache;
-};
+function normalizeModelKey(input: string): string {
+  return (input || "")
+    .trim()
+    .replace(/\.(ASC|MDM|MDH|MDL|MDS|MSB|MMS|MMB)$/i, "")
+    .replace(/\.+$/, "")
+    .toUpperCase();
+}
 
-export type CharacterInstance = {
-  object: THREE.Group;
-  update: (deltaSeconds: number) => void;
-  setAnimation: (
-    animationName: string,
-    options?: {
-      modelName?: string;
-      loop?: boolean;
-      resetTime?: boolean;
-      fallbackNames?: string[];
-      next?: { animationName: string; modelName?: string; loop?: boolean; resetTime?: boolean; fallbackNames?: string[] };
-    }
-  ) => void;
-  dispose: () => void;
-};
-
-export async function createHumanCharacterInstance(params: {
+export async function createCreatureCharacterInstance(params: {
   zenKit: ZenKit;
   caches: CharacterCaches;
   parent: THREE.Object3D;
+  modelKey: string;
+  meshKey?: string;
   animationName?: string;
   loop?: boolean;
   mirrorX?: boolean;
@@ -44,34 +29,25 @@ export async function createHumanCharacterInstance(params: {
   applyRootMotion?: boolean;
   rootMotionTarget?: "self" | "parent";
   align?: "center" | "ground";
-  bodyMesh?: string;
-  bodyTex?: number;
-  skin?: number;
-  headMesh?: string;
-  headTex?: number;
-  teethTex?: number;
-  armorInst?: number;
 }): Promise<CharacterInstance | null> {
   const {
     zenKit,
     caches,
     parent,
-    animationName = "t_dance_01",
+    modelKey,
+    meshKey,
+    animationName = "s_Run",
     loop = true,
     mirrorX = true,
     rootMotion = true,
     applyRootMotion = true,
     rootMotionTarget = "parent",
     align = "ground",
-    bodyMesh,
-    bodyTex = 0,
-    skin = 0,
-    headMesh,
-    headTex = 0,
-    teethTex = 0,
-    armorInst: _armorInst = -1,
   } = params;
-  void _armorInst;
+
+  const model = normalizeModelKey(modelKey);
+  const mesh = normalizeModelKey(meshKey || modelKey);
+  if (!model || !mesh) return null;
 
   const root = new THREE.Group();
   root.name = "npc-character";
@@ -82,12 +58,8 @@ export async function createHumanCharacterInstance(params: {
   root.add(group);
 
   try {
-    const mdhPath = `/ANIMS/_COMPILED/HUMANS.MDH`;
-    const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0").replace(/\.(ASC|MDM|MDH|MDL)$/i, "").toUpperCase();
-    if (!normalizedBodyMesh.startsWith("HUM_")) {
-      return null;
-    }
-    const mdmPath = `/ANIMS/_COMPILED/${normalizedBodyMesh}.MDM`;
+    const mdhPath = `/ANIMS/_COMPILED/${model}.MDH`;
+    const mdmPath = `/ANIMS/_COMPILED/${mesh}.MDM`;
 
     const mdhBytes = await fetchBinaryCached(mdhPath, caches.binary);
     const mdmBytes = await fetchBinaryCached(mdmPath, caches.binary);
@@ -100,102 +72,68 @@ export async function createHumanCharacterInstance(params: {
     const mdmLoadResult = meshLoader.loadFromArray(mdmBytes);
     if (!mdmLoadResult || !mdmLoadResult.success) return null;
 
-    const model = zenKit.createModel();
-    model.setHierarchy(hierarchyLoader.getHierarchy());
-    model.setMesh(meshLoader.getMesh());
+    const zModel = zenKit.createModel();
+    zModel.setHierarchy(hierarchyLoader.getHierarchy());
+    zModel.setMesh(meshLoader.getMesh());
 
-    const hierarchy = model.getHierarchy();
+    const hierarchy = zModel.getHierarchy();
     const skeleton = buildSkeletonFromHierarchy(hierarchy);
 
-    // Add bones to scene graph so attachments (like head) can be parented to them.
     for (const rootIdx of skeleton.rootNodes) {
       group.add(skeleton.bones[rootIdx]);
     }
 
-    const softSkinMeshes = model.getSoftSkinMeshes();
+    const softSkinMeshes = zModel.getSoftSkinMeshes();
     const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
     if (softSkinCount === 0) return null;
 
     const skinningDataList: CpuSkinningData[] = [];
-
     for (let i = 0; i < softSkinCount; i++) {
       const softSkinMesh = softSkinMeshes.get(i);
       if (!softSkinMesh) continue;
-
-      const { mesh, skinningData } = await buildSoftSkinMeshCPU({
+      const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPU({
         zenKit,
         softSkinMesh,
         bindWorld: skeleton.bindWorld,
         textureCache: caches.textures,
-        textureOverride: (name: string) => {
-          const upper = (name || "").toUpperCase();
-          if (!upper.includes("BODY")) return name;
-          return upper
-            .replace(/_V\d+/g, `_V${bodyTex}`)
-            .replace(/_C\d+/g, `_C${skin}`);
-        },
       });
-
-      mesh.userData.cpuSkinningData = skinningData;
+      threeMesh.userData.cpuSkinningData = skinningData;
       skinningDataList.push(skinningData);
-      group.add(mesh);
-    }
-
-    // Try to load and attach head mesh (MMB) to the head bone
-    const nodeNames = skeleton.nodes.map(n => n.name);
-    const headNodeIndex = findHeadBoneIndex(nodeNames);
-    const requestedHeadName = headMesh ? headMesh.trim() : '';
-    if (headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
-      const headMesh = await loadHeadMesh({
-        zenKit,
-        binaryCache: caches.binary,
-        textureCache: caches.textures,
-        materialCache: caches.materials,
-        headNames: requestedHeadName ? [requestedHeadName] : undefined,
-        headTex,
-        skin,
-        teethTex,
-      });
-      if (headMesh) {
-        skeleton.bones[headNodeIndex].add(headMesh);
-      }
-    } else {
-      const headMeshObj = await loadHeadMesh({
-        zenKit,
-        binaryCache: caches.binary,
-        textureCache: caches.textures,
-        materialCache: caches.materials,
-        headNames: requestedHeadName ? [requestedHeadName] : undefined,
-        headTex,
-        skin,
-        teethTex,
-      });
-      if (headMeshObj) {
-        group.add(headMeshObj);
-      }
+      group.add(threeMesh);
     }
 
     if (mirrorX) {
       group.scale.x = -Math.abs(group.scale.x || 1);
     }
 
-    // IMPORTANT: Box3.setFromObject() operates in world space. Since `group` is already parented
-    // (e.g. under an NPC positioned in the world), we must convert the computed world offset back
-    // to this group's local space before applying it, otherwise the character jumps away.
     group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(group);
     const center = box.getCenter(new THREE.Vector3());
-    const offsetWorld =
-      align === "ground"
-        ? new THREE.Vector3(center.x, box.min.y, center.z)
-        : center.clone();
+    const offsetWorld = align === "ground" ? new THREE.Vector3(center.x, box.min.y, center.z) : center.clone();
     const offsetLocal = group.worldToLocal(offsetWorld.clone());
     group.position.sub(offsetLocal);
 
-    const sequence = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", animationName);
-    let currentSequence = sequence;
-    let currentAnimationName = animationName;
-    let currentModelName = "HUMANS";
+    const initialCandidates = Array.from(
+      new Set(
+        [animationName, "s_Run", "s_Walk", "s_Stand", "s_Idle", "t_Stand", "t_Dance_01"]
+          .map((s) => (s || "").trim())
+          .filter(Boolean)
+      )
+    );
+    let initialSequence: any | null = null;
+    let initialName = animationName;
+    for (const cand of initialCandidates) {
+      const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, model, cand);
+      if (seq) {
+        initialSequence = seq;
+        initialName = cand;
+        break;
+      }
+    }
+
+    let currentSequence = initialSequence;
+    let currentAnimationName = initialName;
+    let currentModelName = model;
     let currentLoop = loop;
     let currentTimeMs = 0;
     const failedAnis = new Set<string>();
@@ -204,6 +142,7 @@ export async function createHumanCharacterInstance(params: {
     let nextAfterNonLoop:
       | { animationName: string; modelName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
       | null = null;
+
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
     const rootMotionDelta = new THREE.Vector3();
@@ -221,7 +160,7 @@ export async function createHumanCharacterInstance(params: {
           let loaded: { seq: any; name: string } | null = null;
 
           for (const cand of candidates) {
-            const key = cand.toUpperCase();
+            const key = `${next.modelName}:${cand}`.toUpperCase();
             if (failedAnis.has(key)) continue;
             const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, next.modelName, cand);
             if (seq) {
@@ -253,7 +192,7 @@ export async function createHumanCharacterInstance(params: {
 
     const tryLoadAnimation = (req: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
       const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
-      for (const n of names) failedAnis.delete(n.toUpperCase());
+      for (const n of names) failedAnis.delete(`${req.modelName}:${n}`.toUpperCase());
       pendingLoad = req;
       ensureLoaderRunning();
     };
@@ -261,7 +200,7 @@ export async function createHumanCharacterInstance(params: {
     const setAnimation: CharacterInstance["setAnimation"] = (nextName, options) => {
       const name = (nextName || "").trim();
       if (!name) return;
-      const nextModel = (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const nextModel = normalizeModelKey(options?.modelName || currentModelName || model) || model;
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
 
@@ -275,7 +214,7 @@ export async function createHumanCharacterInstance(params: {
       if (!nextLoop && options?.next) {
         nextAfterNonLoop = {
           animationName: options.next.animationName,
-          modelName: (options.next.modelName || nextModel || "HUMANS").trim().toUpperCase() || "HUMANS",
+          modelName: normalizeModelKey(options.next.modelName || nextModel || model) || model,
           loop: options.next.loop ?? true,
           resetTime: options.next.resetTime ?? true,
           fallbackNames: options.next.fallbackNames,
@@ -355,9 +294,10 @@ export async function createHumanCharacterInstance(params: {
 
     root.userData.__currentAnimationName = currentAnimationName;
     root.userData.__currentAnimationModel = currentModelName;
+    root.userData.__rootMotionDelta = { x: 0, y: 0, z: 0 };
     return { object: root, update, setAnimation, dispose };
   } catch (error) {
-    console.warn("Failed to create human character instance:", error);
+    console.warn("Failed to create creature character instance:", error);
     parent.remove(root);
     disposeObject3D(root);
     return null;

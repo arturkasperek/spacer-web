@@ -1,7 +1,7 @@
 export {};
 
 import * as THREE from "three";
-import type { CharacterInstance } from "./character/human-character.js";
+import type { CharacterInstance } from "./character/character-instance.js";
 import type { LocomotionMode } from "./npc-locomotion";
 import type { WaypointMover } from "./npc-waypoint-mover";
 import { __ensureNpcEmQueueState, type NpcEmMessage } from "./npc-em-queue";
@@ -13,6 +13,11 @@ export type NpcEmUpdateContext = {
   estimateAnimationDurationMs?: (modelName: string, animationName: string) => number | null;
   getNearestWaypointDirectionQuat?: (pos: THREE.Vector3) => THREE.Quaternion | null;
   getAnimationMeta?: (npcInstanceIndex: number, animationName: string) => AnimationMeta | null;
+  /**
+   * Fallback model name (compiled animation base name) used when MDS/MSB metadata isn't loaded yet.
+   * This prevents accidentally playing `HUMANS-*` animations on creatures during initial script-load races.
+   */
+  getFallbackAnimationModelName?: (npcInstanceIndex: number) => string;
 };
 
 type ActiveJob =
@@ -116,7 +121,8 @@ function startMessageAsJob(
       const upper = name.toUpperCase();
       const isLoop = Boolean(msg.loop);
       const meta = ctx.getAnimationMeta?.(npcInstanceIndex, name) ?? null;
-      const modelName = (meta?.model || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const fallbackModel = (ctx.getFallbackAnimationModelName?.(npcInstanceIndex) || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
 
       // Heuristic: many Daedalus states use `AI_PlayAni(T_*...)` expecting the engine to settle into a looping
       // `S_*` pose (e.g. `T_STAND_2_LGUARD` -> `S_LGUARD`). The original engine resolves this via MDS `next`.

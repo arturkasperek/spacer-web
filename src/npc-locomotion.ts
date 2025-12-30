@@ -1,4 +1,4 @@
-import type { CharacterInstance } from "./character/human-character.js";
+import type { CharacterInstance } from "./character/character-instance.js";
 
 export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack" | "fallDown" | "fall" | "fallBack";
 

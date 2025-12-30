@@ -5,7 +5,8 @@ import type { World, ZenKit } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, disposeObject3D } from './distance-streaming';
 import type { NpcData } from './types';
 import { findActiveRoutineWaypoint, getMapKey, createNpcMesh } from './npc-utils';
-import { createHumanCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/human-character.js';
+import { createHumanoidCharacterInstance, type CharacterCaches, type CharacterInstance } from './character/character-instance.js';
+import { createCreatureCharacterInstance } from "./character/creature-character.js";
 import { preloadAnimationSequences } from "./character/animation.js";
 import { fetchBinaryCached } from "./character/binary-cache.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
@@ -14,7 +15,7 @@ import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { clearNpcFreepointReservations, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { clearNpcEmRuntimeState, updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
 import { __getNpcEmQueueState, clearNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
-import { getNpcModelScriptsState } from "./npc-model-scripts";
+import { getNpcModelScriptsState, setNpcBaseModelScript } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
 import {
   applyNpcWorldCollisionXZ,
@@ -409,7 +410,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const resolveNpcAnimationRef = useMemo(() => {
     return (npcInstanceIndex: number, animationName: string) => {
       const meta = getAnimationMetaForNpc(npcInstanceIndex, animationName);
-      const modelName = (meta?.model || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const scripts = getNpcModelScriptsState(npcInstanceIndex);
+      const fallbackModel = (scripts?.baseScript || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
       return { animationName: (animationName || "").trim(), modelName };
     };
   }, [getAnimationMetaForNpc]);
@@ -1023,28 +1026,73 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     npcGroup.userData.visualKey = visualKey;
 
     try {
-      const instance = await createHumanCharacterInstance({
-        zenKit,
-        caches: characterCachesRef.current,
-        parent: npcGroup,
-        animationName: 's_Run',
-        loop: true,
-        mirrorX: true,
-        rootMotionTarget: "self",
-        applyRootMotion: false,
-        align: 'ground',
-        bodyMesh: visual?.bodyMesh,
-        bodyTex: visual?.bodyTex,
-        skin: visual?.skin,
-        headMesh: visual?.headMesh,
-        headTex: visual?.headTex,
-        teethTex: visual?.teethTex,
-        armorInst: visual?.armorInst,
-      });
+      const bodyMesh = (visual?.bodyMesh || "").trim().toUpperCase();
+      const isHuman = bodyMesh.startsWith("HUM_");
+
+      let instance: CharacterInstance | null = null;
+      if (isHuman || !bodyMesh) {
+        instance = await createHumanoidCharacterInstance({
+          zenKit,
+          caches: characterCachesRef.current,
+          parent: npcGroup,
+          animationName: 's_Run',
+          loop: true,
+          mirrorX: true,
+          rootMotionTarget: "self",
+          applyRootMotion: false,
+          align: 'ground',
+          bodyMesh: visual?.bodyMesh,
+          bodyTex: visual?.bodyTex,
+          skin: visual?.skin,
+          headMesh: visual?.headMesh,
+          headTex: visual?.headTex,
+          teethTex: visual?.teethTex,
+          armorInst: visual?.armorInst,
+        });
+      } else {
+        const scripts = getNpcModelScriptsState(npcData.instanceIndex);
+        const baseScript = (scripts?.baseScript || "").trim().toUpperCase();
+        const modelKey = baseScript && baseScript !== "HUMANS" ? baseScript : bodyMesh;
+        if (baseScript === "HUMANS" && modelKey && modelKey !== "HUMANS") {
+          setNpcBaseModelScript(npcData.instanceIndex, modelKey);
+        }
+        modelScriptRegistryRef.current?.startLoadScript(modelKey);
+
+        instance = await createCreatureCharacterInstance({
+          zenKit,
+          caches: characterCachesRef.current,
+          parent: npcGroup,
+          modelKey,
+          meshKey: bodyMesh,
+          animationName: "s_Run",
+          loop: true,
+          mirrorX: true,
+          rootMotionTarget: "self",
+          applyRootMotion: false,
+          align: "ground",
+        });
+
+        if (!instance && modelKey !== bodyMesh) {
+          instance = await createCreatureCharacterInstance({
+            zenKit,
+            caches: characterCachesRef.current,
+            parent: npcGroup,
+            modelKey: bodyMesh,
+            meshKey: bodyMesh,
+            animationName: "s_Run",
+            loop: true,
+            mirrorX: true,
+            rootMotionTarget: "self",
+            applyRootMotion: false,
+            align: "ground",
+          });
+        }
+      }
       if (npcGroup.userData.isDisposed) return;
 
       if (!instance) {
-        console.warn(`Failed to create NPC character model for ${npcData.symbolName}`);
+        const mesh = (visual?.bodyMesh || "").trim();
+        console.warn(`Failed to create NPC character model for ${npcData.symbolName}${mesh ? ` (mesh: ${mesh})` : ""}`);
         return;
       }
 
@@ -1660,6 +1708,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           estimateAnimationDurationMs,
           getNearestWaypointDirectionQuat,
           getAnimationMeta: getAnimationMetaForNpc,
+          getFallbackAnimationModelName: (idx) => getNpcModelScriptsState(idx).baseScript,
         });
         movedThisFrame = Boolean(em.moved);
         locomotionMode = em.mode ?? "idle";
