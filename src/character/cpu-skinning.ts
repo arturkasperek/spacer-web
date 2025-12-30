@@ -1,21 +1,5 @@
 import * as THREE from "three";
 
-export type CpuWeightEntry = {
-  boneIndex: number;
-  weight: number;
-  position?: { x: number; y: number; z: number };
-  normal?: { x: number; y: number; z: number };
-};
-
-export type CpuSkinningData = {
-  geometry: THREE.BufferGeometry;
-  vertexWeights: CpuWeightEntry[][];
-  basePositions: Float32Array;
-  baseNormals: Float32Array;
-  // Optimized packed format (converted once at creation time)
-  packed?: CpuSkinningPacked;
-};
-
 // Optimized packed format using typed arrays
 export type CpuSkinningPacked = {
   geometry: THREE.BufferGeometry;
@@ -57,71 +41,6 @@ function getBonePalette(animWorld: THREE.Matrix4[]): Float32Array {
   }
 
   return palette;
-}
-
-/**
- * Converts old CpuSkinningData format to optimized packed format
- * Should be called once at mesh creation time, not every frame
- */
-export function convertToPacked(data: CpuSkinningData): CpuSkinningPacked {
-  // Note: Caching disabled - if vertexWeights can change, we need to recompute
-  // To re-enable caching, add versioning/hashing of vertexWeights
-  // if (data.geometry.userData.cpuSkinningPacked) {
-  //   return data.geometry.userData.cpuSkinningPacked;
-  // }
-
-  const vCount = data.vertexWeights.length;
-  const skinIndex = new Uint16Array(vCount * 4);
-  const skinWeight = new Float32Array(vCount * 4);
-  const infPos = new Float32Array(vCount * 4 * 3);
-  const infNorm = new Float32Array(vCount * 4 * 3);
-
-  // Initialize with zeros
-  skinIndex.fill(0);
-  skinWeight.fill(0);
-  infPos.fill(0);
-  infNorm.fill(0);
-
-  for (let i = 0; i < vCount; i++) {
-    const weights = data.vertexWeights[i];
-    const idx4 = i * 4;
-    const idx12 = i * 12;
-
-    if (weights && weights.length > 0) {
-      // Take up to 4 influences, filtering by weight threshold (matches original behavior)
-      let packedIdx = 0;
-      for (let j = 0; j < weights.length && packedIdx < 4; j++) {
-        const w = weights[j];
-        if (w.position && w.weight > 0.0001) {
-          skinIndex[idx4 + packedIdx] = w.boneIndex;
-          skinWeight[idx4 + packedIdx] = w.weight;
-          infPos[idx12 + packedIdx * 3] = w.position.x;
-          infPos[idx12 + packedIdx * 3 + 1] = w.position.y;
-          infPos[idx12 + packedIdx * 3 + 2] = w.position.z;
-          if (w.normal) {
-            infNorm[idx12 + packedIdx * 3] = w.normal.x;
-            infNorm[idx12 + packedIdx * 3 + 1] = w.normal.y;
-            infNorm[idx12 + packedIdx * 3 + 2] = w.normal.z;
-          }
-          packedIdx++;
-        }
-      }
-    }
-  }
-
-  const packed: CpuSkinningPacked = {
-    geometry: data.geometry,
-    skinIndex,
-    skinWeight,
-    infPos,
-    infNorm,
-    basePositions: data.basePositions,
-    baseNormals: data.baseNormals,
-  };
-
-  // Cache disabled - can be re-enabled with proper versioning if vertexWeights are static
-  // data.geometry.userData.cpuSkinningPacked = packed;
-  return packed;
 }
 
 /**
@@ -279,17 +198,8 @@ function applyCpuSkinningPacked(bonePalette: Float32Array, data: CpuSkinningPack
   nrmAttr.needsUpdate = true;
 }
 
-/**
- * Main CPU skinning function - uses packed format if available, otherwise converts on-the-fly
- */
-export function applyCpuSkinning(animWorld: THREE.Matrix4[], skinningData: CpuSkinningData) {
+export function applyCpuSkinning(animWorld: THREE.Matrix4[], skinningData: CpuSkinningPacked) {
   // Convert Matrix4[] to flat Float32Array palette
   const bonePalette = getBonePalette(animWorld);
-
-  // Use packed format if available (created at mesh creation time), otherwise convert
-  const packed = skinningData.packed || convertToPacked(skinningData);
-
-  // Apply optimized skinning
-  applyCpuSkinningPacked(bonePalette, packed);
+  applyCpuSkinningPacked(bonePalette, skinningData);
 }
-

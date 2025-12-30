@@ -4,7 +4,7 @@ import type { CharacterCaches, CharacterInstance } from "./character-instance.js
 import { fetchBinaryCached } from "./binary-cache.js";
 import { loadAnimationSequence, evaluatePose } from "./animation.js";
 import { buildSkeletonFromHierarchy } from "./skeleton.js";
-import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning.js";
+import { applyCpuSkinning, type CpuSkinningPacked } from "./cpu-skinning.js";
 import { buildSoftSkinMeshCPU } from "./soft-skin.js";
 import { disposeObject3D } from "../distance-streaming.js";
 
@@ -87,7 +87,7 @@ export async function createCreatureCharacterInstance(params: {
     const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
     if (softSkinCount === 0) return null;
 
-    const skinningDataList: CpuSkinningData[] = [];
+    const skinningDataList: CpuSkinningPacked[] = [];
     for (let i = 0; i < softSkinCount; i++) {
       const softSkinMesh = softSkinMeshes.get(i);
       if (!softSkinMesh) continue;

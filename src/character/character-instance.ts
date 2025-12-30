@@ -5,7 +5,7 @@ import type { AnimationCache } from "./animation.js";
 import { fetchBinaryCached } from "./binary-cache.js";
 import { loadAnimationSequence, evaluatePose } from "./animation.js";
 import { buildSkeletonFromHierarchy } from "./skeleton.js";
-import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning.js";
+import { applyCpuSkinning, type CpuSkinningPacked } from "./cpu-skinning.js";
 import { buildSoftSkinMeshCPU } from "./soft-skin.js";
 import { findHeadBoneIndex, loadHeadMesh } from "./head.js";
 import { disposeObject3D } from "../distance-streaming.js";
@@ -116,7 +116,7 @@ export async function createHumanoidCharacterInstance(params: {
     const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
     if (softSkinCount === 0) return null;
 
-    const skinningDataList: CpuSkinningData[] = [];
+    const skinningDataList: CpuSkinningPacked[] = [];
 
     for (let i = 0; i < softSkinCount; i++) {
       const softSkinMesh = softSkinMeshes.get(i);
@@ -136,7 +136,6 @@ export async function createHumanoidCharacterInstance(params: {
         },
       });
 
-      mesh.userData.cpuSkinningData = skinningData;
       skinningDataList.push(skinningData);
       group.add(mesh);
     }

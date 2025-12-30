@@ -161,7 +161,10 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
     // No weights -> base values
     applyCpuSkinning([new THREE.Matrix4().identity()], {
       geometry,
-      vertexWeights: [[]],
+      skinIndex: new Uint16Array(4),
+      skinWeight: new Float32Array(4),
+      infPos: new Float32Array(12),
+      infNorm: new Float32Array(12),
       basePositions,
       baseNormals,
     });
@@ -173,7 +176,10 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
     const animWorld = [new THREE.Matrix4().makeTranslation(10, 0, 0)];
     applyCpuSkinning(animWorld, {
       geometry,
-      vertexWeights: [[{ boneIndex: 0, weight: 1, position: { x: 1, y: 2, z: 3 }, normal: { x: 0, y: 0, z: 1 } }]],
+      skinIndex: new Uint16Array([0, 0, 0, 0]),
+      skinWeight: new Float32Array([1, 0, 0, 0]),
+      infPos: new Float32Array([1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+      infNorm: new Float32Array([0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
       basePositions,
       baseNormals,
     });

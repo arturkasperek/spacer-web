@@ -2,8 +2,7 @@ import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob-utils.js";
 import { loadCompiledTexAsDataTexture } from "../mesh-utils.js";
-import type { CpuSkinningData } from "./cpu-skinning.js";
-import { convertToPacked } from "./cpu-skinning.js";
+import type { CpuSkinningPacked } from "./cpu-skinning.js";
 
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;
@@ -17,26 +16,52 @@ export async function buildSoftSkinMeshCPU(params: {
   const mrMesh = softSkinMesh.mesh;
   const normals_raw = mrMesh.normals;
   const subMeshes = mrMesh.subMeshes;
-  const weights = softSkinMesh.weights;
 
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const uvs: number[] = [];
-  const vertexWeights: any[] = [];
+  if (typeof softSkinMesh?.getPackedWeights4 !== "function") {
+    throw new Error("SoftSkinMesh.getPackedWeights4() is required but not available");
+  }
+  const packedWeights = softSkinMesh.getPackedWeights4();
+  const packedBoneIndices: Uint16Array = packedWeights.boneIndices;
+  const packedBoneWeights: Float32Array = packedWeights.boneWeights;
+  const packedBonePositions: Float32Array = packedWeights.bonePositions;
+
+  const safeBoneIndex = (idx: number): number => {
+    if (!Number.isFinite(idx) || idx < 0) return 0;
+    if (idx >= bindWorld.length) return 0;
+    return idx;
+  };
+
   const materials: Array<{ texture: string }> = [];
 
   let currentMatIndex = 0;
   const triGroups: Array<{ start: number; count: number; matIndex: number }> = [];
   let triCount = 0;
 
+  // Precompute total vertex count (triangle corners) to allocate TypedArrays.
+  let totalVertices = 0;
   for (let subMeshIdx = 0; subMeshIdx < subMeshes.size(); subMeshIdx++) {
     const subMesh = subMeshes.get(subMeshIdx);
-    const groupStart = triCount;
+    totalVertices += (subMesh?.triangles?.size?.() ?? 0) * 3;
+  }
+
+  const posArray = new Float32Array(totalVertices * 3);
+  const nrmArray = new Float32Array(totalVertices * 3);
+  const uvArray = new Float32Array(totalVertices * 2);
+
+  const skinIndex = new Uint16Array(totalVertices * 4);
+  const skinWeight = new Float32Array(totalVertices * 4);
+  const infPos = new Float32Array(totalVertices * 4 * 3);
+  const infNorm = new Float32Array(totalVertices * 4 * 3);
+
+  let vertexCursor = 0;
+  for (let subMeshIdx = 0; subMeshIdx < subMeshes.size(); subMeshIdx++) {
+    const subMesh = subMeshes.get(subMeshIdx);
+    const triangles = subMesh.triangles;
+    const wedges = subMesh.wedges;
 
     materials.push({ texture: subMesh.mat.texture || "" });
 
-    const triangles = subMesh.triangles;
-    const wedges = subMesh.wedges;
+    const groupStart = vertexCursor;
 
     for (let triIdx = 0; triIdx < triangles.size(); triIdx++) {
       const triangle = triangles.get(triIdx);
@@ -46,62 +71,84 @@ export async function buildSoftSkinMeshCPU(params: {
         const wedge = wedges.get(wedgeIdx);
         const vertIdx = wedge.index;
 
-        const vertWeights = weights.get(vertIdx);
-        const weightArray: any[] = [];
+        const baseNormalOS = normals_raw.get(vertIdx);
+        const normalOS = new THREE.Vector3(baseNormalOS.x, baseNormalOS.y, baseNormalOS.z);
 
         const bindPos = new THREE.Vector3(0, 0, 0);
         const bindNorm = new THREE.Vector3(0, 0, 0);
-        const baseNormalOS = normals_raw.get(vertIdx);
 
-        for (let j = 0; j < vertWeights.size(); j++) {
-          const w = vertWeights.get(j);
-          if (w.weight > 0.0001) {
-            const boneIndex = w.nodeIndex;
+        const srcOff4 = vertIdx * 4;
+        const srcOff12 = vertIdx * 12;
+
+        const dstOff3 = vertexCursor * 3;
+        const dstOff2 = vertexCursor * 2;
+        const dstOff4 = vertexCursor * 4;
+        const dstOff12 = vertexCursor * 12;
+
+        for (let j = 0; j < 4; j++) {
+          const w = packedBoneWeights[srcOff4 + j] ?? 0;
+          const boneIndex = safeBoneIndex(packedBoneIndices[srcOff4 + j] ?? 0);
+
+          skinIndex[dstOff4 + j] = boneIndex;
+          skinWeight[dstOff4 + j] = w;
+
+          const px = packedBonePositions[srcOff12 + j * 3] ?? 0;
+          const py = packedBonePositions[srcOff12 + j * 3 + 1] ?? 0;
+          const pz = packedBonePositions[srcOff12 + j * 3 + 2] ?? 0;
+          infPos[dstOff12 + j * 3] = px;
+          infPos[dstOff12 + j * 3 + 1] = py;
+          infPos[dstOff12 + j * 3 + 2] = pz;
+
+          infNorm[dstOff12 + j * 3] = normalOS.x;
+          infNorm[dstOff12 + j * 3 + 1] = normalOS.y;
+          infNorm[dstOff12 + j * 3 + 2] = normalOS.z;
+
+          if (w > 0.0001) {
             const bindMatrix = bindWorld[boneIndex] || new THREE.Matrix4();
-
-            const posOS = new THREE.Vector3(w.position.x, w.position.y, w.position.z);
-            const posBind = posOS.clone().applyMatrix4(bindMatrix);
-            bindPos.addScaledVector(posBind, w.weight);
+            const posOS = new THREE.Vector3(px, py, pz);
+            const posBind = posOS.applyMatrix4(bindMatrix);
+            bindPos.addScaledVector(posBind, w);
 
             const mat3 = new THREE.Matrix3().setFromMatrix4(bindMatrix);
-            const nBind = new THREE.Vector3(baseNormalOS.x, baseNormalOS.y, baseNormalOS.z).applyMatrix3(mat3);
-            bindNorm.addScaledVector(nBind, w.weight);
-
-            weightArray.push({
-              boneIndex,
-              weight: w.weight,
-              position: { x: w.position.x, y: w.position.y, z: w.position.z },
-              normal: { x: baseNormalOS.x, y: baseNormalOS.y, z: baseNormalOS.z },
-            });
+            const nBind = normalOS.clone().applyMatrix3(mat3);
+            bindNorm.addScaledVector(nBind, w);
           }
         }
 
-        positions.push(bindPos.x, bindPos.y, bindPos.z);
-        normals.push(bindNorm.x, bindNorm.y, bindNorm.z);
-        uvs.push(wedge.texture.x, wedge.texture.y);
-        vertexWeights.push(weightArray);
+        posArray[dstOff3] = bindPos.x;
+        posArray[dstOff3 + 1] = bindPos.y;
+        posArray[dstOff3 + 2] = bindPos.z;
+
+        nrmArray[dstOff3] = bindNorm.x;
+        nrmArray[dstOff3 + 1] = bindNorm.y;
+        nrmArray[dstOff3 + 2] = bindNorm.z;
+
+        uvArray[dstOff2] = wedge.texture.x;
+        uvArray[dstOff2 + 1] = wedge.texture.y;
+
+        vertexCursor++;
       }
 
       triCount++;
     }
 
     triGroups.push({
-      start: groupStart * 3,
-      count: (triCount - groupStart) * 3,
+      start: groupStart,
+      count: (vertexCursor - groupStart),
       matIndex: currentMatIndex,
     });
     currentMatIndex++;
   }
 
   const geometry = new THREE.BufferGeometry();
-  const posAttr = new THREE.BufferAttribute(new Float32Array(positions), 3);
-  const normalAttr = new THREE.BufferAttribute(new Float32Array(normals), 3);
+  const posAttr = new THREE.BufferAttribute(posArray, 3);
+  const normalAttr = new THREE.BufferAttribute(nrmArray, 3);
   posAttr.setUsage(THREE.DynamicDrawUsage);
   normalAttr.setUsage(THREE.DynamicDrawUsage);
 
   geometry.setAttribute("position", posAttr);
   geometry.setAttribute("normal", normalAttr);
-  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uvs), 2));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvArray, 2));
 
   for (const group of triGroups) {
     geometry.addGroup(group.start, group.count, group.matIndex);
@@ -144,15 +191,20 @@ export async function buildSoftSkinMeshCPU(params: {
   const mesh = new THREE.Mesh(geometry, materialArray.length > 0 ? materialArray : undefined);
   mesh.frustumCulled = false;
 
-  const skinningData: CpuSkinningData = {
+  const basePositions = new Float32Array(posArray);
+  const baseNormals = new Float32Array(nrmArray);
+
+  const packed: CpuSkinningPacked = {
     geometry,
-    vertexWeights,
-    basePositions: new Float32Array(positions),
-    baseNormals: new Float32Array(normals),
+    skinIndex,
+    skinWeight,
+    infPos,
+    infNorm,
+    basePositions,
+    baseNormals,
   };
 
-  // Convert to packed format once at creation time (not every frame!)
-  skinningData.packed = convertToPacked(skinningData);
+  mesh.userData.cpuSkinningData = packed;
 
-  return { mesh, skinningData };
+  return { mesh, skinningData: packed };
 }

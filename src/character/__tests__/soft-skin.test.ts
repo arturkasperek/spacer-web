@@ -19,12 +19,21 @@ describe("buildSoftSkinMeshCPU", () => {
     });
 
     const normals = makeVector([makeVec(0, 0, 1), makeVec(0, 0, 1), makeVec(0, 0, 1)]);
-    const weights = {
-      get: (vertIdx: number) =>
-        makeVector([
-          { nodeIndex: 0, weight: 1, position: makeVec(vertIdx, 0, 0) },
-        ]),
-    };
+
+    const packed = (() => {
+      const vCount = 3;
+      const boneIndices = new Uint16Array(vCount * 4);
+      const boneWeights = new Float32Array(vCount * 4);
+      const bonePositions = new Float32Array(vCount * 4 * 3);
+      for (let v = 0; v < vCount; v++) {
+        boneIndices[v * 4] = 0;
+        boneWeights[v * 4] = 1;
+        bonePositions[v * 12] = v; // x
+        bonePositions[v * 12 + 1] = 0; // y
+        bonePositions[v * 12 + 2] = 0; // z
+      }
+      return { vertexCount: vCount, maxInfluences: 4 as const, boneIndices, boneWeights, bonePositions };
+    })();
 
     const wedges = makeVector([
       { index: 0, texture: makeVec2(0, 0) },
@@ -51,7 +60,7 @@ describe("buildSoftSkinMeshCPU", () => {
         normals,
         subMeshes,
       },
-      weights,
+      getPackedWeights4: () => packed,
     };
 
     const textureCache = new Map<string, any>();
@@ -67,9 +76,9 @@ describe("buildSoftSkinMeshCPU", () => {
     expect(mesh).toBeTruthy();
     expect(mesh.geometry.getAttribute("position").count).toBe(3);
     expect(mesh.geometry.groups).toHaveLength(1);
-    expect(skinningData.vertexWeights).toHaveLength(3);
+    expect(skinningData.skinIndex).toBeInstanceOf(Uint16Array);
+    expect(skinningData.skinWeight).toBeInstanceOf(Float32Array);
     expect(loadCompiledTexAsDataTexture).toHaveBeenCalled();
     expect(textureCache.size).toBe(1);
   });
 });
-
