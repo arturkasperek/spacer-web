@@ -20,7 +20,7 @@ describe("buildSoftSkinMeshCPU", () => {
 
     const normals = makeVector([makeVec(0, 0, 1), makeVec(0, 0, 1), makeVec(0, 0, 1)]);
 
-    const packed = (() => {
+    const weights4 = (() => {
       const vCount = 3;
       const boneIndices = new Uint16Array(vCount * 4);
       const boneWeights = new Float32Array(vCount * 4);
@@ -60,7 +60,7 @@ describe("buildSoftSkinMeshCPU", () => {
         normals,
         subMeshes,
       },
-      getPackedWeights4: () => packed,
+      getPackedWeights4: () => weights4,
     };
 
     const textureCache = new Map<string, any>();

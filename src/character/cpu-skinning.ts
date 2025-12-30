@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
-// Optimized packed format using typed arrays
-export type CpuSkinningPacked = {
+// CPU skinning inputs in an optimized typed-array form (4 influences per vertex).
+export type CpuSkinningData = {
   geometry: THREE.BufferGeometry;
   // 4 influences per vertex
   skinIndex: Uint16Array;     // vCount * 4
@@ -47,7 +47,7 @@ function getBonePalette(animWorld: THREE.Matrix4[]): Float32Array {
  * Optimized CPU skinning using typed arrays and flat bone palette
  * Assumes max 4 influences per vertex
  */
-function applyCpuSkinningPacked(bonePalette: Float32Array, data: CpuSkinningPacked) {
+function applyCpuSkinningInternal(bonePalette: Float32Array, data: CpuSkinningData) {
   const { geometry, skinIndex, skinWeight, infPos, infNorm, basePositions, baseNormals } = data;
   const posAttr = geometry.getAttribute("position") as THREE.BufferAttribute;
   const nrmAttr = geometry.getAttribute("normal") as THREE.BufferAttribute;
@@ -198,8 +198,8 @@ function applyCpuSkinningPacked(bonePalette: Float32Array, data: CpuSkinningPack
   nrmAttr.needsUpdate = true;
 }
 
-export function applyCpuSkinning(animWorld: THREE.Matrix4[], skinningData: CpuSkinningPacked) {
+export function applyCpuSkinning(animWorld: THREE.Matrix4[], skinningData: CpuSkinningData) {
   // Convert Matrix4[] to flat Float32Array palette
   const bonePalette = getBonePalette(animWorld);
-  applyCpuSkinningPacked(bonePalette, skinningData);
+  applyCpuSkinningInternal(bonePalette, skinningData);
 }

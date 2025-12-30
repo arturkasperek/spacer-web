@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob-utils.js";
 import { loadCompiledTexAsDataTexture } from "../mesh-utils.js";
-import type { CpuSkinningPacked } from "./cpu-skinning.js";
+import type { CpuSkinningData } from "./cpu-skinning.js";
 
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;
@@ -194,7 +194,7 @@ export async function buildSoftSkinMeshCPU(params: {
   const basePositions = new Float32Array(posArray);
   const baseNormals = new Float32Array(nrmArray);
 
-  const packed: CpuSkinningPacked = {
+  const skinningData: CpuSkinningData = {
     geometry,
     skinIndex,
     skinWeight,
@@ -204,7 +204,7 @@ export async function buildSoftSkinMeshCPU(params: {
     baseNormals,
   };
 
-  mesh.userData.cpuSkinningData = packed;
+  mesh.userData.cpuSkinningData = skinningData;
 
-  return { mesh, skinningData: packed };
+  return { mesh, skinningData };
 }
