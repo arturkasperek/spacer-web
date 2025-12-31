@@ -55,6 +55,11 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.
   const group = new THREE.Group();
   group.position.copy(position);
 
+  // Separate visual root so we can smooth rendering without desyncing physics/collision transforms.
+  const visualRoot = new THREE.Group();
+  visualRoot.name = "npc-visual-root";
+  group.add(visualRoot);
+
   // Placeholder while real model loads
   const boxGeometry = new THREE.BoxGeometry(20, 60, 20);
   const boxMaterial = new THREE.MeshBasicMaterial({
@@ -65,14 +70,14 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.
   const placeholder = new THREE.Mesh(boxGeometry, boxMaterial);
   placeholder.name = 'npc-placeholder';
   placeholder.position.y = 30;
-  group.add(placeholder);
+  visualRoot.add(placeholder);
 
   // Create text sprite
   const displayName = npcData.name || npcData.symbolName;
   try {
     const textSprite = createTextSprite(displayName);
     textSprite.position.y = 120;
-    group.add(textSprite);
+    visualRoot.add(textSprite);
   } catch (error) {
     console.warn(`Failed to create text sprite for NPC ${displayName}:`, error);
   }
@@ -80,6 +85,7 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.
   // Store NPC data in userData
   group.userData.npcData = npcData;
   group.userData.isNpc = true;
+  group.userData.visualRoot = visualRoot;
 
   return group;
 }

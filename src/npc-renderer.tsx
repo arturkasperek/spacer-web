@@ -163,6 +163,58 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getVisualSmoothEnabled = () => {
+      const fallback = true;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcVisualSmooth");
+        if (raw == null) return fallback;
+        if (raw === "0" || raw === "false") return false;
+        if (raw === "1" || raw === "true") return true;
+        return fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getVisualSmoothHalfLifeUp = () => {
+      const fallback = 0.08;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothUp");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getVisualSmoothHalfLifeDown = () => {
+      const fallback = 0.03;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothDown");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getVisualSmoothMaxDown = () => {
+      const fallback = 12;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxDown");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const walkDeg = getMaxSlopeDeg();
     return {
       radius: 35,
@@ -189,10 +241,58 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
       // Small clearance to avoid visual ground intersection.
       groundClearance: 4,
+
+      // Visual-only smoothing (applied to a child group so physics stays exact).
+      visualSmoothEnabled: getVisualSmoothEnabled(),
+      visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
+      visualSmoothHalfLifeDown: getVisualSmoothHalfLifeDown(),
+      visualSmoothMaxDown: getVisualSmoothMaxDown(),
     };
   }, []);
 
   const kccRef = useRef<any>(null);
+
+  const getNpcVisualRoot = (npcGroup: THREE.Group): THREE.Object3D => {
+    const ud: any = npcGroup.userData ?? {};
+    const root = ud.visualRoot as THREE.Object3D | undefined;
+    if (root && (root as any).isObject3D) return root;
+    const found = npcGroup.getObjectByName?.("npc-visual-root") as THREE.Object3D | null;
+    return found ?? npcGroup;
+  };
+
+  const updateNpcVisualSmoothing = (npcGroup: THREE.Group, dt: number) => {
+    const visualRoot = getNpcVisualRoot(npcGroup);
+    if (visualRoot === npcGroup) return;
+    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+
+    if (!kccConfig.visualSmoothEnabled) {
+      visualRoot.position.y = 0;
+      ud._visSmoothY = undefined;
+      return;
+    }
+
+    const targetY = npcGroup.position.y;
+    let smoothY = ud._visSmoothY as number | undefined;
+    if (typeof smoothY !== "number" || !Number.isFinite(smoothY)) smoothY = targetY;
+
+    const halfLife = targetY > smoothY ? kccConfig.visualSmoothHalfLifeUp : kccConfig.visualSmoothHalfLifeDown;
+    if (halfLife > 0 && dt > 0) {
+      const alpha = 1 - Math.pow(2, -dt / halfLife);
+      smoothY = smoothY + (targetY - smoothY) * alpha;
+    } else {
+      smoothY = targetY;
+    }
+
+    // Clamp so we never render above physics (avoids "floating"), and only allow limited lag below.
+    const maxDown = kccConfig.visualSmoothMaxDown;
+    let offset = smoothY - targetY;
+    if (offset > 0) offset = 0;
+    if (offset < -maxDown) offset = -maxDown;
+    smoothY = targetY + offset;
+
+    ud._visSmoothY = smoothY;
+    visualRoot.position.y = smoothY - targetY;
+  };
 
   useEffect(() => {
     if (!rapierWorld) return;
@@ -917,6 +1017,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      updateNpcVisualSmoothing(npcGroup, Math.min(Math.max(dt, 0), 0.05));
       npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
@@ -928,6 +1029,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      updateNpcVisualSmoothing(npcGroup, Math.min(Math.max(dt, 0), 0.05));
       npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
@@ -1100,6 +1202,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
       ud.isSliding = isSliding;
 
+      updateNpcVisualSmoothing(npcGroup, dtClamped);
+
       const isMotionDebugRuntime =
         typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && cavalornGroupRef.current === npcGroup;
       const shouldStoreKccDbg = (motionDebugFromQuery || isMotionDebugRuntime) && cavalornGroupRef.current === npcGroup;
@@ -1154,6 +1258,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      updateNpcVisualSmoothing(npcGroup, dtClamped);
       ud._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(ud._npcNpcBlocked), moved };
     }
@@ -1223,6 +1328,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     ud._kccSnapped = true;
     ud.isFalling = false;
     ud.isSliding = false;
+
+    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
+    ud._visSmoothY = npcGroup.position.y;
+    const visualRoot = getNpcVisualRoot(npcGroup);
+    if (visualRoot !== npcGroup) visualRoot.position.y = 0;
     return true;
   };
 
@@ -1273,11 +1383,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isHuman = bodyMesh.startsWith("HUM_");
 
       let instance: CharacterInstance | null = null;
+      const visualParent = getNpcVisualRoot(npcGroup);
       if (isHuman || !bodyMesh) {
         instance = await createHumanoidCharacterInstance({
           zenKit,
           caches: characterCachesRef.current,
-          parent: npcGroup,
+          parent: visualParent,
           animationName: 's_Run',
           loop: true,
           mirrorX: true,
@@ -1304,7 +1415,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         instance = await createCreatureCharacterInstance({
           zenKit,
           caches: characterCachesRef.current,
-          parent: npcGroup,
+          parent: visualParent,
           modelKey,
           meshKey: bodyMesh,
           animationName: "s_Run",
@@ -1319,7 +1430,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           instance = await createCreatureCharacterInstance({
             zenKit,
             caches: characterCachesRef.current,
-            parent: npcGroup,
+            parent: visualParent,
             modelKey: bodyMesh,
             meshKey: bodyMesh,
             animationName: "s_Run",
@@ -1362,19 +1473,20 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       const placeholder = npcGroup.getObjectByName('npc-placeholder');
       if (placeholder) {
-        npcGroup.remove(placeholder);
+        placeholder.parent?.remove(placeholder);
         disposeObject3D(placeholder);
       }
 
-      const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
+      const visualRoot = getNpcVisualRoot(npcGroup);
+      const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       const modelObj = instance.object;
       if (sprite && modelObj) {
-        npcGroup.updateMatrixWorld(true);
+        visualRoot.updateMatrixWorld(true);
         modelObj.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(modelObj);
         const center = box.getCenter(new THREE.Vector3());
         const topWorld = new THREE.Vector3(center.x, box.max.y, center.z);
-        const topLocal = npcGroup.worldToLocal(topWorld);
+        const topLocal = visualRoot.worldToLocal(topWorld);
         sprite.position.y = topLocal.y + 25;
       }
 
@@ -1803,7 +1915,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (!cameraPos) return;
 
     for (const npcGroup of loadedNpcsRef.current.values()) {
-      const sprite = npcGroup.children.find(child => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
+      const visualRoot = getNpcVisualRoot(npcGroup);
+      const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
         sprite.lookAt(cameraPos);
       }
