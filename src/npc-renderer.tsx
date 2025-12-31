@@ -98,6 +98,58 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getGroundStickSpeed = () => {
+      const fallback = 140;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcGroundStickSpeed");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getGroundStickMaxDistance = () => {
+      const fallback = 6;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcGroundStickMax");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getGroundRecoverDistance = () => {
+      const fallback = 30;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcGroundRecover");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 500) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getGroundRecoverRayStartAbove = () => {
+      const fallback = 60;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverAbove");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const walkDeg = getMaxSlopeDeg();
     return {
       radius: 35,
@@ -111,6 +163,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       // Gravity tuning (ZenGin-like defaults).
       gravity: 981,
       maxFallSpeed: 8000,
+      // How fast we "stick" down while grounded (helps when going downhill on ramps/stairs).
+      // Units: distance units per second (Gothic scale is ~cm).
+      groundStickSpeed: getGroundStickSpeed(),
+      // Clamp the stick-to-ground translation per frame to avoid snapping down big ledges.
+      groundStickMaxDistance: getGroundStickMaxDistance(),
+      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
+      groundRecoverDistance: getGroundRecoverDistance(),
+      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
       // Small clearance to avoid visual ground intersection.
       groundClearance: 4,
     };
@@ -135,7 +195,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     };
 
     const getSnapDistance = () => {
-      const fallback = 0;
+      // Helps keep contact when going down ramps/stair-like slopes.
+      const fallback = 20;
       try {
         const raw = new URLSearchParams(window.location.search).get("npcKccSnap");
         if (raw == null) return fallback;
@@ -243,7 +304,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
-  const motionDebugEnabled = useMemo(() => {
+  const motionDebugFromQuery = useMemo(() => {
     try {
       if (typeof window === "undefined") return false;
       const qs = new URLSearchParams(window.location.search);
@@ -863,19 +924,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const desiredDistXZ = Math.hypot(dx, dz);
 
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const wasGrounded = Boolean(ud._kccGrounded);
+    const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
     let vy = (ud._kccVy as number | undefined) ?? 0;
-
-    if (!wasGrounded) {
-      vy -= kccConfig.gravity * dtClamped;
-      if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
-    } else if (vy < 0) {
-      vy = 0;
-    }
 
     // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
     let dy = vy * dtClamped;
-    if (wasGrounded && dy > -1) dy = -1;
+    let stickDown = 0;
+    if (wasStableGrounded) {
+      stickDown = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
+      if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
+    }
 
     try {
       const WORLD_MEMBERSHIP = 0x0001;
@@ -896,13 +954,162 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
       npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
 
-      const groundedNow = Boolean(controller.computedGrounded?.() ?? false);
-      ud._kccGrounded = groundedNow;
-      if (groundedNow && vy < 0) vy = 0;
+      const rawGroundedNow = Boolean(controller.computedGrounded?.() ?? false);
+      ud._kccGrounded = rawGroundedNow;
+
+      // Integrate gravity for the next frame (semi-implicit):
+      // - If grounded now: reset vertical speed.
+      // - If not grounded: apply gravity.
+      if (rawGroundedNow) {
+        vy = 0;
+      } else {
+        vy -= kccConfig.gravity * dtClamped;
+        if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
+      }
+
+      // Compute best "ground-like" collision normal from the KCC collisions to classify steep slopes.
+      let bestGroundNy: number | null = null;
+      try {
+        const n = controller.numComputedCollisions?.() ?? 0;
+        for (let i = 0; i < n; i++) {
+          const c = controller.computedCollision?.(i);
+          const ny = c?.normal1?.y;
+          if (!Number.isFinite(ny)) continue;
+          if (bestGroundNy == null || ny > bestGroundNy) bestGroundNy = ny;
+        }
+      } catch {
+        // ignore
+      }
+      ud._kccGroundNy = bestGroundNy;
+
+      // Stable grounded/falling state with hysteresis to prevent 1-frame flicker in animations.
+      const FALL_GRACE_S = 0.08;
+      const LAND_GRACE_S = 0.02;
+      const FALL_VY_THRESHOLD = -20;
+
+      let groundedFor = (ud._kccGroundedFor as number | undefined) ?? 0;
+      let ungroundedFor = (ud._kccUngroundedFor as number | undefined) ?? 0;
+      let stableGrounded = Boolean(ud._kccStableGrounded ?? rawGroundedNow);
+
+      if (rawGroundedNow) {
+        groundedFor += dtClamped;
+        ungroundedFor = 0;
+        if (!stableGrounded && groundedFor >= LAND_GRACE_S) stableGrounded = true;
+      } else {
+        groundedFor = 0;
+        ungroundedFor += dtClamped;
+        if (stableGrounded && ungroundedFor >= FALL_GRACE_S && vy <= FALL_VY_THRESHOLD) stableGrounded = false;
+      }
+
+      ud._kccGroundedFor = groundedFor;
+      ud._kccUngroundedFor = ungroundedFor;
+      ud._kccStableGrounded = stableGrounded;
+
       ud._kccVy = vy;
 
-      ud.isFalling = !groundedNow;
-      ud.isSliding = false;
+      // If we are not grounded, attempt a lightweight ray-based recovery snap to avoid edge flicker on ramps/stairs.
+      // This uses Rapier queries only (no legacy world mesh code).
+      let recoveredToGround = false;
+      let groundRayToi: number | null = null;
+      let groundRayNormalY: number | null = null;
+      let groundRayColliderHandle: number | null = null;
+      if (!rawGroundedNow && (wasStableGrounded || stableGrounded) && vy <= 0 && kccConfig.groundRecoverDistance > 0) {
+        try {
+          const WORLD_MEMBERSHIP = 0x0001;
+          const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const feetY = npcGroup.position.y;
+          const startAbove = kccConfig.groundRecoverRayStartAbove;
+          const maxToi = startAbove + kccConfig.groundRecoverDistance;
+          const ray = new rapier.Ray(
+            { x: npcGroup.position.x, y: feetY + startAbove, z: npcGroup.position.z },
+            { x: 0, y: -1, z: 0 }
+          );
+          const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+          if (hit) {
+            groundRayToi = hit.timeOfImpact;
+            groundRayNormalY = hit.normal?.y ?? null;
+            groundRayColliderHandle = hit.collider?.handle ?? null;
+
+            const minNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+            const nyOk = typeof groundRayNormalY === "number" && Number.isFinite(groundRayNormalY) && groundRayNormalY >= minNy;
+            if (nyOk) {
+              const p = ray.pointAt(hit.timeOfImpact);
+              const targetFeetY = p.y + kccConfig.groundClearance;
+              const drop = feetY - targetFeetY;
+              if (drop >= -1e-3 && drop <= kccConfig.groundRecoverDistance + 1e-3) {
+                collider.setTranslation({ x: npcGroup.position.x, y: targetFeetY + capsuleHeight / 2, z: npcGroup.position.z });
+                npcGroup.position.y = targetFeetY;
+                vy = 0;
+                ud._kccVy = 0;
+                ud._kccGrounded = true;
+                stableGrounded = true;
+                groundedFor = Math.max(groundedFor, LAND_GRACE_S);
+                ungroundedFor = 0;
+                ud._kccGroundedFor = groundedFor;
+                ud._kccUngroundedFor = ungroundedFor;
+                ud._kccStableGrounded = true;
+                recoveredToGround = true;
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      ud.isFalling = !stableGrounded;
+
+      let isSliding = false;
+      if (stableGrounded && bestGroundNy != null) {
+        const ny = Math.max(-1, Math.min(1, bestGroundNy));
+        const slopeAngle = Math.acos(ny);
+        isSliding = slopeAngle > kccConfig.maxSlopeClimbAngle + 1e-3;
+      }
+      ud.isSliding = isSliding;
+
+      const isMotionDebugRuntime =
+        typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && cavalornGroupRef.current === npcGroup;
+      const shouldStoreKccDbg = (motionDebugFromQuery || isMotionDebugRuntime) && cavalornGroupRef.current === npcGroup;
+      if (shouldStoreKccDbg) {
+        const dbg =
+          (ud._kccDbg as any) ??
+          (ud._kccDbg = {
+            dt: 0,
+            desired: { x: 0, y: 0, z: 0 },
+            computed: { x: 0, y: 0, z: 0 },
+            stickDown: 0,
+            groundedRaw: false,
+            groundedStable: false,
+            vy: 0,
+            groundedFor: 0,
+            ungroundedFor: 0,
+            groundNy: null as number | null,
+            collisions: 0,
+            groundRay: null as any,
+            recoveredToGround: false,
+          });
+        dbg.dt = dtClamped;
+        dbg.desired.x = dx;
+        dbg.desired.y = dy;
+        dbg.desired.z = dz;
+        dbg.computed.x = move.x;
+        dbg.computed.y = move.y;
+        dbg.computed.z = move.z;
+        dbg.stickDown = stickDown;
+        dbg.groundedRaw = rawGroundedNow;
+        dbg.groundedStable = stableGrounded;
+        dbg.vy = vy;
+        dbg.groundedFor = groundedFor;
+        dbg.ungroundedFor = ungroundedFor;
+        dbg.groundNy = bestGroundNy;
+        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
+        dbg.groundRay =
+          groundRayToi != null
+            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle }
+            : null;
+        dbg.recoveredToGround = recoveredToGround;
+      }
 
       const movedDistXZ = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
       const blocked = desiredDistXZ > 1e-6 && movedDistXZ < desiredDistXZ - 1e-3;
@@ -978,6 +1185,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     ud._kccVy = 0;
     ud._kccGrounded = true;
+    ud._kccStableGrounded = true;
+    ud._kccGroundedFor = 0;
+    ud._kccUngroundedFor = 0;
     ud._kccSnapped = true;
     ud.isFalling = false;
     ud.isSliding = false;
@@ -1547,6 +1757,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         cavalorn.userData._kccSnapped = false;
         cavalorn.userData._kccVy = 0;
         cavalorn.userData._kccGrounded = false;
+        cavalorn.userData._kccStableGrounded = false;
+        cavalorn.userData._kccGroundedFor = 0;
+        cavalorn.userData._kccUngroundedFor = 0;
         trySnapNpcToGroundWithRapier(cavalorn);
 
         persistNpcPosition(cavalorn);
@@ -1573,7 +1786,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcId = `npc-${npcData.instanceIndex}`;
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
-      const shouldLogMotion = motionDebugEnabled && cavalornGroupRef.current === npcGroup;
+      const runtimeMotionDebug = typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug);
+      const shouldLogMotion = (motionDebugFromQuery || runtimeMotionDebug) && cavalornGroupRef.current === npcGroup;
       trySnapNpcToGroundWithRapier(npcGroup);
 
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
@@ -1662,6 +1876,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (Boolean(npcGroup.userData.isFalling)) {
         locomotionMode = "fall";
       }
+      // Sliding has priority over walk/run/idle (but not over falling).
+      else if (Boolean(npcGroup.userData.isSliding)) {
+        locomotionMode = "slide";
+      }
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
@@ -1689,7 +1907,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
         const nowMs = Date.now();
         const lastPeriodicAtMs = last?.lastPeriodicAtMs ?? 0;
-        const shouldEmitPeriodic = (isSlidingNow || isFallingNow) && nowMs - lastPeriodicAtMs > 250;
+        const periodicMs = runtimeMotionDebug ? 100 : 250;
+        const shouldEmitPeriodic = (runtimeMotionDebug || isSlidingNow || isFallingNow) && nowMs - lastPeriodicAtMs > periodicMs;
 
         if (shouldEmit || shouldEmitPeriodic) {
           const payload = {
@@ -1698,6 +1917,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             locomotionMode,
             isFalling: isFallingNow,
             isSliding: isSlidingNow,
+            kcc: (npcGroup.userData as any)._kccDbg,
             locomotionRequested: instance ? (instance as any).__debugLocomotionRequested : undefined,
             fallDbg: (npcGroup.userData as any)._fallDbg,
             slideDbg: (npcGroup.userData as any)._slideDbg,
