@@ -124,6 +124,19 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getGroundSnapDownEps = () => {
+      const fallback = 0.5;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcGroundSnapDownEps");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 50) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const getGroundRecoverDistance = () => {
       const fallback = 30;
       try {
@@ -168,6 +181,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       groundStickSpeed: getGroundStickSpeed(),
       // Clamp the stick-to-ground translation per frame to avoid snapping down big ledges.
       groundStickMaxDistance: getGroundStickMaxDistance(),
+      // A tiny always-on downward component while grounded to let Rapier's snap-to-ground work
+      // even when moving with `desired.y = 0` (required by the KCC docs).
+      groundSnapDownEps: getGroundSnapDownEps(),
       // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
       groundRecoverDistance: getGroundRecoverDistance(),
       groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
@@ -931,8 +947,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     let dy = vy * dtClamped;
     let stickDown = 0;
     if (wasStableGrounded) {
-      stickDown = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
-      if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
+      const snapDown = kccConfig.groundSnapDownEps;
+      if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
+
+      // Only apply extra "stick" when idle. When moving uphill over steps/ramps, a forced downward component
+      // can noticeably slow down climbing or even prevent autostep from triggering.
+      if (desiredDistXZ < 1e-3) {
+        stickDown = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
+        if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
+      }
     }
 
     try {
@@ -1035,21 +1058,30 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             const nyOk = typeof groundRayNormalY === "number" && Number.isFinite(groundRayNormalY) && groundRayNormalY >= minNy;
             if (nyOk) {
               const p = ray.pointAt(hit.timeOfImpact);
-              const targetFeetY = p.y + kccConfig.groundClearance;
-              const drop = feetY - targetFeetY;
-              if (drop >= -1e-3 && drop <= kccConfig.groundRecoverDistance + 1e-3) {
-                collider.setTranslation({ x: npcGroup.position.x, y: targetFeetY + capsuleHeight / 2, z: npcGroup.position.z });
-                npcGroup.position.y = targetFeetY;
+              const deltaDownToHit = feetY - p.y;
+              if (deltaDownToHit >= -1e-3 && deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3) {
+                // Consider ourselves grounded again (even if we don't adjust Y), to avoid 1-frame fall flicker at edges.
+                recoveredToGround = true;
+
+                const targetFeetY = Math.min(feetY, p.y + kccConfig.groundClearance);
+                const drop = feetY - targetFeetY;
+                if (drop > 1e-3) {
+                  collider.setTranslation({
+                    x: npcGroup.position.x,
+                    y: targetFeetY + capsuleHeight / 2,
+                    z: npcGroup.position.z,
+                  });
+                  npcGroup.position.y = targetFeetY;
+                }
+
                 vy = 0;
                 ud._kccVy = 0;
-                ud._kccGrounded = true;
                 stableGrounded = true;
                 groundedFor = Math.max(groundedFor, LAND_GRACE_S);
                 ungroundedFor = 0;
                 ud._kccGroundedFor = groundedFor;
                 ud._kccUngroundedFor = ungroundedFor;
                 ud._kccStableGrounded = true;
-                recoveredToGround = true;
               }
             }
           }
