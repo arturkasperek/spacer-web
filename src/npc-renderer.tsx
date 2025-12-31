@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { useRapier } from "@react-three/rapier";
 import type { World, ZenKit } from '@kolarz3/zenkit';
 import { createStreamingState, shouldUpdateStreaming, disposeObject3D } from './distance-streaming';
 import type { NpcData } from './types';
@@ -11,20 +12,11 @@ import { preloadAnimationSequences } from "./character/animation.js";
 import { fetchBinaryCached } from "./character/binary-cache.js";
 import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
-import { WORLD_MESH_NAME, setObjectOriginOnFloor } from "./ground-snap";
 import { clearNpcFreepointReservations, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { clearNpcEmRuntimeState, updateNpcEventManager, __getNpcEmActiveJob } from "./npc-em-runtime";
 import { __getNpcEmQueueState, clearNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
 import { getNpcModelScriptsState, setNpcBaseModelScript } from "./npc-model-scripts";
 import { ModelScriptRegistry } from "./model-script-registry";
-import {
-  applyNpcWorldCollisionXZ,
-  createNpcWorldCollisionContext,
-  updateNpcFallY,
-  updateNpcSlopeSlideXZ,
-  type NpcMoveConstraintResult,
-  type NpcWorldCollisionConfig,
-} from "./npc-world-collision";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
 import { getNpcSpawnOrder, getRuntimeVm } from "./vm-manager";
@@ -42,6 +34,8 @@ interface NpcRendererProps {
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
 }
+
+type MoveConstraintResult = { blocked: boolean; moved: boolean };
 
 /**
  * NPC Renderer Component - renders NPCs at spawnpoint locations with ZenGin-like streaming
@@ -65,17 +59,9 @@ interface NpcRendererProps {
  */
 export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
   const { scene, camera } = useThree();
+  const { world: rapierWorld, rapier } = useRapier();
   const npcsGroupRef = useRef<THREE.Group>(null);
   const worldTime = useWorldTime();
-  const tmpObjWorldPos = useMemo(() => new THREE.Vector3(), []);
-  const tmpDesiredWorldPos = useMemo(() => new THREE.Vector3(), []);
-  const tmpLocalBefore = useMemo(() => new THREE.Vector3(), []);
-  const tmpLocalAfter = useMemo(() => new THREE.Vector3(), []);
-  const tmpGroundSampleWorldPos = useMemo(() => new THREE.Vector3(), []);
-  const groundRaycasterRef = useRef<THREE.Raycaster | null>(null);
-  const tmpMoveNormalMatrix = useMemo(() => new THREE.Matrix3(), []);
-  const tmpMoveNormal = useMemo(() => new THREE.Vector3(), []);
-  const tmpMoveHitPoint = useMemo(() => new THREE.Vector3(), []);
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpManualRight = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
@@ -93,12 +79,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const modelScriptRegistryRef = useRef<ModelScriptRegistry | null>(null);
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
-  const worldMeshRef = useRef<THREE.Object3D | null>(null);
-  const warnedNoWorldMeshRef = useRef(false);
-  const pendingGroundSnapRef = useRef<THREE.Group[]>([]);
+  const physicsFrameRef = useRef(0);
   const cavalornGroupRef = useRef<THREE.Group | null>(null);
-  const collisionCtx = useMemo(() => createNpcWorldCollisionContext(), []);
-  const collisionConfig = useMemo<NpcWorldCollisionConfig>(() => {
+
+  const kccConfig = useMemo(() => {
     const getMaxSlopeDeg = () => {
       // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
       // Override for tuning via `?npcMaxSlopeDeg=...`.
@@ -114,48 +98,129 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getSlide2SlopeDeg = (walkDeg: number) => {
-      // ZenGin defaults: walk ~50°, slide2 ~70°; keep the same +20° relationship for our tuned threshold.
-      // Override for tuning via `?npcSlide2Deg=...`.
-      const fallback = Math.min(89, Math.max(70, walkDeg + 20));
+    const walkDeg = getMaxSlopeDeg();
+    return {
+      radius: 35,
+      capsuleHeight: 170,
+      stepHeight: 60,
+      // Slopes:
+      // - climb if slope <= maxSlopeClimbAngle
+      // - slide if slope > minSlopeSlideAngle
+      maxSlopeClimbAngle: THREE.MathUtils.degToRad(walkDeg),
+      minSlopeSlideAngle: THREE.MathUtils.degToRad(walkDeg),
+      // Gravity tuning (ZenGin-like defaults).
+      gravity: 981,
+      maxFallSpeed: 8000,
+      // Small clearance to avoid visual ground intersection.
+      groundClearance: 4,
+    };
+  }, []);
+
+  const kccRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!rapierWorld) return;
+    if (!rapier) return;
+
+    const getOffset = () => {
+      const fallback = 1; // 1 unit ~ 1cm in Gothic scale; avoids "sticky" edges.
       try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlide2Deg");
+        const raw = new URLSearchParams(window.location.search).get("npcKccOffset");
         if (raw == null) return fallback;
         const v = Number(raw);
-        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
-        return v;
+        return Number.isFinite(v) && v > 0 ? v : fallback;
       } catch {
         return fallback;
       }
     };
 
-    const walkDeg = getMaxSlopeDeg();
-    return {
-      radius: 35,
-      scanHeight: 110,
-      scanHeights: [50, 110, 170],
-      stepHeight: 60,
-      maxStepDown: 800,
-      // Rock stairs are about as steep as we want to allow. Anything steeper should block movement.
-      maxGroundAngleRad: THREE.MathUtils.degToRad(walkDeg),
-      maxSlideAngleRad: THREE.MathUtils.degToRad(getSlide2SlopeDeg(walkDeg)),
-      minWallNormalY: 0.4,
-      enableWallSlide: true,
-
-      // Slide tuning (ZenGin-style: gravity projected on slope plane + damping).
-      slideGravity: 981,
-      slideFriction: 1.0,
-      maxSlideSpeed: 1200,
-      slideLeaveGraceSeconds: 2.5,
-      maxSlideAngleEpsRad: THREE.MathUtils.degToRad(3),
-
-      // Fall tuning (ZenGin-like defaults) + a small ledge nudge to commit off edges.
-      landHeight: 10,
-      fallGravity: 981,
-      maxFallSpeed: 8000,
-      fallBackoffDistance: 20,
+    const getSnapDistance = () => {
+      const fallback = 0;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcKccSnap");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        return Number.isFinite(v) && v >= 0 ? v : fallback;
+      } catch {
+        return fallback;
+      }
     };
-  }, []);
+
+    const controller = rapierWorld.createCharacterController(getOffset());
+    controller.setSlideEnabled(true);
+    controller.setMaxSlopeClimbAngle(kccConfig.maxSlopeClimbAngle);
+    controller.setMinSlopeSlideAngle(kccConfig.minSlopeSlideAngle);
+
+    const minWidth = Math.max(1, kccConfig.radius * 0.5);
+    controller.enableAutostep(kccConfig.stepHeight, minWidth, false);
+
+    const snap = getSnapDistance();
+    if (snap > 0) controller.enableSnapToGround(snap);
+    else if (typeof (controller as any).disableSnapToGround === "function") (controller as any).disableSnapToGround();
+
+    controller.setApplyImpulsesToDynamicBodies(false);
+    controller.setCharacterMass(1);
+
+    kccRef.current = controller;
+    return () => {
+      try {
+        rapierWorld.removeCharacterController(controller);
+      } catch {
+        // Best-effort cleanup.
+      }
+      if (kccRef.current === controller) kccRef.current = null;
+    };
+  }, [rapierWorld, rapier, kccConfig.maxSlopeClimbAngle, kccConfig.minSlopeSlideAngle, kccConfig.radius, kccConfig.stepHeight]);
+
+  const ensureNpcKccCollider = (npcGroup: THREE.Object3D) => {
+    if (!rapierWorld || !rapier) return null;
+    const ud: any = npcGroup.userData ?? {};
+    const handle: number | undefined = ud._kccColliderHandle;
+    const height = kccConfig.capsuleHeight;
+    ud._kccCapsuleHeight = height;
+
+    if (typeof handle === "number") {
+      const existing = rapierWorld.getCollider(handle);
+      if (existing) {
+        const centerY = npcGroup.position.y + height / 2;
+        existing.setTranslation({ x: npcGroup.position.x, y: centerY, z: npcGroup.position.z });
+        return existing;
+      }
+      delete ud._kccColliderHandle;
+    }
+
+    const halfHeight = Math.max(0, height / 2 - kccConfig.radius);
+    const desc = rapier.ColliderDesc.capsule(halfHeight, kccConfig.radius);
+
+    // Collision groups:
+    // - WORLD: membership=1
+    // - NPC: membership=2, filter=world only (ignore other NPCs; npc-npc is handled separately).
+    const NPC_MEMBERSHIP = 0x0002;
+    const NPC_FILTER = 0x0001;
+    desc.setCollisionGroups((NPC_MEMBERSHIP << 16) | NPC_FILTER);
+
+    const collider = rapierWorld.createCollider(desc);
+    ud._kccColliderHandle = collider.handle;
+    npcGroup.userData = ud;
+
+    const centerY = npcGroup.position.y + height / 2;
+    collider.setTranslation({ x: npcGroup.position.x, y: centerY, z: npcGroup.position.z });
+    return collider;
+  };
+
+  const removeNpcKccCollider = (npcGroup: THREE.Object3D) => {
+    if (!rapierWorld) return;
+    const ud: any = npcGroup.userData ?? {};
+    const handle: number | undefined = ud._kccColliderHandle;
+    if (typeof handle !== "number") return;
+    try {
+      const collider = rapierWorld.getCollider(handle);
+      if (collider) rapierWorld.removeCollider(collider, true);
+    } catch {
+      // Best-effort cleanup.
+    }
+    delete ud._kccColliderHandle;
+  };
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -559,23 +624,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     freepointOwnerOverlayRef.current?.onWorldChanged();
   }, [world]);
 
-  useEffect(() => {
-    worldMeshRef.current = null;
-    pendingGroundSnapRef.current = [];
-    warnedNoWorldMeshRef.current = false;
-  }, [world]);
-
-  const ensureWorldMesh = (): THREE.Object3D | null => {
-    if (worldMeshRef.current) return worldMeshRef.current;
-    const found = scene.getObjectByName(WORLD_MESH_NAME);
-    if (found) {
-      worldMeshRef.current = found;
-      return found;
-    }
-    return null;
-  };
-
-  const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): NpcMoveConstraintResult => {
+  const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): MoveConstraintResult => {
     // Dynamic NPC-vs-NPC collision (XZ only): prevent passing through other loaded NPCs.
     // This runs before the world collision solver so we don't "push into walls" while clamping to other NPCs.
     {
@@ -587,7 +636,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const origDz = origDesiredZ - startZ;
       const origDist = Math.hypot(origDx, origDz);
       // Use a slightly smaller radius for NPC-vs-NPC than for NPC-vs-world so characters can get closer.
-      const selfRadius = collisionConfig.radius * 0.6;
+      const selfRadius = kccConfig.radius * 0.6;
       const selfY = npcGroup.position.y;
       const colliders: NpcCircleCollider[] = (npcGroup.userData._npcCollidersScratch as NpcCircleCollider[] | undefined) ?? [];
       colliders.length = 0;
@@ -784,17 +833,91 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     }
 
-    const ground = ensureWorldMesh();
-    if (!ground) {
+    const controller = kccRef.current;
+    if (!controller || !rapier || !rapierWorld) {
       const beforeX = npcGroup.position.x;
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
       const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
-    const worldRes = applyNpcWorldCollisionXZ(collisionCtx, npcGroup, desiredX, desiredZ, ground, dt, collisionConfig);
-    return { blocked: Boolean(npcGroup.userData._npcNpcBlocked) || worldRes.blocked, moved: worldRes.moved };
+
+    const collider = ensureNpcKccCollider(npcGroup);
+    if (!collider) {
+      const beforeX = npcGroup.position.x;
+      const beforeZ = npcGroup.position.z;
+      npcGroup.position.x = desiredX;
+      npcGroup.position.z = desiredZ;
+      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      npcGroup.userData._kccLastFrame = physicsFrameRef.current;
+      return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
+    }
+
+    const dtClamped = Math.min(Math.max(dt, 0), 0.05);
+    const fromX = npcGroup.position.x;
+    const fromZ = npcGroup.position.z;
+    const dx = desiredX - fromX;
+    const dz = desiredZ - fromZ;
+    const desiredDistXZ = Math.hypot(dx, dz);
+
+    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+    const wasGrounded = Boolean(ud._kccGrounded);
+    let vy = (ud._kccVy as number | undefined) ?? 0;
+
+    if (!wasGrounded) {
+      vy -= kccConfig.gravity * dtClamped;
+      if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
+    } else if (vy < 0) {
+      vy = 0;
+    }
+
+    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
+    let dy = vy * dtClamped;
+    if (wasGrounded && dy > -1) dy = -1;
+
+    try {
+      const WORLD_MEMBERSHIP = 0x0001;
+      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+
+      controller.computeColliderMovement(
+        collider,
+        { x: dx, y: dy, z: dz },
+        rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+        filterGroups
+      );
+
+      const move = controller.computedMovement();
+      const cur = collider.translation();
+      const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
+      collider.setTranslation(next);
+
+      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
+      npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
+
+      const groundedNow = Boolean(controller.computedGrounded?.() ?? false);
+      ud._kccGrounded = groundedNow;
+      if (groundedNow && vy < 0) vy = 0;
+      ud._kccVy = vy;
+
+      ud.isFalling = !groundedNow;
+      ud.isSliding = false;
+
+      const movedDistXZ = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
+      const blocked = desiredDistXZ > 1e-6 && movedDistXZ < desiredDistXZ - 1e-3;
+      ud._kccLastFrame = physicsFrameRef.current;
+      return { blocked: Boolean(ud._npcNpcBlocked) || blocked, moved: movedDistXZ > 1e-6 };
+    } catch {
+      // If Rapier throws for any reason, we keep behavior stable by applying the raw desired translation.
+      const beforeX = npcGroup.position.x;
+      const beforeZ = npcGroup.position.z;
+      npcGroup.position.x = desiredX;
+      npcGroup.position.z = desiredZ;
+      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      ud._kccLastFrame = physicsFrameRef.current;
+      return { blocked: Boolean(ud._npcNpcBlocked), moved };
+    }
   };
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
@@ -804,183 +927,61 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     if (entry) entry.position.copy(npcGroup.position);
   };
 
-  const setWorldYFromWorldPos = (object: THREE.Object3D, objWorldPos: THREE.Vector3, desiredWorldY: number) => {
-    tmpDesiredWorldPos.copy(objWorldPos);
-    tmpDesiredWorldPos.y = desiredWorldY;
+  const trySnapNpcToGroundWithRapier = (npcGroup: THREE.Group): boolean => {
+    if (!rapierWorld || !rapier) return false;
+    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+    if (ud._kccSnapped === true) return true;
 
-    if (!object.parent) {
-      object.position.y = desiredWorldY;
-      return;
-    }
+    const collider = ensureNpcKccCollider(npcGroup);
+    if (!collider) return false;
 
-    tmpLocalBefore.copy(objWorldPos);
-    object.parent.worldToLocal(tmpLocalBefore);
-    tmpLocalAfter.copy(tmpDesiredWorldPos);
-    object.parent.worldToLocal(tmpLocalAfter);
-    tmpLocalAfter.sub(tmpLocalBefore);
-    object.position.add(tmpLocalAfter);
-  };
+    const x = npcGroup.position.x;
+    const z = npcGroup.position.z;
 
-  const smoothWorldY = (object: THREE.Object3D, targetWorldY: number, deltaSeconds: number) => {
-    // Inspired by ZenGin's surface-alignment smoothing: keep motion continuous and avoid hard snaps.
-    // We treat uphill differently to prevent the character from lagging behind the terrain and clipping into it.
-    const SMOOTH_UP = 30; // snappier uphill
-    const SMOOTH_DOWN = 14; // gentler downhill
-    object.getWorldPosition(tmpObjWorldPos);
+    const castDown = (rayStartAbove: number, maxDownDistance: number) => {
+      const WORLD_MEMBERSHIP = 0x0001;
+      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+      const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+      const ray = new rapier.Ray({ x, y: npcGroup.position.y + rayStartAbove, z }, { x: 0, y: -1, z: 0 });
+      const maxToi = rayStartAbove + maxDownDistance;
+      const minNormalY = 0.2;
 
-    const dt = Math.min(Math.max(0, deltaSeconds), 0.05);
-    const dyToTarget = targetWorldY - tmpObjWorldPos.y;
-    const smooth = dyToTarget >= 0 ? SMOOTH_UP : SMOOTH_DOWN;
-    const alpha = 1 - Math.exp(-smooth * dt);
-    const desired = tmpObjWorldPos.y + dyToTarget * alpha;
+      let bestToi: number | null = null;
+      rapierWorld.intersectionsWithRay(
+        ray,
+        maxToi,
+        true,
+        (hit: any) => {
+          const toi = hit?.timeOfImpact ?? 0;
+          const ny = hit?.normal?.y ?? 0;
+          if (!Number.isFinite(toi) || toi < 0) return true;
+          if (!Number.isFinite(ny) || ny < minNormalY) return true;
+          if (bestToi == null || toi < bestToi) bestToi = toi;
+          return true;
+        },
+        filterFlags,
+        filterGroups,
+        collider
+      );
 
-    // Clamp vertical speed to avoid popping on steep terrain / noisy hits.
-    const maxUp = 4500 * dt;
-    const maxDown = 1500 * dt;
-    const maxDy = dyToTarget >= 0 ? maxUp : maxDown;
-    let clamped = tmpObjWorldPos.y + Math.max(-maxDy, Math.min(maxDy, desired - tmpObjWorldPos.y));
-
-    // Never allow significant penetration below the sampled ground height (helps uphill clipping).
-    const PENETRATION_ALLOW = 2;
-    const minY = targetWorldY - PENETRATION_ALLOW;
-    if (clamped < minY) {
-      // Avoid hard snapping to the ground target (causes visible stepping on steep slopes).
-      // Instead, converge quickly but smoothly when we are below the desired ground height.
-      const below = minY - clamped;
-      const recoverAlpha = 1 - Math.exp(-40 * dt);
-      clamped = Math.min(minY, clamped + below * recoverAlpha);
-    }
-
-    setWorldYFromWorldPos(object, tmpObjWorldPos, clamped);
-  };
-
-  const sampleGroundHitForMove = (
-    worldPos: THREE.Vector3,
-    ground: THREE.Object3D,
-    options: {
-      clearance: number;
-      rayStartAbove: number;
-      maxDownDistance: number;
-      preferClosestToY: number;
-      minHitNormalY?: number;
-    }
-  ): { targetY: number; point: THREE.Vector3; normal: THREE.Vector3 } | null => {
-    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
-    const raycaster = groundRaycasterRef.current;
-    const prevFirstHitOnly = (raycaster as any).firstHitOnly;
-    // We need the full hit list to pick the best surface when multiple intersections exist.
-    (raycaster as any).firstHitOnly = false;
-    raycaster.ray.origin.set(worldPos.x, worldPos.y + options.rayStartAbove, worldPos.z);
-    raycaster.ray.direction.set(0, -1, 0);
-    raycaster.near = 0;
-    raycaster.far = options.rayStartAbove + options.maxDownDistance;
-    const hits = raycaster.intersectObject(ground, false);
-    (raycaster as any).firstHitOnly = prevFirstHitOnly;
-    if (!hits.length) return null;
-
-    const isCollidableHit = (hit: THREE.Intersection): boolean => {
-      const obj: any = hit.object as any;
-      if (!obj?.isMesh) return true;
-      const noColl: boolean[] | undefined = obj.userData?.noCollDetByMaterialId;
-      if (!noColl) return true;
-      const tri = hit.faceIndex ?? -1;
-      if (tri < 0) return true;
-      const ids: Int32Array | undefined = obj.geometry?.userData?.materialIds;
-      const matId = ids && tri < ids.length ? ids[tri] : null;
-      if (matId == null) return true;
-      return !noColl[matId];
+      if (bestToi == null) return null;
+      const p = ray.pointAt(bestToi);
+      return { y: p.y };
     };
 
-    let best: THREE.Intersection | null = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-    let bestNormalY = -Infinity;
+    const hit = castDown(50, 5000) || castDown(2000, 20000);
+    if (!hit) return false;
 
-    for (const hit of hits) {
-      if (!isCollidableHit(hit)) continue;
-      const faceNormal = hit.face?.normal;
-      let normalY: number | null = null;
-      if (faceNormal) {
-        tmpMoveNormal.copy(faceNormal);
-        tmpMoveNormalMatrix.getNormalMatrix(hit.object.matrixWorld);
-        tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
-        // Flip only when we're likely hitting the back-face of a floor (surface at/below the query point).
-        // Allow a small window above the current position to recover from minor penetrations (stairs/steps),
-        // while still preventing snapping to distant roofs/ceilings.
-        const FLIP_MAX_ABOVE = 20;
-        if (tmpMoveNormal.y < 0 && hit.point.y <= worldPos.y + FLIP_MAX_ABOVE) tmpMoveNormal.multiplyScalar(-1);
-        normalY = tmpMoveNormal.y;
-        if (typeof options.minHitNormalY === "number" && normalY < options.minHitNormalY) continue;
-      }
+    const feetY = hit.y + kccConfig.groundClearance;
+    collider.setTranslation({ x, y: feetY + kccConfig.capsuleHeight / 2, z });
+    npcGroup.position.y = feetY;
 
-      const y = hit.point.y + options.clearance;
-      const score = Math.abs(y - options.preferClosestToY);
-      if (score < bestScore - 1e-6) {
-        best = hit;
-        bestScore = score;
-        bestNormalY = normalY ?? bestNormalY;
-      } else if (Math.abs(score - bestScore) <= 1e-6 && (normalY ?? -Infinity) > bestNormalY) {
-        // Tie-breaker: prefer the more "up-facing" normal to reduce noisy steep faces.
-        best = hit;
-        bestScore = score;
-        bestNormalY = normalY ?? bestNormalY;
-      }
-    }
-
-    if (!best) return null;
-
-    const faceNormal = best.face?.normal;
-    if (faceNormal) {
-      tmpMoveNormal.copy(faceNormal);
-      tmpMoveNormalMatrix.getNormalMatrix(best.object.matrixWorld);
-      tmpMoveNormal.applyMatrix3(tmpMoveNormalMatrix).normalize();
-      const FLIP_MAX_ABOVE = 20;
-      if (tmpMoveNormal.y < 0 && best.point.y <= worldPos.y + FLIP_MAX_ABOVE) tmpMoveNormal.multiplyScalar(-1);
-    } else {
-      tmpMoveNormal.set(0, 1, 0);
-    }
-
-    tmpMoveHitPoint.copy(best.point);
-    return { targetY: best.point.y + options.clearance, point: tmpMoveHitPoint, normal: tmpMoveNormal };
-  };
-
-  const predictGroundYFromPlane = (
-    plane: { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number },
-    x: number,
-    z: number
-  ): number | null => {
-    const ny = plane.ny;
-    if (!Number.isFinite(ny) || Math.abs(ny) < 1e-5) return null;
-    const dx = x - plane.px;
-    const dz = z - plane.pz;
-    const y = plane.py - (plane.nx * dx + plane.nz * dz) / ny;
-    if (!Number.isFinite(y)) return null;
-    return y + plane.clearance;
-  };
-
-  const snapNpcToGroundOrDefer = (npcGroup: THREE.Group) => {
-    const ground = ensureWorldMesh();
-    if (!ground) {
-      if (!warnedNoWorldMeshRef.current) {
-        warnedNoWorldMeshRef.current = true;
-      }
-      pendingGroundSnapRef.current.push(npcGroup);
-      return false;
-    }
-
-    if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
-
-    // Prefer a short ray from just above the NPC to avoid snapping to roofs/terrain above interior spaces.
-    // Fallback to a longer ray only if needed.
-    const ok =
-      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000, raycaster: groundRaycasterRef.current, recursive: false, firstHitOnly: true }) ||
-      setObjectOriginOnFloor(npcGroup, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000, raycaster: groundRaycasterRef.current, recursive: false, firstHitOnly: true });
-    if (!ok) {
-      pendingGroundSnapRef.current.push(npcGroup);
-    } else {
-      npcGroup.userData.groundSnapped = true;
-      persistNpcPosition(npcGroup);
-    }
-    return ok;
+    ud._kccVy = 0;
+    ud._kccGrounded = true;
+    ud._kccSnapped = true;
+    ud.isFalling = false;
+    ud.isSliding = false;
+    return true;
   };
 
   useEffect(() => {
@@ -1217,7 +1218,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       // Create NPC mesh imperatively
       // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
       // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
-      const spreadRadius = collisionConfig.radius * 0.6;
+      const spreadRadius = kccConfig.radius * 0.6;
       const existing: Array<{ x: number; z: number; y?: number }> = [];
       for (const other of loadedNpcsRef.current.values()) {
         if (!other || other.userData.isDisposed) continue;
@@ -1258,7 +1259,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         scene.add(group);
       }
       npcsGroupRef.current.add(npcGroup);
-      snapNpcToGroundOrDefer(npcGroup);
+      npcGroup.userData._kccSnapped = false;
+      trySnapNpcToGroundWithRapier(npcGroup);
 
       // Load real model asynchronously (replaces placeholder)
       void loadNpcCharacter(npcGroup, npc.npcData);
@@ -1269,6 +1271,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcGroup = loadedNpcsRef.current.get(npcId);
       if (npcGroup && npcsGroupRef.current) {
         npcGroup.userData.isDisposed = true;
+        removeNpcKccCollider(npcGroup);
         const npcData = npcGroup.userData.npcData as NpcData | undefined;
         if (npcData) {
           clearNpcFreepointReservations(npcData.instanceIndex);
@@ -1289,6 +1292,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   // Streaming update via useFrame
   useFrame((_state, delta) => {
+    const physicsFrame = ++physicsFrameRef.current;
     if (allNpcsRef.current.length > 0) {
       updateNpcStreaming();
     }
@@ -1522,7 +1526,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     // Debug helper: teleport Cavalorn in front of the camera (manual control only).
     if (manualControlCavalornEnabled && teleportCavalornSeqAppliedRef.current !== teleportCavalornSeqRef.current) {
       const cavalorn = cavalornGroupRef.current;
-      const ground = ensureWorldMesh();
       const cam = camera;
       if (cavalorn && cam) {
         cam.getWorldDirection(tmpTeleportForward);
@@ -1541,72 +1544,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         tmpTeleportDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
         cavalorn.quaternion.copy(tmpTeleportDesiredQuat);
 
-        // Reset slide state and force a fresh ground sample.
-        cavalorn.userData.isSliding = false;
-        cavalorn.userData.slideVelXZ = { x: 0, z: 0 };
-        cavalorn.userData.lastGroundSampleAt = 0;
-        cavalorn.userData._clock = 0;
-
-        if (ground) {
-          const minSlideNy = Math.cos(collisionConfig.maxSlideAngleRad);
-          const hit =
-            sampleGroundHitForMove(new THREE.Vector3(targetX, cam.position.y, targetZ), ground, {
-              clearance: 4,
-              rayStartAbove: 2000,
-              maxDownDistance: 20000,
-              preferClosestToY: cam.position.y,
-              minHitNormalY: minSlideNy,
-            }) ||
-            sampleGroundHitForMove(new THREE.Vector3(targetX, cam.position.y, targetZ), ground, {
-              clearance: 4,
-              rayStartAbove: 2000,
-              maxDownDistance: 20000,
-              preferClosestToY: cam.position.y,
-            });
-
-          if (hit) {
-            cavalorn.userData.groundPlane = {
-              nx: hit.normal.x,
-              ny: hit.normal.y,
-              nz: hit.normal.z,
-              px: hit.point.x,
-              py: hit.point.y,
-              pz: hit.point.z,
-              clearance: 4,
-            };
-            cavalorn.userData.groundYTarget = hit.targetY;
-            cavalorn.position.y = hit.targetY;
-          } else {
-            // Fallback to the previous ground snap method if we didn't find a floor from the camera height.
-            snapNpcToGroundOrDefer(cavalorn);
-          }
-        } else {
-          // If WORLD_MESH isn't ready yet, defer to the existing snap queue.
-          snapNpcToGroundOrDefer(cavalorn);
-        }
+        cavalorn.userData._kccSnapped = false;
+        cavalorn.userData._kccVy = 0;
+        cavalorn.userData._kccGrounded = false;
+        trySnapNpcToGroundWithRapier(cavalorn);
 
         persistNpcPosition(cavalorn);
         teleportCavalornSeqAppliedRef.current = teleportCavalornSeqRef.current;
-      }
-    }
-
-    // If the world mesh arrives after NPCs were spawned, snap any pending NPCs in small batches.
-    if (pendingGroundSnapRef.current.length > 0 && ensureWorldMesh()) {
-      const batch = pendingGroundSnapRef.current.splice(0, 8);
-      const ground = worldMeshRef.current!;
-      if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
-      const raycaster = groundRaycasterRef.current;
-      for (const g of batch) {
-        if (!g || g.userData.isDisposed) continue;
-        const ok =
-          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 50, maxDownDistance: 5000, raycaster, recursive: false, firstHitOnly: true }) ||
-          setObjectOriginOnFloor(g, ground, { clearance: 4, rayStartAbove: 2000, maxDownDistance: 20000, raycaster, recursive: false, firstHitOnly: true });
-        if (!ok) {
-          pendingGroundSnapRef.current.push(g);
-        } else {
-          g.userData.groundSnapped = true;
-          persistNpcPosition(g);
-        }
       }
     }
 
@@ -1629,33 +1573,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcId = `npc-${npcData.instanceIndex}`;
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
-      let tryingToMoveThisFrame = false;
       const shouldLogMotion = motionDebugEnabled && cavalornGroupRef.current === npcGroup;
-
-      // Falling has priority over everything else (no locomotion, no ground glue).
-      const groundForNpc = ensureWorldMesh();
-      if (groundForNpc && Boolean(npcGroup.userData.isFalling)) {
-        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, delta, collisionConfig);
-        if (fall.active) {
-          movedThisFrame = movedThisFrame || fall.moved;
-          locomotionMode = fall.mode;
-          tryingToMoveThisFrame = true;
-        } else if (fall.landed) {
-          movedThisFrame = true;
-          locomotionMode = "idle";
-          tryingToMoveThisFrame = false;
-        }
-      }
-
-      if (Boolean(npcGroup.userData.isFalling)) {
-        if (instance) {
-          const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
-          locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
-        }
-        const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
-        if (entry) entry.position.copy(npcGroup.position);
-        continue;
-      }
+      trySnapNpcToGroundWithRapier(npcGroup);
 
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
       if (isManualCavalorn) {
@@ -1671,7 +1590,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const x = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
           const z = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
           if (x === 0 && z === 0) break;
-          tryingToMoveThisFrame = true;
 
           camera.getWorldDirection(tmpManualForward);
           tmpManualForward.y = 0;
@@ -1712,7 +1630,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         });
         movedThisFrame = Boolean(em.moved);
         locomotionMode = em.mode ?? "idle";
-        tryingToMoveThisFrame = locomotionMode !== "idle" || Boolean(mover?.getMoveState(npcId)?.done === false);
       }
 
       // Apply animation root motion during script-driven one-shot animations (AI_PlayAni / Npc_PlayAni).
@@ -1732,51 +1649,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             }
           }
           movedThisFrame = movedThisFrame || r.moved;
-          if (r.moved) tryingToMoveThisFrame = true;
         }
       }
 
-      // ZenGin-like slope sliding:
-      // if the ground is steeper than `maxGroundAngleRad`, the character can't walk up and will slip down,
-      // playing `s_Slide` / `s_SlideB` while the slide is active.
-      {
-        const plane = npcGroup.userData.groundPlane as
-          | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
-          | undefined;
-        const slope =
-          plane && Number.isFinite(plane.ny) ? Math.acos(Math.max(-1, Math.min(1, Math.abs(plane.ny)))) : 0;
-        const isSteepGround = slope > collisionConfig.maxGroundAngleRad + 1e-6;
-        const shouldConsiderSlide =
-          isManualCavalorn ||
-          Boolean(npcGroup.userData.isScriptControlled) ||
-          tryingToMoveThisFrame ||
-          Boolean(npcGroup.userData.isSliding) ||
-          isSteepGround;
-        if (shouldConsiderSlide) {
-          if (groundForNpc) {
-            const s = updateNpcSlopeSlideXZ(collisionCtx, npcGroup, groundForNpc, delta, collisionConfig);
-            if (s.active) {
-              movedThisFrame = movedThisFrame || s.moved;
-              tryingToMoveThisFrame = true;
-              locomotionMode = s.mode;
-            }
-          }
-        }
+      // Ensure KCC is stepped at least once per frame for gravity/snap-to-ground,
+      // even if scripts didn't request any movement this tick.
+      if ((npcGroup.userData as any)._kccLastFrame !== physicsFrame) {
+        applyMoveConstraint(npcGroup, npcGroup.position.x, npcGroup.position.z, delta);
       }
 
-      // Start falling if we stepped off a ledge (ZenGin-style).
-      // Run this AFTER slide update so slide/grace state can suppress unwanted fall starts.
-      if (groundForNpc) {
-        const fall = updateNpcFallY(collisionCtx, npcGroup, groundForNpc, 0, collisionConfig);
-        if (fall.active) {
-          movedThisFrame = movedThisFrame || fall.moved;
-          locomotionMode = fall.mode;
-          tryingToMoveThisFrame = true;
-        } else if (fall.landed) {
-          movedThisFrame = true;
-          locomotionMode = "idle";
-          tryingToMoveThisFrame = false;
-        }
+      // Falling has priority over ground locomotion animations.
+      if (Boolean(npcGroup.userData.isFalling)) {
+        locomotionMode = "fall";
       }
 
       if (instance) {
@@ -1854,112 +1738,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         };
       }
 
-      // Keep NPCs glued to the ground while moving, and also while *trying* to move:
-      // if we get blocked on stairs/walls, Y can otherwise stay stale (and we never recover).
-      if ((movedThisFrame || tryingToMoveThisFrame) && !Boolean(npcGroup.userData.isFalling)) {
-        // Keep moving NPCs glued to the ground (throttled) even if waypoint Y is slightly off.
-        if (groundForNpc) {
-          if (!groundRaycasterRef.current) groundRaycasterRef.current = new THREE.Raycaster();
-
-          const SAMPLE_INTERVAL = 0.05; // seconds (moving NPCs only; keeps uphill stable)
-          const lastSample = (npcGroup.userData.lastGroundSampleAt as number | undefined) ?? 0;
-          const now = ((npcGroup.userData._clock as number | undefined) ?? 0) + delta;
-          npcGroup.userData._clock = now;
-
-          // Between raycasts, predict the ground height from the last triangle plane.
-          // This makes the target change continuously on slopes instead of in 50ms steps (main source of jitter).
-          const plane = npcGroup.userData.groundPlane as
-            | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
-            | undefined;
-          if (plane) {
-            // Only use plane prediction for reasonably "ground-like" surfaces.
-            // On very steep triangles (slide/cliff walls), y=f(x,z) becomes ill-conditioned and can explode.
-            const minPredictNy = Math.cos(collisionConfig.maxGroundAngleRad);
-            if (Number.isFinite(plane.ny) && plane.ny >= minPredictNy) {
-              const predicted = predictGroundYFromPlane(plane, npcGroup.position.x, npcGroup.position.z);
-              if (predicted != null) {
-                npcGroup.userData.groundYTarget = predicted;
-              }
-            }
-          }
-
-          if (now - lastSample >= SAMPLE_INTERVAL) {
-            npcGroup.userData.lastGroundSampleAt = now;
-            npcGroup.getWorldPosition(tmpGroundSampleWorldPos);
-            const minWalkableNy = Math.cos(collisionConfig.maxGroundAngleRad);
-            const slideEps = collisionConfig.maxSlideAngleEpsRad ?? 0;
-            const minSlideNy = Math.cos(Math.min(Math.PI / 2, collisionConfig.maxSlideAngleRad + slideEps));
-            const isSlidingNow = Boolean(npcGroup.userData.isSliding);
-            const planeForSlope = npcGroup.userData.groundPlane as
-              | { nx: number; ny: number; nz: number; px: number; py: number; pz: number; clearance: number }
-              | undefined;
-            const slopeNow =
-              planeForSlope && Number.isFinite(planeForSlope.ny)
-                ? Math.acos(Math.max(-1, Math.min(1, Math.abs(planeForSlope.ny))))
-                : 0;
-            const isSteepNow = slopeNow > collisionConfig.maxGroundAngleRad + 1e-6;
-
-            // While sliding/on steep terrain, don't "prefer walkable" hits first.
-            // Otherwise we may snap to a walkable floor far below the cliff and break sliding.
-            const primaryMinNy = isSlidingNow || isSteepNow ? minSlideNy : minWalkableNy;
-            const secondaryMinNy = isSlidingNow || isSteepNow ? null : minSlideNy < minWalkableNy ? minSlideNy : null;
-
-            const hit =
-              sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
-                clearance: 4,
-                rayStartAbove: 50,
-                maxDownDistance: 5000,
-                preferClosestToY: tmpGroundSampleWorldPos.y,
-                minHitNormalY: primaryMinNy,
-              }) ||
-              (secondaryMinNy != null
-                ? sampleGroundHitForMove(tmpGroundSampleWorldPos, groundForNpc, {
-                    clearance: 4,
-                    rayStartAbove: 50,
-                    maxDownDistance: 5000,
-                    preferClosestToY: tmpGroundSampleWorldPos.y,
-                    minHitNormalY: secondaryMinNy,
-                  })
-                : null);
-            if (hit) {
-              const targetY = hit.targetY;
-              // Avoid snapping to far-away floors/ceilings (ZenGin has similar step-height gating).
-              const MAX_STEP_UP = 250;
-              // While sliding, avoid snapping down huge drops (we should fall instead).
-              const MAX_STEP_DOWN = isSlidingNow || isSteepNow ? 250 : 800;
-              const dy = targetY - tmpGroundSampleWorldPos.y;
-              if (dy <= MAX_STEP_UP && dy >= -MAX_STEP_DOWN) {
-                npcGroup.userData.groundPlane = {
-                  nx: hit.normal.x,
-                  ny: hit.normal.y,
-                  nz: hit.normal.z,
-                  px: hit.point.x,
-                  py: hit.point.y,
-                  pz: hit.point.z,
-                  clearance: 4,
-                };
-
-                // Keep target in sync with the sampled hit (plane prediction will carry it between samples).
-                npcGroup.userData.groundYTarget = targetY;
-              } else if (dy < -MAX_STEP_DOWN) {
-                // Big drop: start falling physics (ZenGin uses `aboveFloor > stepHeight`).
-                npcGroup.userData.isFalling = true;
-                npcGroup.userData.fallStartY = npcGroup.userData.groundYTarget ?? tmpGroundSampleWorldPos.y;
-                npcGroup.userData.fallVelY = 0;
-                npcGroup.userData.isSliding = false;
-                npcGroup.userData.slideVelXZ = { x: 0, z: 0 };
-              }
-            }
-          }
-
-          const targetY = npcGroup.userData.groundYTarget as number | undefined;
-          if (typeof targetY === "number") {
-            smoothWorldY(npcGroup, targetY, delta);
-          }
-        }
-        const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
-        if (entry) entry.position.copy(npcGroup.position);
-      }
     }
 
   });
@@ -1972,6 +1750,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         // Dispose all NPCs
         for (const npcGroup of loadedNpcsRef.current.values()) {
           npcGroup.userData.isDisposed = true;
+          removeNpcKccCollider(npcGroup);
           const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
           const isLoading = Boolean(npcGroup.userData.modelLoading);
           if (instance && !isLoading) instance.dispose();

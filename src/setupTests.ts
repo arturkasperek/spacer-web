@@ -61,6 +61,12 @@ jest.mock('@react-three/drei', () => ({
   Text: ({ children }: { children: any }) => ({ type: 'Text', props: { children } }),
 }));
 
+// Mock @react-three/rapier (it pulls in three-stdlib loaders which don't work with our minimal Three.js mock)
+jest.mock('@react-three/rapier', () => ({
+  Physics: ({ children }: { children: any }) => ({ type: 'Physics', props: { children } }),
+  useRapier: jest.fn(() => ({ world: null, rapier: null })),
+}));
+
 // Mock ZenKit
 jest.mock('@kolarz3/zenkit', () => ({
   ZenKit: {

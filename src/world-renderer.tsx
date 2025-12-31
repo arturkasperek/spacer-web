@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
+import { useRapier } from "@react-three/rapier";
 import { loadVm, type NpcSpawnCallback } from './vm-manager';
 import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
 import { tgaNameToCompiledUrl } from './vob-utils';
@@ -12,9 +13,41 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
   onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
   onNpcSpawn?: NpcSpawnCallback;
 }>) {
+  const { world: rapierWorld, rapier } = useRapier();
   const meshRef = useRef<THREE.Mesh>(null);
   const [worldMesh, setWorldMesh] = useState<THREE.Mesh | null>(null);
+  const [worldColliderData, setWorldColliderData] = useState<{ vertices: Float32Array; indices: Uint32Array } | null>(
+    null
+  );
   const hasLoadedRef = useRef(false);
+  const rapierColliderRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!rapierWorld || !rapier) return;
+    if (!worldColliderData) return;
+    if (rapierColliderRef.current) return;
+
+    const desc = rapier.ColliderDesc.trimesh(worldColliderData.vertices, worldColliderData.indices);
+
+    // Collision groups:
+    // - WORLD: membership=1, filter=all (so NPCs can query/collide with it)
+    const WORLD_MEMBERSHIP = 0x0001;
+    const WORLD_FILTER = 0xffff;
+    desc.setCollisionGroups((WORLD_MEMBERSHIP << 16) | WORLD_FILTER);
+
+    rapierColliderRef.current = rapierWorld.createCollider(desc);
+
+    return () => {
+      try {
+        if (rapierColliderRef.current) {
+          rapierWorld.removeCollider(rapierColliderRef.current, true);
+          rapierColliderRef.current = null;
+        }
+      } catch {
+        // Best-effort cleanup.
+      }
+    };
+  }, [rapierWorld, rapier, worldColliderData]);
 
   useEffect(() => {
     // Only load once
@@ -136,6 +169,46 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
           }
         } catch {
           // Optional optimization only.
+        }
+
+        // Build a static Rapier trimesh collider for world collisions (NPC KCC, etc.).
+        // We skip triangles marked as `noCollDet` to match ZenGin behavior.
+        try {
+          const triCount = processed.materialIds.size();
+          let keepTriCount = 0;
+          for (let t = 0; t < triCount; t++) {
+            const matId = processed.materialIds.get(t);
+            const disable = Boolean(noCollDetByMaterialId[matId] ?? false);
+            if (!disable) keepTriCount++;
+          }
+
+          const vertCount = Math.floor(processed.vertices.size() / 8);
+          const outVertices = new Float32Array(vertCount * 3);
+          const outIndices = new Uint32Array(keepTriCount * 3);
+
+          // Vertex positions are shared via `processed.indices`, so keep a single vertex array
+          // and only filter triangle indices. This avoids tripling memory usage.
+          for (let v = 0; v < vertCount; v++) {
+            const base = v * 8;
+            outVertices[v * 3 + 0] = -processed.vertices.get(base + 0); // Bake world mirror (scale.x = -1)
+            outVertices[v * 3 + 1] = processed.vertices.get(base + 1);
+            outVertices[v * 3 + 2] = processed.vertices.get(base + 2);
+          }
+
+          let outI = 0;
+          for (let t = 0; t < triCount; t++) {
+            const matId = processed.materialIds.get(t);
+            const disable = Boolean(noCollDetByMaterialId[matId] ?? false);
+            if (disable) continue;
+
+            outIndices[outI++] = processed.indices.get(t * 3 + 0);
+            outIndices[outI++] = processed.indices.get(t * 3 + 1);
+            outIndices[outI++] = processed.indices.get(t * 3 + 2);
+          }
+
+          setWorldColliderData({ vertices: outVertices, indices: outIndices });
+        } catch (e) {
+          console.warn("[World] Failed to build Rapier trimesh collider:", e);
         }
 
         setWorldMesh(threeMesh);

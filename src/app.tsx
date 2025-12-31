@@ -1,5 +1,6 @@
 import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { Physics } from "@react-three/rapier";
 import { NavigationOverlay } from "./navigation.js";
 import { AxesHelper } from "./axes.js";
 import { SkyComponent } from "./sky.js";
@@ -349,26 +350,28 @@ export function App() {
         }}
         style={{ background: '#222222' }}
       >
+        <Physics>
           <Scene
-          cameraControlsRef={cameraControlsRef}
-          worldPath={worldPath}
-          onLoadingStatus={handleLoadingStatus}
-          world={world}
-          zenKit={zenKit}
-          onWorldLoaded={handleWorldLoaded}
-          cameraPosition={cameraPosition}
-          onCameraPositionChange={handleCameraPositionChange}
-          onVobStats={handleVobStats}
-          selectedVob={selectedVob}
-          onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
-          selectedWaypoint={selectedWaypoint}
-          onVobClickFromScene={handleVobClickFromScene}
-          onWaypointClickFromScene={handleWaypointClickFromScene}
-          onNpcClickFromScene={handleNpcClickFromScene}
-          npcs={npcs}
-          onNpcSpawn={handleNpcSpawn}
-          viewSettings={viewSettings}
-        />
+            cameraControlsRef={cameraControlsRef}
+            worldPath={worldPath}
+            onLoadingStatus={handleLoadingStatus}
+            world={world}
+            zenKit={zenKit}
+            onWorldLoaded={handleWorldLoaded}
+            cameraPosition={cameraPosition}
+            onCameraPositionChange={handleCameraPositionChange}
+            onVobStats={handleVobStats}
+            selectedVob={selectedVob}
+            onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+            selectedWaypoint={selectedWaypoint}
+            onVobClickFromScene={handleVobClickFromScene}
+            onWaypointClickFromScene={handleWaypointClickFromScene}
+            onNpcClickFromScene={handleNpcClickFromScene}
+            npcs={npcs}
+            onNpcSpawn={handleNpcSpawn}
+            viewSettings={viewSettings}
+          />
+        </Physics>
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>
