@@ -189,6 +189,32 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getSlideBlockUphillEnabled = () => {
+      const fallback = true;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlideBlockUphill");
+        if (raw == null) return fallback;
+        if (raw === "0" || raw === "false") return false;
+        if (raw === "1" || raw === "true") return true;
+        return fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getFallDownSeconds = () => {
+      const fallback = 1.0;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcFallDownSeconds");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const getVisualSmoothEnabled = () => {
       const fallback = true;
       try {
@@ -284,6 +310,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       // Counter-act KCC's horizontal slowdown when climbing slopes/steps.
       slopeSpeedCompEnabled: getSlopeSpeedCompEnabled(),
       slopeSpeedCompMaxFactor: getSlopeSpeedCompMaxFactor(),
+      // When sliding on too-steep slopes, prevent input from pushing uphill (can cause slide→fall jitter).
+      slideBlockUphillEnabled: getSlideBlockUphillEnabled(),
+      // Falling animation blending (ZenGin-like: fallDown before fall).
+      fallDownSeconds: getFallDownSeconds(),
 
       // Visual-only smoothing (applied to a child group so physics stays exact).
       visualSmoothEnabled: getVisualSmoothEnabled(),
@@ -1082,13 +1112,43 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const dtClamped = Math.min(Math.max(dt, 0), 0.05);
     const fromX = npcGroup.position.x;
     const fromZ = npcGroup.position.z;
-    const dx = desiredX - fromX;
-    const dz = desiredZ - fromZ;
-    const desiredDistXZ = Math.hypot(dx, dz);
+    let dx = desiredX - fromX;
+    let dz = desiredZ - fromZ;
+    let desiredDistXZ = Math.hypot(dx, dz);
 
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+    const wasSliding = Boolean(ud.isSliding);
     let vy = (ud._kccVy as number | undefined) ?? 0;
+
+    // If we were sliding last frame, prevent any input from pushing along the slope direction.
+    // This keeps slide speed stable and avoids slide→fall jitter from trying to "fight" the slope.
+    if (kccConfig.slideBlockUphillEnabled && wasSliding && desiredDistXZ > 1e-6) {
+      const n = ud._kccGroundNormal as { x: number; y: number; z: number } | undefined;
+      const ny = n?.y ?? 0;
+      if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.2) {
+        // Downhill direction is the gravity vector projected onto the ground plane.
+        // We only care about XZ to decide what is "uphill" vs "downhill".
+        let sx = ny * n.x;
+        let sz = ny * n.z;
+        const sLen = Math.hypot(sx, sz);
+        if (sLen > 1e-6) {
+          sx /= sLen;
+          sz /= sLen;
+          const along = dx * sx + dz * sz; // >0 means towards downhill; <0 means uphill
+          if (Math.abs(along) > 1e-6) {
+            dx -= along * sx;
+            dz -= along * sz;
+            desiredX = fromX + dx;
+            desiredZ = fromZ + dz;
+            desiredDistXZ = Math.hypot(dx, dz);
+            ud._slideBlockedAlong = along;
+          } else {
+            ud._slideBlockedAlong = 0;
+          }
+        }
+      }
+    }
 
     // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
     let dy = vy * dtClamped;
@@ -1109,16 +1169,19 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
-      const computeBestGroundNy = () => {
-        let bestNy: number | null = null;
+      const computeBestGroundNormal = () => {
+        let best: { x: number; y: number; z: number } | null = null;
         const n = controller.numComputedCollisions?.() ?? 0;
         for (let i = 0; i < n; i++) {
           const c = controller.computedCollision?.(i);
-          const ny = c?.normal1?.y;
-          if (!Number.isFinite(ny)) continue;
-          if (bestNy == null || ny > bestNy) bestNy = ny;
+          const normal = c?.normal1;
+          const nx = normal?.x;
+          const ny = normal?.y;
+          const nz = normal?.z;
+          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
+          if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
         }
-        return bestNy;
+        return best;
       };
 
       let boostApplied = false;
@@ -1126,10 +1189,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       controller.computeColliderMovement(collider, { x: dx, y: dy, z: dz }, rapier.QueryFilterFlags.EXCLUDE_SENSORS, filterGroups);
       let move = controller.computedMovement();
+      let bestGroundNormal: { x: number; y: number; z: number } | null = null;
       let bestGroundNy: number | null = null;
       try {
-        bestGroundNy = computeBestGroundNy();
+        bestGroundNormal = computeBestGroundNormal();
+        bestGroundNy = bestGroundNormal?.y ?? null;
       } catch {
+        bestGroundNormal = null;
         bestGroundNy = null;
       }
 
@@ -1156,7 +1222,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             );
             move = controller.computedMovement();
             try {
-              bestGroundNy = computeBestGroundNy();
+              bestGroundNormal = computeBestGroundNormal();
+              bestGroundNy = bestGroundNormal?.y ?? null;
             } catch {
               // ignore
             }
@@ -1187,6 +1254,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
       ud._kccGroundNy = bestGroundNy;
+      ud._kccGroundNormal = bestGroundNormal;
 
       // Stable grounded/falling state with hysteresis to prevent 1-frame flicker in animations.
       const FALL_GRACE_S = 0.08;
@@ -1306,6 +1374,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             groundRay: null as any,
             recoveredToGround: false,
             slopeBoost: null as any,
+            slideBlock: null as any,
           });
         dbg.dt = dtClamped;
         dbg.desired.x = dx;
@@ -1328,6 +1397,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
+        dbg.slideBlock =
+          kccConfig.slideBlockUphillEnabled && wasSliding
+            ? { wasSliding: true, blockedAlong: (ud._slideBlockedAlong as number | undefined) ?? null }
+            : null;
       }
 
       const movedDistXZ = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
@@ -2102,11 +2175,22 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // Falling has priority over ground locomotion animations.
       if (Boolean(npcGroup.userData.isFalling)) {
-        locomotionMode = "fall";
+        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+        const wasFalling = Boolean(ud._wasFalling);
+        let t = (ud._fallAnimT as number | undefined) ?? 0;
+        t = wasFalling ? t + delta : 0;
+        ud._wasFalling = true;
+        ud._fallAnimT = t;
+        locomotionMode = t < kccConfig.fallDownSeconds ? "fallDown" : "fall";
       }
       // Sliding has priority over walk/run/idle (but not over falling).
       else if (Boolean(npcGroup.userData.isSliding)) {
+        (npcGroup.userData as any)._wasFalling = false;
+        (npcGroup.userData as any)._fallAnimT = 0;
         locomotionMode = "slide";
+      } else {
+        (npcGroup.userData as any)._wasFalling = false;
+        (npcGroup.userData as any)._fallAnimT = 0;
       }
 
       if (instance) {
