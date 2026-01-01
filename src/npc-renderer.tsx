@@ -163,6 +163,32 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getSlopeSpeedCompEnabled = () => {
+      const fallback = true;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedComp");
+        if (raw == null) return fallback;
+        if (raw === "0" || raw === "false") return false;
+        if (raw === "1" || raw === "true") return true;
+        return fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getSlopeSpeedCompMaxFactor = () => {
+      const fallback = 1.5;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedCompMax");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 1 || v > 5) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const getVisualSmoothEnabled = () => {
       const fallback = true;
       try {
@@ -254,6 +280,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
       // Small clearance to avoid visual ground intersection.
       groundClearance: 4,
+
+      // Counter-act KCC's horizontal slowdown when climbing slopes/steps.
+      slopeSpeedCompEnabled: getSlopeSpeedCompEnabled(),
+      slopeSpeedCompMaxFactor: getSlopeSpeedCompMaxFactor(),
 
       // Visual-only smoothing (applied to a child group so physics stays exact).
       visualSmoothEnabled: getVisualSmoothEnabled(),
@@ -1079,14 +1109,62 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
-      controller.computeColliderMovement(
-        collider,
-        { x: dx, y: dy, z: dz },
-        rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-        filterGroups
-      );
+      const computeBestGroundNy = () => {
+        let bestNy: number | null = null;
+        const n = controller.numComputedCollisions?.() ?? 0;
+        for (let i = 0; i < n; i++) {
+          const c = controller.computedCollision?.(i);
+          const ny = c?.normal1?.y;
+          if (!Number.isFinite(ny)) continue;
+          if (bestNy == null || ny > bestNy) bestNy = ny;
+        }
+        return bestNy;
+      };
 
-      const move = controller.computedMovement();
+      let boostApplied = false;
+      let boostFactor = 1;
+
+      controller.computeColliderMovement(collider, { x: dx, y: dy, z: dz }, rapier.QueryFilterFlags.EXCLUDE_SENSORS, filterGroups);
+      let move = controller.computedMovement();
+      let bestGroundNy: number | null = null;
+      try {
+        bestGroundNy = computeBestGroundNy();
+      } catch {
+        bestGroundNy = null;
+      }
+
+      // Slope/step speed compensation: KCC tends to reduce the XZ component by ~normal.y when it has to climb.
+      // This can make climbing ramps/step-like slopes feel slower than flat ground.
+      if (
+        kccConfig.slopeSpeedCompEnabled &&
+        desiredDistXZ > 1e-6 &&
+        move.y > 1e-3 &&
+        bestGroundNy != null &&
+        bestGroundNy > 0.2 &&
+        bestGroundNy < 0.999
+      ) {
+        const moveXZ = Math.hypot(move.x, move.z);
+        const ratio = moveXZ / desiredDistXZ;
+        if (ratio < 0.98 && Math.abs(ratio - bestGroundNy) < 0.2) {
+          boostFactor = Math.min(1 / bestGroundNy, kccConfig.slopeSpeedCompMaxFactor);
+          if (boostFactor > 1.001) {
+            controller.computeColliderMovement(
+              collider,
+              { x: dx * boostFactor, y: dy, z: dz * boostFactor },
+              rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+              filterGroups
+            );
+            move = controller.computedMovement();
+            try {
+              bestGroundNy = computeBestGroundNy();
+            } catch {
+              // ignore
+            }
+            boostApplied = true;
+          }
+        }
+      }
+
       const cur = collider.translation();
       const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
       collider.setTranslation(next);
@@ -1107,19 +1185,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
       }
 
-      // Compute best "ground-like" collision normal from the KCC collisions to classify steep slopes.
-      let bestGroundNy: number | null = null;
-      try {
-        const n = controller.numComputedCollisions?.() ?? 0;
-        for (let i = 0; i < n; i++) {
-          const c = controller.computedCollision?.(i);
-          const ny = c?.normal1?.y;
-          if (!Number.isFinite(ny)) continue;
-          if (bestGroundNy == null || ny > bestGroundNy) bestGroundNy = ny;
-        }
-      } catch {
-        // ignore
-      }
+      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
       ud._kccGroundNy = bestGroundNy;
 
       // Stable grounded/falling state with hysteresis to prevent 1-frame flicker in animations.
@@ -1239,6 +1305,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             collisions: 0,
             groundRay: null as any,
             recoveredToGround: false,
+            slopeBoost: null as any,
           });
         dbg.dt = dtClamped;
         dbg.desired.x = dx;
@@ -1260,6 +1327,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle }
             : null;
         dbg.recoveredToGround = recoveredToGround;
+        dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
       }
 
       const movedDistXZ = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
