@@ -215,6 +215,19 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getVisualSmoothMaxUp = () => {
+      const fallback = 2;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxUp");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 50) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const walkDeg = getMaxSlopeDeg();
     return {
       radius: 35,
@@ -247,6 +260,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
       visualSmoothHalfLifeDown: getVisualSmoothHalfLifeDown(),
       visualSmoothMaxDown: getVisualSmoothMaxDown(),
+      visualSmoothMaxUp: getVisualSmoothMaxUp(),
     };
   }, []);
 
@@ -285,8 +299,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     // Clamp so we never render above physics (avoids "floating"), and only allow limited lag below.
     const maxDown = kccConfig.visualSmoothMaxDown;
+    const maxUp = kccConfig.visualSmoothMaxUp;
     let offset = smoothY - targetY;
-    if (offset > 0) offset = 0;
+    if (offset > maxUp) offset = maxUp;
     if (offset < -maxDown) offset = -maxDown;
     smoothY = targetY + offset;
 
