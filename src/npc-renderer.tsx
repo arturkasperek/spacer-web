@@ -2296,8 +2296,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
         const TELEPORT_DISTANCE = 220;
         const targetX = cam.position.x + tmpTeleportForward.x * TELEPORT_DISTANCE;
+        const targetY = cam.position.y + 50;
         const targetZ = cam.position.z + tmpTeleportForward.z * TELEPORT_DISTANCE;
         cavalorn.position.x = targetX;
+        cavalorn.position.y = targetY;
         cavalorn.position.z = targetZ;
 
         // Face the same direction as the camera.
@@ -2311,7 +2313,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         cavalorn.userData._kccStableGrounded = false;
         cavalorn.userData._kccGroundedFor = 0;
         cavalorn.userData._kccUngroundedFor = 0;
-        trySnapNpcToGroundWithRapier(cavalorn);
+        cavalorn.userData._kccSlideSpeed = 0;
+        cavalorn.userData.isFalling = true;
+        cavalorn.userData.isSliding = false;
 
         persistNpcPosition(cavalorn);
         teleportCavalornSeqAppliedRef.current = teleportCavalornSeqRef.current;
