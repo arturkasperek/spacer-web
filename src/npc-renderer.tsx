@@ -202,6 +202,80 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
+    const getSlideAccel = () => {
+      // Additional slope-based downhill acceleration while sliding (kinematic).
+      // Units: distance units per second^2 (Gothic scale is ~cm).
+      const fallback = 2200;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlideAccel");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getSlideMaxSpeed = () => {
+      // Cap for the downhill slide speed.
+      // Units: distance units per second (Gothic scale is ~cm).
+      const fallback = 900;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlideMaxSpeed");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getSlideInitialSpeed = () => {
+      // Initial slide speed when first entering the slide state.
+      // Units: distance units per second (Gothic scale is ~cm).
+      const fallback = 150;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlideInitialSpeed");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getSlideToFallDeg = () => {
+      // Slopes steeper than this will be treated as "falling" instead of "sliding".
+      const fallback = 82;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcSlideToFallDeg");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const getFallSlidePushSpeed = () => {
+      // When already falling and touching a too-steep surface, gently push away instead of "latching" into sliding.
+      // Units: distance units per second (Gothic scale is ~cm).
+      const fallback = 260;
+      try {
+        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushSpeed");
+        if (raw == null) return fallback;
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
+        return v;
+      } catch {
+        return fallback;
+      }
+    };
+
     const getFallDownSeconds = () => {
       const fallback = 1.0;
       try {
@@ -312,6 +386,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       slopeSpeedCompMaxFactor: getSlopeSpeedCompMaxFactor(),
       // When sliding on too-steep slopes, prevent input from pushing uphill (can cause slide→fall jitter).
       slideBlockUphillEnabled: getSlideBlockUphillEnabled(),
+      // Sliding tuning.
+      slideAccel: getSlideAccel(),
+      slideMaxSpeed: getSlideMaxSpeed(),
+      slideInitialSpeed: getSlideInitialSpeed(),
+      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
+      fallSlidePushSpeed: getFallSlidePushSpeed(),
       // Falling animation blending (ZenGin-like: fallDown before fall).
       fallDownSeconds: getFallDownSeconds(),
 
@@ -1119,7 +1199,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
     const wasSliding = Boolean(ud.isSliding);
+    const wasFalling = Boolean(ud.isFalling);
     let vy = (ud._kccVy as number | undefined) ?? 0;
+
+    let slideSpeedApplied: number | null = null;
+    let slideTooSteep = false;
+    let fallSlidePush: { x: number; z: number } | null = null;
 
     // If we were sliding last frame, prevent any input from pushing along the slope direction.
     // This keeps slide speed stable and avoids slide→fall jitter from trying to "fight" the slope.
@@ -1148,6 +1233,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           }
         }
       }
+    } else {
+      ud._slideBlockedAlong = 0;
     }
 
     // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
@@ -1159,10 +1246,60 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // Only apply extra "stick" when idle. When moving uphill over steps/ramps, a forced downward component
       // can noticeably slow down climbing or even prevent autostep from triggering.
-      if (desiredDistXZ < 1e-3) {
+      if (!wasSliding && desiredDistXZ < 1e-3) {
         stickDown = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
         if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
       }
+    }
+
+    // While sliding, add an explicit downhill movement that scales with slope steepness.
+    // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
+    // slope-based motion, the character may drift down very steep slopes too slowly.
+    if (wasSliding) {
+      const n = ud._kccGroundNormal as { x: number; y: number; z: number } | undefined;
+      const ny = n?.y ?? 0;
+      if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.02 && ny < 0.999) {
+        const clampedNy = Math.max(-1, Math.min(1, ny));
+        const slopeAngle = Math.acos(clampedNy);
+        slideTooSteep = slopeAngle > kccConfig.slideToFallAngle + 1e-3;
+
+        const sin = Math.sqrt(Math.max(0, 1 - clampedNy * clampedNy));
+        const accel = kccConfig.slideAccel * sin;
+
+        let slideSpeed = (ud._kccSlideSpeed as number | undefined) ?? kccConfig.slideInitialSpeed;
+        if (!Number.isFinite(slideSpeed) || slideSpeed < 0) slideSpeed = kccConfig.slideInitialSpeed;
+
+        if (!slideTooSteep) {
+          slideSpeed = Math.max(slideSpeed, kccConfig.slideInitialSpeed);
+          slideSpeed += accel * dtClamped;
+          if (slideSpeed > kccConfig.slideMaxSpeed) slideSpeed = kccConfig.slideMaxSpeed;
+          ud._kccSlideSpeed = slideSpeed;
+
+          // Downhill direction is gravity projected onto the ground plane.
+          const gx = clampedNy * n.x;
+          const gy = -1 + clampedNy * clampedNy;
+          const gz = clampedNy * n.z;
+          const gLen = Math.hypot(gx, gy, gz);
+          if (gLen > 1e-6) {
+            const ux = gx / gLen;
+            const uy = gy / gLen;
+            const uz = gz / gLen;
+            dx += ux * slideSpeed * dtClamped;
+            dy += uy * slideSpeed * dtClamped;
+            dz += uz * slideSpeed * dtClamped;
+            desiredX = fromX + dx;
+            desiredZ = fromZ + dz;
+            desiredDistXZ = Math.hypot(dx, dz);
+            slideSpeedApplied = slideSpeed;
+          }
+        } else {
+          ud._kccSlideSpeed = 0;
+        }
+      } else {
+        ud._kccSlideSpeed = 0;
+      }
+    } else {
+      ud._kccSlideSpeed = 0;
     }
 
     try {
@@ -1182,6 +1319,24 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
         }
         return best;
+      };
+
+      const computeBestSteepNormalXZ = (minNyExclusive: number) => {
+        let best: { x: number; z: number; len: number } | null = null;
+        const n = controller.numComputedCollisions?.() ?? 0;
+        for (let i = 0; i < n; i++) {
+          const c = controller.computedCollision?.(i);
+          const normal = c?.normal1;
+          const nx = normal?.x;
+          const ny = normal?.y;
+          const nz = normal?.z;
+          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
+          if (!(ny < minNyExclusive) || ny < -0.2) continue;
+          const len = Math.hypot(nx, nz);
+          if (len < 1e-3) continue;
+          if (!best || len > best.len) best = { x: nx, z: nz, len };
+        }
+        return best ? { x: best.x / best.len, z: best.z / best.len } : null;
       };
 
       let boostApplied = false;
@@ -1232,6 +1387,40 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
       }
 
+      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
+      // Instead, gently push away from that surface and keep falling.
+      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+      const fallTouchingSteepSurface =
+        wasFalling && dy < -1e-3 && bestGroundNy != null && Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-3;
+      if (fallTouchingSteepSurface && kccConfig.fallSlidePushSpeed > 0) {
+        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
+        if (pushN) {
+          const pushDist = kccConfig.fallSlidePushSpeed * dtClamped;
+          const pushX = pushN.x * pushDist;
+          const pushZ = pushN.z * pushDist;
+          dx += pushX;
+          dz += pushZ;
+          desiredX = fromX + dx;
+          desiredZ = fromZ + dz;
+          desiredDistXZ = Math.hypot(dx, dz);
+
+          controller.computeColliderMovement(
+            collider,
+            { x: dx, y: dy, z: dz },
+            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+            filterGroups
+          );
+          move = controller.computedMovement();
+          try {
+            bestGroundNormal = computeBestGroundNormal();
+            bestGroundNy = bestGroundNormal?.y ?? null;
+          } catch {
+            // ignore
+          }
+          fallSlidePush = { x: pushX, z: pushZ };
+        }
+      }
+
       const cur = collider.translation();
       const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
       collider.setTranslation(next);
@@ -1242,19 +1431,30 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const rawGroundedNow = Boolean(controller.computedGrounded?.() ?? false);
       ud._kccGrounded = rawGroundedNow;
 
+      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
+      ud._kccGroundNy = bestGroundNy;
+      ud._kccGroundNormal = bestGroundNormal;
+
+      let tooSteepToStandNow = false;
+      let slopeAngleNow: number | null = null;
+      if (bestGroundNy != null) {
+        const ny = Math.max(-1, Math.min(1, bestGroundNy));
+        slopeAngleNow = Math.acos(ny);
+        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
+      }
+
+      const fallHitSlideSurfaceNow =
+        wasFalling && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
+
       // Integrate gravity for the next frame (semi-implicit):
-      // - If grounded now: reset vertical speed.
-      // - If not grounded: apply gravity.
-      if (rawGroundedNow) {
+      // - If grounded on a walkable/slideable surface: reset vertical speed.
+      // - If not grounded (or too steep to stand on / we are falling onto a slide surface): apply gravity.
+      if (rawGroundedNow && !tooSteepToStandNow && !fallHitSlideSurfaceNow) {
         vy = 0;
       } else {
         vy -= kccConfig.gravity * dtClamped;
         if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
       }
-
-      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
-      ud._kccGroundNy = bestGroundNy;
-      ud._kccGroundNormal = bestGroundNormal;
 
       // Stable grounded/falling state with hysteresis to prevent 1-frame flicker in animations.
       const FALL_GRACE_S = 0.08;
@@ -1265,7 +1465,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let ungroundedFor = (ud._kccUngroundedFor as number | undefined) ?? 0;
       let stableGrounded = Boolean(ud._kccStableGrounded ?? rawGroundedNow);
 
-      if (rawGroundedNow) {
+      const canStandNow = rawGroundedNow && !tooSteepToStandNow;
+      if (canStandNow) {
         groundedFor += dtClamped;
         ungroundedFor = 0;
         if (!stableGrounded && groundedFor >= LAND_GRACE_S) stableGrounded = true;
@@ -1273,6 +1474,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         groundedFor = 0;
         ungroundedFor += dtClamped;
         if (stableGrounded && ungroundedFor >= FALL_GRACE_S && vy <= FALL_VY_THRESHOLD) stableGrounded = false;
+      }
+
+      if (tooSteepToStandNow) {
+        // Very steep surfaces (near-walls) should behave like falling, not like "slow sliding".
+        stableGrounded = false;
+      }
+
+      if (fallHitSlideSurfaceNow) {
+        // If we were already falling, don't "stick" to a slide surface.
+        stableGrounded = false;
       }
 
       ud._kccGroundedFor = groundedFor;
@@ -1287,7 +1498,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let groundRayToi: number | null = null;
       let groundRayNormalY: number | null = null;
       let groundRayColliderHandle: number | null = null;
-      if (!rawGroundedNow && (wasStableGrounded || stableGrounded) && vy <= 0 && kccConfig.groundRecoverDistance > 0) {
+      if (
+        !rawGroundedNow &&
+        !tooSteepToStandNow &&
+        !fallHitSlideSurfaceNow &&
+        (wasStableGrounded || stableGrounded) &&
+        vy <= 0 &&
+        kccConfig.groundRecoverDistance > 0
+      ) {
         try {
           const WORLD_MEMBERSHIP = 0x0001;
           const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
@@ -1344,10 +1562,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       ud.isFalling = !stableGrounded;
 
       let isSliding = false;
-      if (stableGrounded && bestGroundNy != null) {
-        const ny = Math.max(-1, Math.min(1, bestGroundNy));
-        const slopeAngle = Math.acos(ny);
-        isSliding = slopeAngle > kccConfig.maxSlopeClimbAngle + 1e-3;
+      if (stableGrounded && slopeAngleNow != null) {
+        isSliding = slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3;
       }
       ud.isSliding = isSliding;
 
@@ -1374,6 +1590,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             groundRay: null as any,
             recoveredToGround: false,
             slopeBoost: null as any,
+            slide: null as any,
             slideBlock: null as any,
           });
         dbg.dt = dtClamped;
@@ -1397,6 +1614,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
+        dbg.slide =
+          wasSliding || isSliding || slideSpeedApplied != null || slideTooSteep
+            ? {
+                speed: slideSpeedApplied,
+                tooSteep: slideTooSteep,
+                toFallDeg: Math.round(THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle) * 100) / 100,
+              }
+            : null;
+        dbg.fallSlide =
+          fallSlidePush != null
+            ? { push: fallSlidePush, pushSpeed: kccConfig.fallSlidePushSpeed }
+            : null;
         dbg.slideBlock =
           kccConfig.slideBlockUphillEnabled && wasSliding
             ? { wasSliding: true, blockedAlong: (ud._slideBlockedAlong as number | undefined) ?? null }
