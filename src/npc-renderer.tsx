@@ -677,6 +677,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   const normalizeNameKey = (name: string): string => (name || "").trim().toUpperCase();
 
+  const isCavalornNpcData = (npcData: NpcData | undefined): boolean => {
+    if (!npcData) return false;
+    const symbolName = (npcData.symbolName || "").trim().toUpperCase();
+    const displayName = (npcData.name || "").trim().toUpperCase();
+    return symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
+  };
+
   // Build quick lookup maps for waypoints and VOBs so routine-based positioning doesn't re-scan the whole world.
   // This is synchronous so spawnpoint/routine resolution never races the index-build effect.
   const { waypointPosIndex, waypointDirIndex, vobPosIndex } = useMemo(() => {
@@ -1946,7 +1953,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const entry = allNpcsByIdRef.current.get(id);
       if (!entry) continue;
       if (aabbIntersects(entry.waybox, unloadBox)) continue;
+      // Never unload the manually-controlled player character; otherwise, moving the camera away from
+      // the routine waybox would despawn Cavalorn and make long-range teleports impossible.
+      if (manualControlCavalornEnabled) {
+        const g = loadedNpcsRef.current.get(id);
+        const npcData = g?.userData?.npcData as NpcData | undefined;
+        if ((g?.userData as any)?.isCavalorn === true || isCavalornNpcData(npcData) || isCavalornNpcData(entry.npcData)) {
+          continue;
+        }
+      }
       toUnload.push(id);
+    }
+
+    // Ensure Cavalorn is always loadable when manual control is enabled, even if the camera is far from his routine waybox.
+    if (manualControlCavalornEnabled && cavalornGroupRef.current == null) {
+      for (const [id, entry] of allNpcsByIdRef.current.entries()) {
+        if (!isCavalornNpcData(entry.npcData)) continue;
+        if (!loadedNpcsRef.current.has(id) && !toLoad.includes(id)) toLoad.push(id);
+        break;
+      }
     }
 
     // Load new NPCs
@@ -1981,10 +2006,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       loadedNpcsRef.current.set(npcId, npcGroup);
       npcGroup.userData.moveConstraint = applyMoveConstraint;
       {
-        const symbolName = (npc.npcData.symbolName || "").trim().toUpperCase();
-        const displayName = (npc.npcData.name || "").trim().toUpperCase();
-        const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
-        if (isCavalorn) {
+        if (isCavalornNpcData(npc.npcData)) {
           npcGroup.userData.isCavalorn = true;
           cavalornGroupRef.current = npcGroup;
         }
