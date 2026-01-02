@@ -303,24 +303,53 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      }
 	    };
 
-	    const getSlideExitGraceSeconds = () => {
-	      // Reduce slide<->walk flicker: require leaving-slide conditions to persist.
-	      const fallback = 0.2;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcSlideExitGrace");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getSlideExitGraceSeconds = () => {
+		      // Reduce slide<->walk flicker: require leaving-slide conditions to persist.
+		      const fallback = 0.2;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcSlideExitGrace");
+		        if (raw == null) return fallback;
+		        const v = Number(raw);
+		        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
+		        return v;
+		      } catch {
+		        return fallback;
+		      }
+		    };
 
-	    const getVisualSmoothEnabled = () => {
-	      const fallback = true;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmooth");
+		    const getSlideEntryBlockEnabled = () => {
+		      // Block "walking onto" very steep patches (treat them like walls).
+		      const fallback = true;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcSlideEntryBlock");
+		        if (raw == null) return fallback;
+		        if (raw === "0" || raw === "false") return false;
+		        if (raw === "1" || raw === "true") return true;
+		        return fallback;
+		      } catch {
+		        return fallback;
+		      }
+		    };
+
+		    const getSlideEntryBlockDeg = () => {
+		      // If the contact slope is steeper than this and we'd start sliding, block entry instead.
+		      // This prevents "sticky" jitter when tiny near-wall triangles classify as a slide surface.
+		      const fallback = 75;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcSlideEntryBlockDeg");
+		        if (raw == null) return fallback;
+		        const v = Number(raw);
+		        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
+		        return v;
+		      } catch {
+		        return fallback;
+		      }
+		    };
+
+		    const getVisualSmoothEnabled = () => {
+		      const fallback = true;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcVisualSmooth");
         if (raw == null) return fallback;
         if (raw === "0" || raw === "false") return false;
         if (raw === "1" || raw === "true") return true;
@@ -423,13 +452,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      // Falling animation blending (ZenGin-like: fallDown before fall).
 	      fallDownSeconds: getFallDownSeconds(),
 
-	      // State hysteresis.
-	      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
-	      slideExitGraceSeconds: getSlideExitGraceSeconds(),
+		      // State hysteresis.
+		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
+		      slideExitGraceSeconds: getSlideExitGraceSeconds(),
+		      slideEntryBlockEnabled: getSlideEntryBlockEnabled(),
+		      slideEntryBlockAngle: THREE.MathUtils.degToRad(getSlideEntryBlockDeg()),
 
-	      // Visual-only smoothing (applied to a child group so physics stays exact).
-	      visualSmoothEnabled: getVisualSmoothEnabled(),
-	      visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
+		      // Visual-only smoothing (applied to a child group so physics stays exact).
+		      visualSmoothEnabled: getVisualSmoothEnabled(),
+		      visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
 	      visualSmoothHalfLifeDown: getVisualSmoothHalfLifeDown(),
       visualSmoothMaxDown: getVisualSmoothMaxDown(),
       visualSmoothMaxUp: getVisualSmoothMaxUp(),
@@ -1352,20 +1383,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
-      const computeBestGroundNormal = () => {
-        let best: { x: number; y: number; z: number } | null = null;
-        const n = controller.numComputedCollisions?.() ?? 0;
-        for (let i = 0; i < n; i++) {
-          const c = controller.computedCollision?.(i);
-          const normal = c?.normal1;
-          const nx = normal?.x;
-          const ny = normal?.y;
-          const nz = normal?.z;
-          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
-          if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
-        }
-        return best;
-      };
+	      const computeBestGroundNormal = () => {
+	        let best: { x: number; y: number; z: number } | null = null;
+	        // Ignore near-vertical contacts (walls) when classifying "ground".
+	        // KCC can momentarily lose the floor contact when sliding along a wall edge; in that case we'd otherwise
+	        // treat a wall normal (ny≈0) as ground and incorrectly flip into falling/sliding states.
+	        const MIN_GROUND_NY = 0.06;
+	        const n = controller.numComputedCollisions?.() ?? 0;
+	        for (let i = 0; i < n; i++) {
+	          const c = controller.computedCollision?.(i);
+	          const normal = c?.normal1;
+	          const nx = normal?.x;
+	          const ny = normal?.y;
+	          const nz = normal?.z;
+	          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
+	          if (!(ny > MIN_GROUND_NY)) continue;
+	          if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
+	        }
+	        return best;
+	      };
 
       const computeBestSteepNormalXZ = (minNyExclusive: number) => {
         let best: { x: number; z: number; len: number } | null = null;
@@ -1433,46 +1469,44 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
       }
 
-      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
-      // Instead, gently push away from that surface and keep falling.
-      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-      const fallTouchingSteepSurface =
-        wasFalling && dy < -1e-3 && bestGroundNy != null && Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-3;
-      if (fallTouchingSteepSurface && kccConfig.fallSlidePushSpeed > 0) {
-        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
-        if (pushN) {
-          const pushDist = kccConfig.fallSlidePushSpeed * dtClamped;
-          const pushX = pushN.x * pushDist;
-          const pushZ = pushN.z * pushDist;
-          dx += pushX;
-          dz += pushZ;
-          desiredX = fromX + dx;
-          desiredZ = fromZ + dz;
-          desiredDistXZ = Math.hypot(dx, dz);
+	      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
+	      // Instead, gently push away from that surface and keep falling.
+	      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+	      if (wasFalling && dy < -1e-3 && kccConfig.fallSlidePushSpeed > 0) {
+	        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
+	        if (pushN) {
+	          const pushDist = kccConfig.fallSlidePushSpeed * dtClamped;
+	          const pushX = pushN.x * pushDist;
+	          const pushZ = pushN.z * pushDist;
+	          dx += pushX;
+	          dz += pushZ;
+	          desiredX = fromX + dx;
+	          desiredZ = fromZ + dz;
+	          desiredDistXZ = Math.hypot(dx, dz);
 
-          controller.computeColliderMovement(
-            collider,
-            { x: dx, y: dy, z: dz },
-            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-            filterGroups
-          );
-          move = controller.computedMovement();
-          try {
-            bestGroundNormal = computeBestGroundNormal();
-            bestGroundNy = bestGroundNormal?.y ?? null;
-          } catch {
-            // ignore
-          }
-          fallSlidePush = { x: pushX, z: pushZ };
-        }
-      }
+	          controller.computeColliderMovement(
+	            collider,
+	            { x: dx, y: dy, z: dz },
+	            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+	            filterGroups
+	          );
+	          move = controller.computedMovement();
+	          try {
+	            bestGroundNormal = computeBestGroundNormal();
+	            bestGroundNy = bestGroundNormal?.y ?? null;
+	          } catch {
+	            // ignore
+	          }
+	          fallSlidePush = { x: pushX, z: pushZ };
+	        }
+	      }
 
-      const cur = collider.translation();
-      const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
-      collider.setTranslation(next);
-
-      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
-      npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
+	      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
+	      const cur = collider.translation();
+	      const prevTranslation = { x: cur.x, y: cur.y, z: cur.z };
+	      const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
+	      collider.setTranslation(next);
+	      npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
 
       const rawGroundedNow = Boolean(controller.computedGrounded?.() ?? false);
       ud._kccGrounded = rawGroundedNow;
@@ -1483,16 +1517,76 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       let tooSteepToStandNow = false;
       let slopeAngleNow: number | null = null;
-	      if (bestGroundNy != null) {
-	        const ny = Math.max(-1, Math.min(1, bestGroundNy));
-	        slopeAngleNow = Math.acos(ny);
-	        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
-	      }
+		      if (bestGroundNy != null) {
+		        const ny = Math.max(-1, Math.min(1, bestGroundNy));
+		        slopeAngleNow = Math.acos(ny);
+		        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
+		      }
 
-	      // Slide→fall grace: only flip into "falling" after the too-steep condition persists.
-	      let slideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
-	      if (tooSteepToStandNow && wasSliding) slideToFallFor += dtClamped;
-	      else slideToFallFor = 0;
+		      // Optional: block stepping onto very steep surfaces (treat as a wall).
+		      if (
+		        kccConfig.slideEntryBlockEnabled &&
+		        wasStableGrounded &&
+		        !wasSliding &&
+		        !wasFalling &&
+		        desiredDistXZ > 1e-6 &&
+		        rawGroundedNow &&
+		        slopeAngleNow != null &&
+		        slopeAngleNow >= kccConfig.slideEntryBlockAngle
+		      ) {
+		        // Only block if we can still find a walkable floor underneath the previous position.
+		        // This avoids blocking legitimate step-off-a-ledge situations where the only contact is a steep triangle.
+		        let hasWalkableFloorUnderPrev = false;
+		        try {
+		          if (kccConfig.groundRecoverDistance > 0) {
+		            const WORLD_MEMBERSHIP = 0x0001;
+		            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+		            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+		            const startAbove = kccConfig.groundRecoverRayStartAbove;
+		            const maxToi = startAbove + kccConfig.groundRecoverDistance;
+		            const feetYPrev = prevTranslation.y - capsuleHeight / 2;
+		            const ray = new rapier.Ray({ x: prevTranslation.x, y: feetYPrev + startAbove, z: prevTranslation.z }, { x: 0, y: -1, z: 0 });
+		            const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+		            if (hit) {
+		              const ny = hit.normal?.y ?? 0;
+		              const minNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+		              if (typeof ny === "number" && Number.isFinite(ny) && ny >= minNy) {
+		                const p = ray.pointAt(hit.timeOfImpact);
+		                const deltaDownToHit = feetYPrev - p.y;
+		                if (deltaDownToHit >= -1e-3 && deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3) {
+		                  hasWalkableFloorUnderPrev = true;
+		                }
+		              }
+		            }
+		          }
+		        } catch {
+		          // ignore
+		        }
+		        if (!hasWalkableFloorUnderPrev) {
+		          // Let the normal KCC/fall logic handle it (likely a real ledge).
+		        } else {
+		        collider.setTranslation(prevTranslation);
+		        npcGroup.position.set(prevTranslation.x, prevTranslation.y - capsuleHeight / 2, prevTranslation.z);
+		        vy = 0;
+		        ud._kccVy = 0;
+		        ud._kccGrounded = true;
+		        ud._kccStableGrounded = true;
+		        ud._kccUngroundedFor = 0;
+		        ud.isFalling = false;
+		        ud.isSliding = false;
+		        ud._kccSlideSpeed = 0;
+		        ud._kccSlideToFallFor = 0;
+		        ud._kccSlideExitFor = 0;
+		        updateNpcVisualSmoothing(npcGroup, dtClamped);
+		        ud._kccLastFrame = physicsFrameRef.current;
+		        return { blocked: true, moved: false };
+		        }
+		      }
+
+		      // Slide→fall grace: only flip into "falling" after the too-steep condition persists.
+		      let slideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
+		      if (tooSteepToStandNow && wasSliding) slideToFallFor += dtClamped;
+		      else slideToFallFor = 0;
 	      ud._kccSlideToFallFor = slideToFallFor;
 	      const slideToFallGraceActiveNow = tooSteepToStandNow && wasSliding && slideToFallFor < SLIDE_TO_FALL_GRACE_S;
 	      const tooSteepToStandEffective = tooSteepToStandNow && !slideToFallGraceActiveNow;
