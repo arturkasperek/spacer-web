@@ -249,7 +249,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     const getSlideToFallDeg = () => {
       // Slopes steeper than this will be treated as "falling" instead of "sliding".
-      const fallback = 82;
+      const fallback = 67;
       try {
         const raw = new URLSearchParams(window.location.search).get("npcSlideToFallDeg");
         if (raw == null) return fallback;
@@ -261,25 +261,54 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getFallSlidePushSpeed = () => {
-      // When already falling and touching a too-steep surface, gently push away instead of "latching" into sliding.
-      // Units: distance units per second (Gothic scale is ~cm).
-      const fallback = 260;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushSpeed");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
-
-	    const getFallDownSeconds = () => {
-	      const fallback = 1.0;
+	    const getFallSlidePushSpeed = () => {
+	      // When already falling and touching a too-steep surface, gently push away instead of "latching" into sliding.
+	      // Units: distance units per second (Gothic scale is ~cm).
+	      const fallback = 10000;
 	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcFallDownSeconds");
+	        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushSpeed");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
+	        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
+	        return v;
+	      } catch {
+	        return fallback;
+	      }
+	    };
+
+		    const getFallSlidePushMaxPerFrame = () => {
+		      // Visual/feel smoothing: cap the per-frame push distance so high `npcFallSlidePushSpeed` doesn't look like teleport.
+		      // Units: distance units per frame (Gothic scale is ~cm).
+		      const fallback = 35;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushMax");
+		        if (raw == null) return fallback;
+		        const v = Number(raw);
+		        if (!Number.isFinite(v) || v < 0 || v > 2000) return fallback;
+		        return v;
+		      } catch {
+		        return fallback;
+		      }
+		    };
+
+		    const getFallWallPushDurationSeconds = () => {
+		      // Duration of the smooth fall->wall push transition.
+		      const fallback = 0.4;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcFallWallPushDuration");
+		        if (raw == null) return fallback;
+		        const v = Number(raw);
+		        if (!Number.isFinite(v) || v < 0 || v > 10) return fallback;
+		        return v;
+		      } catch {
+		        return fallback;
+		      }
+		    };
+
+		    const getFallDownSeconds = () => {
+		      const fallback = 1.0;
+		      try {
+		        const raw = new URLSearchParams(window.location.search).get("npcFallDownSeconds");
 	        if (raw == null) return fallback;
 	        const v = Number(raw);
 	        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
@@ -445,12 +474,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       slideBlockUphillEnabled: getSlideBlockUphillEnabled(),
       // Sliding tuning.
       slideAccel: getSlideAccel(),
-      slideMaxSpeed: getSlideMaxSpeed(),
-      slideInitialSpeed: getSlideInitialSpeed(),
-      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
-	      fallSlidePushSpeed: getFallSlidePushSpeed(),
-	      // Falling animation blending (ZenGin-like: fallDown before fall).
-	      fallDownSeconds: getFallDownSeconds(),
+	      slideMaxSpeed: getSlideMaxSpeed(),
+	      slideInitialSpeed: getSlideInitialSpeed(),
+	      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
+			      fallSlidePushSpeed: getFallSlidePushSpeed(),
+			      fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
+			      fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
+			      // Falling animation blending (ZenGin-like: fallDown before fall).
+			      fallDownSeconds: getFallDownSeconds(),
 
 		      // State hysteresis.
 		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -1259,15 +1290,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
 
-	    const dtClamped = Math.min(Math.max(dt, 0), 0.05);
-	    // Hysteresis: reduce flicker around slide thresholds.
-	    const SLIDE_TO_FALL_GRACE_S = kccConfig.slideToFallGraceSeconds;
-	    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
-	    const fromX = npcGroup.position.x;
-	    const fromZ = npcGroup.position.z;
-	    let dx = desiredX - fromX;
-	    let dz = desiredZ - fromZ;
-	    let desiredDistXZ = Math.hypot(dx, dz);
+		    const dtClamped = Math.min(Math.max(dt, 0), 0.05);
+		    // Hysteresis: reduce flicker around slide thresholds.
+		    const SLIDE_TO_FALL_GRACE_S = kccConfig.slideToFallGraceSeconds;
+		    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
+			    const FALL_WALL_PUSH_DURATION_S = kccConfig.fallWallPushDurationSeconds;
+		    const fromX = npcGroup.position.x;
+		    const fromZ = npcGroup.position.z;
+		    let dx = desiredX - fromX;
+		    let dz = desiredZ - fromZ;
+		    let desiredDistXZ = Math.hypot(dx, dz);
 
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
@@ -1275,9 +1307,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     const wasFalling = Boolean(ud.isFalling);
     let vy = (ud._kccVy as number | undefined) ?? 0;
 
-    let slideSpeedApplied: number | null = null;
-    let slideTooSteep = false;
-    let fallSlidePush: { x: number; z: number } | null = null;
+	    let slideSpeedApplied: number | null = null;
+	    let slideTooSteep = false;
+	    let fallSlidePush: { x: number; z: number } | null = null;
+	    let fallWallPushDbg: any = null;
 
     // If we were sliding last frame, prevent any input from pushing along the slope direction.
     // This keeps slide speed stable and avoids slide→fall jitter from trying to "fight" the slope.
@@ -1375,13 +1408,69 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       } else {
         ud._kccSlideSpeed = 0;
       }
-    } else {
-      ud._kccSlideSpeed = 0;
-    }
+	    } else {
+	      ud._kccSlideSpeed = 0;
+	    }
 
-    try {
-      const WORLD_MEMBERSHIP = 0x0001;
-      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+		    // Smooth fall->wall pushback: distribute a single push "impulse" over a fixed duration,
+		    // so it doesn't look like a teleport even with high `npcFallSlidePushSpeed`.
+		    const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
+		    const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
+		    const fallWallPushDir = ud._kccFallWallPushDir as { x: number; z: number } | undefined;
+			    if (
+			      FALL_WALL_PUSH_DURATION_S > 0 &&
+			      fallWallPushTotalDist > 1e-6 &&
+			      fallWallPushDir &&
+			      Number.isFinite(fallWallPushDir.x) &&
+			      Number.isFinite(fallWallPushDir.z)
+			    ) {
+		      const t0 = Math.max(0, Math.min(FALL_WALL_PUSH_DURATION_S, fallWallPushT));
+		      const t1 = Math.min(FALL_WALL_PUSH_DURATION_S, t0 + dtClamped);
+		      const u0 = t0 / FALL_WALL_PUSH_DURATION_S;
+		      const u1 = t1 / FALL_WALL_PUSH_DURATION_S;
+		      const s0 = u0 * u0 * (3 - 2 * u0); // smoothstep
+		      const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep
+			      const pushDistRaw = (s1 - s0) * fallWallPushTotalDist;
+			      let pushDist = pushDistRaw;
+			      if (kccConfig.fallSlidePushMaxPerFrame > 0) pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
+
+			      if (pushDist > 1e-6) {
+			        const pushX = fallWallPushDir.x * pushDist;
+			        const pushZ = fallWallPushDir.z * pushDist;
+		        dx += pushX;
+		        dz += pushZ;
+		        desiredX = fromX + dx;
+		        desiredZ = fromZ + dz;
+			        desiredDistXZ = Math.hypot(dx, dz);
+			        fallSlidePush = { x: pushX, z: pushZ };
+			        fallWallPushDbg = {
+			          phase: "tick",
+			          duration: FALL_WALL_PUSH_DURATION_S,
+			          t0,
+			          t1,
+			          u0,
+			          u1,
+			          s0,
+			          s1,
+			          pushDistRaw,
+			          pushDist,
+			          pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+			          push: { x: pushX, z: pushZ },
+			          totalDist: fallWallPushTotalDist,
+			        };
+			      }
+
+		      ud._kccFallWallPushT = t1;
+		      if (!(t1 < FALL_WALL_PUSH_DURATION_S - 1e-6)) {
+		        ud._kccFallWallPushT = 0;
+		        ud._kccFallWallPushTotalDist = 0;
+		        ud._kccFallWallPushDir = undefined;
+		      }
+		    }
+
+	    try {
+	      const WORLD_MEMBERSHIP = 0x0001;
+	      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
 	      const computeBestGroundNormal = () => {
 	        let best: { x: number; y: number; z: number } | null = null;
@@ -1469,37 +1558,96 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
       }
 
-	      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
-	      // Instead, gently push away from that surface and keep falling.
-	      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-	      if (wasFalling && dy < -1e-3 && kccConfig.fallSlidePushSpeed > 0) {
-	        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
-	        if (pushN) {
-	          const pushDist = kccConfig.fallSlidePushSpeed * dtClamped;
-	          const pushX = pushN.x * pushDist;
-	          const pushZ = pushN.z * pushDist;
-	          dx += pushX;
-	          dz += pushZ;
-	          desiredX = fromX + dx;
-	          desiredZ = fromZ + dz;
-	          desiredDistXZ = Math.hypot(dx, dz);
+			      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
+			      // Instead, start a short pushback transition (fixed duration) and keep falling.
+			      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+			      const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
+			      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
+			      const isFallWallPushActive =
+			        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
+			      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && kccConfig.fallSlidePushSpeed > 0) {
+			        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
+			        if (pushN) {
+			          ud._kccFallWallPushDir = { x: pushN.x, z: pushN.z };
+			          const seedDt = Math.min(dtClamped, 1 / 60);
+			          const totalDist = kccConfig.fallSlidePushSpeed * seedDt;
+			          ud._kccFallWallPushTotalDist = totalDist;
 
-	          controller.computeColliderMovement(
-	            collider,
-	            { x: dx, y: dy, z: dz },
-	            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-	            filterGroups
-	          );
-	          move = controller.computedMovement();
-	          try {
-	            bestGroundNormal = computeBestGroundNormal();
-	            bestGroundNy = bestGroundNormal?.y ?? null;
-	          } catch {
-	            // ignore
-	          }
-	          fallSlidePush = { x: pushX, z: pushZ };
-	        }
-	      }
+			          const u1 = Math.max(0, Math.min(1, dtClamped / FALL_WALL_PUSH_DURATION_S));
+			          const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep(0->u1)
+			          const pushDistRaw = s1 * totalDist;
+			          let pushDist = pushDistRaw;
+			          if (kccConfig.fallSlidePushMaxPerFrame > 0) pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
+			          const pushX = pushN.x * pushDist;
+			          const pushZ = pushN.z * pushDist;
+
+			          // Apply the first step immediately (same frame) and recompute movement.
+			          dx += pushX;
+			          dz += pushZ;
+		          desiredX = fromX + dx;
+		          desiredZ = fromZ + dz;
+		          desiredDistXZ = Math.hypot(dx, dz);
+
+		          controller.computeColliderMovement(
+		            collider,
+		            { x: dx, y: dy, z: dz },
+		            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+		            filterGroups
+		          );
+		          move = controller.computedMovement();
+		          try {
+		            bestGroundNormal = computeBestGroundNormal();
+		            bestGroundNy = bestGroundNormal?.y ?? null;
+			          } catch {
+			            // ignore
+			          }
+			          fallSlidePush = { x: pushX, z: pushZ };
+			          fallWallPushDbg = {
+			            phase: "start",
+			            duration: FALL_WALL_PUSH_DURATION_S,
+			            u1,
+			            s1,
+			            seedDt,
+			            pushDistRaw,
+			            pushDist,
+			            pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+			            push: { x: pushX, z: pushZ },
+			            totalDist,
+			          };
+			          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
+
+			          // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
+			          try {
+			            const nowMs = Date.now();
+		            const lastAt = (ud as any)._fallSlidePushLogAtMs as number | undefined;
+		            if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+		              (ud as any)._fallSlidePushLogAtMs = nowMs;
+		              const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+		              console.log(
+		                "[NPCFallSlidePushJSON]" +
+		                  JSON.stringify({
+		                    t: nowMs,
+			                    npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+			                    npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+			                    push: { x: pushX, z: pushZ },
+			                    pushSpeed: kccConfig.fallSlidePushSpeed,
+			                    pushTotalDist: totalDist,
+			                    pushDistRaw,
+			                    pushDist,
+			                    pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+			                    duration: FALL_WALL_PUSH_DURATION_S,
+			                    seedDt,
+			                    u1,
+			                    s1,
+			                    dt: dtClamped,
+			                  })
+			              );
+			            }
+		          } catch {
+		            // ignore
+		          }
+		        }
+		      }
 
 	      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
 	      const cur = collider.translation();
@@ -1515,13 +1663,59 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       ud._kccGroundNy = bestGroundNy;
       ud._kccGroundNormal = bestGroundNormal;
 
-      let tooSteepToStandNow = false;
-      let slopeAngleNow: number | null = null;
-		      if (bestGroundNy != null) {
-		        const ny = Math.max(-1, Math.min(1, bestGroundNy));
-		        slopeAngleNow = Math.acos(ny);
-		        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
-		      }
+	      let tooSteepToStandNow = false;
+	      let slopeAngleNow: number | null = null;
+			      if (bestGroundNy != null) {
+			        const ny = Math.max(-1, Math.min(1, bestGroundNy));
+			        slopeAngleNow = Math.acos(ny);
+			        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
+			      }
+
+			      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
+			      // Emits at most once per ~200ms per NPC, and only when a push is being applied.
+			      if (fallSlidePush != null) {
+			        try {
+			          const nowMs = Date.now();
+			          const lastAt = (ud as any)._fallWallPushDbgLogAtMs as number | undefined;
+			          if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+			            (ud as any)._fallWallPushDbgLogAtMs = nowMs;
+			            const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+			            const moved = { x: next.x - prevTranslation.x, y: next.y - prevTranslation.y, z: next.z - prevTranslation.z };
+			            console.log(
+			              "[NPCFallWallPushDbgJSON]" +
+			                JSON.stringify({
+			                  t: nowMs,
+			                  npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+			                  frame: physicsFrameRef.current,
+			                  phase: fallWallPushDbg?.phase ?? null,
+			                  duration: fallWallPushDbg?.duration ?? null,
+			                  push: fallSlidePush,
+				                  pushMeta: fallWallPushDbg,
+				                  desired: { x: dx, y: dy, z: dz },
+				                  kccMove: { x: move.x, y: move.y, z: move.z },
+				                  translationPrev: prevTranslation,
+				                  translationNext: next,
+				                  moved,
+				                  rawGroundedNow,
+				                  vy: (ud as any)._kccVy ?? null,
+				                  bestGroundNy,
+				                  slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
+				                  maxSlopeDeg: THREE.MathUtils.radToDeg(kccConfig.maxSlopeClimbAngle),
+				                  toFallDeg: THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle),
+				                })
+			            );
+			          }
+			        } catch {
+			          // ignore
+			        }
+			      }
+
+			      // If we touch walkable ground, stop any ongoing fall->wall push transition.
+			      if (rawGroundedNow && slopeAngleNow != null && slopeAngleNow <= kccConfig.maxSlopeClimbAngle + 1e-3) {
+			        ud._kccFallWallPushT = 0;
+			        ud._kccFallWallPushTotalDist = 0;
+			        ud._kccFallWallPushDir = undefined;
+			      }
 
 		      // Optional: block stepping onto very steep surfaces (treat as a wall).
 		      if (
@@ -1875,14 +2069,17 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     ud._kccGrounded = true;
     ud._kccStableGrounded = true;
     ud._kccGroundedFor = 0;
-    ud._kccUngroundedFor = 0;
-    ud._kccSnapped = true;
-    ud.isFalling = false;
-    ud.isSliding = false;
+	    ud._kccUngroundedFor = 0;
+	    ud._kccSnapped = true;
+	    ud.isFalling = false;
+	    ud.isSliding = false;
+	    ud._kccFallWallPushT = 0;
+	    ud._kccFallWallPushTotalDist = 0;
+	    ud._kccFallWallPushDir = undefined;
 
-    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
-    ud._visSmoothY = npcGroup.position.y;
-    const visualRoot = getNpcVisualRoot(npcGroup);
+	    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
+	    ud._visSmoothY = npcGroup.position.y;
+	    const visualRoot = getNpcVisualRoot(npcGroup);
     if (visualRoot !== npcGroup) visualRoot.position.y = 0;
     return true;
   };
