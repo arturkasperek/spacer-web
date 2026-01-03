@@ -83,14 +83,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const cavalornGroupRef = useRef<THREE.Group | null>(null);
 
   const kccConfig = useMemo(() => {
-    const getMaxSlopeDeg = () => {
-      // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
-      // Override for tuning via `?npcMaxSlopeDeg=...`.
-      const fallback = 43;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcMaxSlopeDeg");
-        if (raw == null) return fallback;
-        const v = Number(raw);
+	    const getMaxSlopeDeg = () => {
+	      // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
+	      // Override for tuning via `?npcMaxSlopeDeg=...`.
+	      const fallback = 50;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcMaxSlopeDeg");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
         if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
         return v;
       } catch {
@@ -1659,17 +1659,90 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const rawGroundedNow = Boolean(controller.computedGrounded?.() ?? false);
       ud._kccGrounded = rawGroundedNow;
 
-      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
-      ud._kccGroundNy = bestGroundNy;
-      ud._kccGroundNormal = bestGroundNormal;
+	      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
+	      ud._kccGroundNy = bestGroundNy;
+	      ud._kccGroundNormal = bestGroundNormal;
 
-	      let tooSteepToStandNow = false;
-	      let slopeAngleNow: number | null = null;
-			      if (bestGroundNy != null) {
-			        const ny = Math.max(-1, Math.min(1, bestGroundNy));
-			        slopeAngleNow = Math.acos(ny);
-			        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
-			      }
+		      let tooSteepToStandNow = false;
+		      let slopeAngleNow: number | null = null;
+				      // If we're touching a wall while moving downhill, KCC may report a steep "ground" normal from a small
+				      // triangle near the wall base and incorrectly switch into falling/sliding. Prefer a downward floor-probe
+				      // when collisions don't provide a walkable normal.
+				      let floorProbeNy: number | null = null;
+				      let floorProbeSrc: string | null = null;
+				      if (rawGroundedNow && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
+				        const needsProbe = bestGroundNy == null || (Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-6);
+				        if (needsProbe) {
+				          try {
+				            const WORLD_MEMBERSHIP = 0x0001;
+				            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+				            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+				            const feetY = npcGroup.position.y;
+				            const startAbove = kccConfig.groundRecoverRayStartAbove;
+				            const maxToi = startAbove + kccConfig.groundRecoverDistance;
+				            const tryProbeNy = (x: number, z: number): number | null => {
+				              const ray = new rapier.Ray({ x, y: feetY + startAbove, z }, { x: 0, y: -1, z: 0 });
+				              const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+				              if (!hit) return null;
+				              const ny = hit.normal?.y ?? 0;
+				              if (!(typeof ny === "number" && Number.isFinite(ny) && ny >= minWalkNy)) return null;
+				              const p = ray.pointAt(hit.timeOfImpact);
+				              const deltaDownToHit = feetY - p.y;
+				              if (deltaDownToHit < -1e-3 || deltaDownToHit > kccConfig.groundRecoverDistance + 1e-3) return null;
+				              return ny;
+				            };
+
+				            const baseX = npcGroup.position.x;
+				            const baseZ = npcGroup.position.z;
+
+				            const nyCenter = tryProbeNy(baseX, baseZ);
+				            if (nyCenter != null) {
+				              floorProbeNy = nyCenter;
+				              floorProbeSrc = "center";
+				            } else {
+				              // If we are grounded but the center-ray misses walkable ground, we might be "wedged" against a wall
+				              // while walking downhill. Probe slightly around the capsule using the steepest contact direction.
+				              const steepDir = computeBestSteepNormalXZ(minWalkNy);
+				              if (steepDir) {
+				                let align = 1;
+				                if (desiredDistXZ > 1e-3) {
+				                  const dirX = dx / desiredDistXZ;
+				                  const dirZ = dz / desiredDistXZ;
+				                  align = Math.abs(dirX * steepDir.x + dirZ * steepDir.z);
+				                }
+
+				                // Only do the extra probes when the movement direction aligns with a steep contact (likely a wall hit).
+				                if (align > 0.35) {
+				                  const off = Math.max(2, kccConfig.radius * 0.85);
+				                  const nyA = tryProbeNy(baseX + steepDir.x * off, baseZ + steepDir.z * off);
+				                  const nyB = tryProbeNy(baseX - steepDir.x * off, baseZ - steepDir.z * off);
+				                  if (nyA != null || nyB != null) {
+				                    if (nyA != null && (nyB == null || nyA >= nyB)) {
+				                      floorProbeNy = nyA;
+				                      floorProbeSrc = "+steep";
+				                    } else if (nyB != null) {
+				                      floorProbeNy = nyB;
+				                      floorProbeSrc = "-steep";
+				                    }
+				                  }
+				                }
+				              }
+				            }
+				          } catch {
+				            // ignore
+				          }
+				        }
+				      }
+
+				      const effectiveGroundNy = floorProbeNy ?? bestGroundNy;
+				      (ud as any)._kccGroundNyEffective = effectiveGroundNy;
+				      if (effectiveGroundNy != null) {
+				        const ny = Math.max(-1, Math.min(1, effectiveGroundNy));
+				        slopeAngleNow = Math.acos(ny);
+				        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
+				      }
+				      (ud as any)._kccFloorProbeNy = floorProbeNy;
+				      (ud as any)._kccFloorProbeSrc = floorProbeSrc;
 
 			      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
 			      // Emits at most once per ~200ms per NPC, and only when a push is being applied.
@@ -1932,10 +2005,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const isMotionDebugRuntime =
         typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && cavalornGroupRef.current === npcGroup;
       const shouldStoreKccDbg = (motionDebugFromQuery || isMotionDebugRuntime) && cavalornGroupRef.current === npcGroup;
-      if (shouldStoreKccDbg) {
-        const dbg =
-          (ud._kccDbg as any) ??
-          (ud._kccDbg = {
+	      if (shouldStoreKccDbg) {
+	        const dbg =
+	          (ud._kccDbg as any) ??
+	          (ud._kccDbg = {
             dt: 0,
             desired: { x: 0, y: 0, z: 0 },
             computed: { x: 0, y: 0, z: 0 },
@@ -1943,13 +2016,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             groundedRaw: false,
             groundedStable: false,
             vy: 0,
-            groundedFor: 0,
-            ungroundedFor: 0,
-            groundNy: null as number | null,
-            collisions: 0,
-            groundRay: null as any,
-            recoveredToGround: false,
-            slopeBoost: null as any,
+	            groundedFor: 0,
+	            ungroundedFor: 0,
+	            groundNy: null as number | null,
+	            groundNyEffective: null as number | null,
+	            floorProbeNy: null as number | null,
+	            collisions: 0,
+	            groundRay: null as any,
+	            recoveredToGround: false,
+	            slopeBoost: null as any,
             slide: null as any,
             slideBlock: null as any,
           });
@@ -1964,13 +2039,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         dbg.groundedRaw = rawGroundedNow;
         dbg.groundedStable = stableGrounded;
         dbg.vy = vy;
-        dbg.groundedFor = groundedFor;
-        dbg.ungroundedFor = ungroundedFor;
-        dbg.groundNy = bestGroundNy;
-        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
-        dbg.groundRay =
-          groundRayToi != null
-            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle }
+	        dbg.groundedFor = groundedFor;
+	        dbg.ungroundedFor = ungroundedFor;
+	        dbg.groundNy = bestGroundNy;
+	        dbg.groundNyEffective = (ud as any)._kccGroundNyEffective ?? null;
+	        dbg.floorProbeNy = (ud as any)._kccFloorProbeNy ?? null;
+	        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
+	        dbg.groundRay =
+	          groundRayToi != null
+	            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle }
             : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
