@@ -306,27 +306,29 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 		      }
 		    };
 
-		    const getFallWallPushDurationSeconds = () => {
-		      // Duration of the smooth fall->wall push transition.
-		      const fallback = 0.4;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcFallWallPushDuration");
-		        if (raw == null) return fallback;
-		        const v = Number(raw);
-		        if (!Number.isFinite(v) || v < 0 || v > 10) return fallback;
-		        return v;
-		      } catch {
-		        return fallback;
-		      }
-		    };
-
-		    const getFallDownSeconds = () => {
-		      const fallback = 1.0;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcFallDownSeconds");
+	    const getFallWallPushDurationSeconds = () => {
+	      // Duration of the smooth fall->wall push transition.
+	      const fallback = 0.4;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcFallWallPushDuration");
 	        if (raw == null) return fallback;
 	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
+	        if (!Number.isFinite(v) || v < 0 || v > 10) return fallback;
+	        return v;
+	      } catch {
+	        return fallback;
+	      }
+	    };
+
+	    const getFallDownHeight = () => {
+	      // ZenGin-like: keep "fallDown" until the character has dropped this many units in Y.
+	      // Override for tuning via `?npcFallDownHeight=...`.
+	      const fallback = 500;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcFallDownHeight");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
+	        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
 	        return v;
 	      } catch {
 	        return fallback;
@@ -493,13 +495,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      slideMaxSpeed: getSlideMaxSpeed(),
 	      slideInitialSpeed: getSlideInitialSpeed(),
 	      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
-			      fallSlidePushSpeed: getFallSlidePushSpeed(),
-			      fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
-			      fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
-			      // Falling animation blending (ZenGin-like: fallDown before fall).
-			      fallDownSeconds: getFallDownSeconds(),
+				      fallSlidePushSpeed: getFallSlidePushSpeed(),
+				      fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
+				      fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
+					      // Falling animation blending (ZenGin-like: fallDown before fall).
+					      fallDownHeight: getFallDownHeight(),
 
-		      // State hysteresis.
+			      // State hysteresis.
 		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
 		      slideExitGraceSeconds: getSlideExitGraceSeconds(),
 		      slideEntryBlockEnabled: getSlideEntryBlockEnabled(),
@@ -1605,9 +1607,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
 				      const isFallWallPushActive =
 				        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
-				      const fallAnimT = (ud._fallAnimT as number | undefined) ?? 0;
-				      const fallDownSeconds = kccConfig.fallDownSeconds ?? 0;
-				      const inFallDownPhase = fallDownSeconds > 1e-6 && fallAnimT < fallDownSeconds - 1e-6;
+				      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
+				      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
+				      const inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
 				      const fallSlidePushSpeedBase = kccConfig.fallSlidePushSpeed;
 				      const fallSlidePushSpeedEffective = inFallDownPhase ? fallSlidePushSpeedBase * 0.4 : fallSlidePushSpeedBase;
 				      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && fallSlidePushSpeedEffective > 0) {
@@ -1677,7 +1679,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				                    push: { x: pushX, z: pushZ },
 				                    pushSpeed: fallSlidePushSpeedBase,
 				                    pushSpeedEffective: fallSlidePushSpeedEffective,
-				                    fallAnimT,
+				                    fallDownDistY,
 				                    fallPhase: inFallDownPhase ? "fallDown" : "fall",
 				                    pushTotalDist: totalDist,
 				                    pushDistRaw,
@@ -2924,25 +2926,40 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         applyMoveConstraint(npcGroup, npcGroup.position.x, npcGroup.position.z, delta);
       }
 
-      // Falling has priority over ground locomotion animations.
-      if (Boolean(npcGroup.userData.isFalling)) {
-        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-        const wasFalling = Boolean(ud._wasFalling);
-        let t = (ud._fallAnimT as number | undefined) ?? 0;
-        t = wasFalling ? t + delta : 0;
-        ud._wasFalling = true;
-        ud._fallAnimT = t;
-        locomotionMode = t < kccConfig.fallDownSeconds ? "fallDown" : "fall";
-      }
-      // Sliding has priority over walk/run/idle (but not over falling).
-      else if (Boolean(npcGroup.userData.isSliding)) {
-        (npcGroup.userData as any)._wasFalling = false;
-        (npcGroup.userData as any)._fallAnimT = 0;
-        locomotionMode = "slide";
-      } else {
-        (npcGroup.userData as any)._wasFalling = false;
-        (npcGroup.userData as any)._fallAnimT = 0;
-      }
+		      // Falling has priority over ground locomotion animations.
+		      if (Boolean(npcGroup.userData.isFalling)) {
+		        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+		        const wasFalling = Boolean(ud._wasFalling);
+		        ud._wasFalling = true;
+		        // Distance-based fallDown like ZenGin: switch after a vertical drop threshold.
+		        const yNow = npcGroup.position.y;
+		        let startY = (ud._fallDownStartY as number | undefined);
+		        let minY = (ud._fallDownMinY as number | undefined);
+		        if (!wasFalling || typeof startY !== "number" || !Number.isFinite(startY)) startY = yNow;
+		        if (!wasFalling || typeof minY !== "number" || !Number.isFinite(minY)) minY = yNow;
+		        if (yNow < minY) minY = yNow;
+		        const distY = Math.max(0, startY - minY);
+		        ud._fallDownStartY = startY;
+		        ud._fallDownMinY = minY;
+		        ud._fallDownDistY = distY;
+		        ud._fallAnimT = 0;
+		        locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
+		      }
+	      // Sliding has priority over walk/run/idle (but not over falling).
+	      else if (Boolean(npcGroup.userData.isSliding)) {
+	        (npcGroup.userData as any)._wasFalling = false;
+	        (npcGroup.userData as any)._fallAnimT = 0;
+	        (npcGroup.userData as any)._fallDownStartY = undefined;
+	        (npcGroup.userData as any)._fallDownMinY = undefined;
+	        (npcGroup.userData as any)._fallDownDistY = 0;
+	        locomotionMode = "slide";
+	      } else {
+	        (npcGroup.userData as any)._wasFalling = false;
+	        (npcGroup.userData as any)._fallAnimT = 0;
+	        (npcGroup.userData as any)._fallDownStartY = undefined;
+	        (npcGroup.userData as any)._fallDownMinY = undefined;
+	        (npcGroup.userData as any)._fallDownDistY = 0;
+	      }
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
