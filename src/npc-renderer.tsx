@@ -37,6 +37,72 @@ interface NpcRendererProps {
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
 
+// Centralized NPC movement/physics tuning (hardcoded; no query params).
+// Keep this as the single place to tweak feel/thresholds.
+const NPC_RENDER_TUNING = {
+  // KCC shape
+  radius: 35,
+  capsuleHeight: 170,
+  stepHeight: 60,
+
+  // Slopes
+  maxSlopeDeg: 50, // walkable slope (slide starts above this)
+  slideToFallDeg: 67, // slide->fall threshold
+
+  // Physics
+  gravity: 981,
+  maxFallSpeed: 8000,
+
+  // Grounding / snapping
+  groundSnapDownEps: 0.5,
+  groundStickSpeed: 140,
+  groundStickMaxDistance: 6,
+  groundRecoverDistance: 30,
+  groundRecoverRayStartAbove: 60,
+  groundRecoverMaxDrop: 6,
+  groundClearance: 4,
+
+  // Movement feel
+  slopeSpeedCompEnabled: true,
+  slopeSpeedCompMaxFactor: 1.5,
+
+  // Sliding
+  slideBlockUphillEnabled: true,
+  slideAccel: 2200,
+  slideMaxSpeed: 900,
+  slideInitialSpeed: 150,
+
+  // Falling->wall push
+  fallSlidePushSpeed: 10000,
+  fallSlidePushMaxPerFrame: 35,
+  fallWallPushDurationSeconds: 0.4,
+
+  // Fall animation phase split (ZenGin-like distance-based)
+  fallDownHeight: 500,
+
+  // State hysteresis
+  slideToFallGraceSeconds: 0.1,
+  slideExitGraceSeconds: 0.2,
+
+  // Optional: block stepping onto very steep surfaces
+  slideEntryBlockEnabled: true,
+  slideEntryBlockDeg: 75,
+
+  // Visual smoothing (Y-only offset on a child group)
+  visualSmoothEnabled: true,
+  visualSmoothHalfLifeUp: 0.05,
+  visualSmoothHalfLifeDown: 0.15,
+  visualSmoothMaxDown: 6,
+  visualSmoothMaxUp: 10,
+
+  // Rapier KCC controller settings
+  controllerOffset: 1,
+  controllerSnapDistance: 20,
+
+  // Manual control (Cavalorn)
+  manualControlSpeeds: { walk: 180, run: 350 },
+} as const;
+
 /**
  * NPC Renderer Component - renders NPCs at spawnpoint locations with ZenGin-like streaming
  * Uses imperative Three.js rendering (like VOBs) for better performance
@@ -82,394 +148,74 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const physicsFrameRef = useRef(0);
   const cavalornGroupRef = useRef<THREE.Group | null>(null);
 
-  const kccConfig = useMemo(() => {
-	    const getMaxSlopeDeg = () => {
-	      // Calibrated so that the steepest "rock stairs" remain climbable, but steeper terrain blocks movement.
-	      // Override for tuning via `?npcMaxSlopeDeg=...`.
-	      const fallback = 50;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcMaxSlopeDeg");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	  const kccConfig = useMemo(() => {
+		    const getMaxSlopeDeg = () => NPC_RENDER_TUNING.maxSlopeDeg;
 
-    const getGroundStickSpeed = () => {
-      const fallback = 140;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcGroundStickSpeed");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getGroundStickSpeed = () => NPC_RENDER_TUNING.groundStickSpeed;
 
-    const getGroundStickMaxDistance = () => {
-      const fallback = 6;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcGroundStickMax");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getGroundStickMaxDistance = () => NPC_RENDER_TUNING.groundStickMaxDistance;
 
-    const getGroundSnapDownEps = () => {
-      const fallback = 0.5;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcGroundSnapDownEps");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 50) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getGroundSnapDownEps = () => NPC_RENDER_TUNING.groundSnapDownEps;
 
-    const getGroundRecoverDistance = () => {
-      const fallback = 30;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcGroundRecover");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 500) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getGroundRecoverDistance = () => NPC_RENDER_TUNING.groundRecoverDistance;
 
-	    const getGroundRecoverRayStartAbove = () => {
-	      const fallback = 60;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverAbove");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getGroundRecoverRayStartAbove = () => NPC_RENDER_TUNING.groundRecoverRayStartAbove;
 
-	    const getGroundRecoverMaxDrop = () => {
-	      // When we do a ray-based recovery snap (after a brief loss of grounded), cap the Y correction per frame
-	      // to avoid visible "teleport" down steep ramps/steps.
-	      const fallback = 6;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverMaxDrop");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getGroundRecoverMaxDrop = () => NPC_RENDER_TUNING.groundRecoverMaxDrop;
 
-	    const getSlopeSpeedCompEnabled = () => {
-	      const fallback = true;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedComp");
-        if (raw == null) return fallback;
-        if (raw === "0" || raw === "false") return false;
-        if (raw === "1" || raw === "true") return true;
-        return fallback;
-      } catch {
-        return fallback;
-      }
-    };
+		    const getSlopeSpeedCompEnabled = () => NPC_RENDER_TUNING.slopeSpeedCompEnabled;
 
-    const getSlopeSpeedCompMaxFactor = () => {
-      const fallback = 1.5;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedCompMax");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 1 || v > 5) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlopeSpeedCompMaxFactor = () => NPC_RENDER_TUNING.slopeSpeedCompMaxFactor;
 
-    const getSlideBlockUphillEnabled = () => {
-      const fallback = true;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlideBlockUphill");
-        if (raw == null) return fallback;
-        if (raw === "0" || raw === "false") return false;
-        if (raw === "1" || raw === "true") return true;
-        return fallback;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlideBlockUphillEnabled = () => NPC_RENDER_TUNING.slideBlockUphillEnabled;
 
-    const getSlideAccel = () => {
-      // Additional slope-based downhill acceleration while sliding (kinematic).
-      // Units: distance units per second^2 (Gothic scale is ~cm).
-      const fallback = 2200;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlideAccel");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlideAccel = () => NPC_RENDER_TUNING.slideAccel;
 
-    const getSlideMaxSpeed = () => {
-      // Cap for the downhill slide speed.
-      // Units: distance units per second (Gothic scale is ~cm).
-      const fallback = 900;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlideMaxSpeed");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlideMaxSpeed = () => NPC_RENDER_TUNING.slideMaxSpeed;
 
-    const getSlideInitialSpeed = () => {
-      // Initial slide speed when first entering the slide state.
-      // Units: distance units per second (Gothic scale is ~cm).
-      const fallback = 150;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlideInitialSpeed");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlideInitialSpeed = () => NPC_RENDER_TUNING.slideInitialSpeed;
 
-    const getSlideToFallDeg = () => {
-      // Slopes steeper than this will be treated as "falling" instead of "sliding".
-      const fallback = 67;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlideToFallDeg");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getSlideToFallDeg = () => NPC_RENDER_TUNING.slideToFallDeg;
 
-	    const getFallSlidePushSpeed = () => {
-	      // When already falling and touching a too-steep surface, gently push away instead of "latching" into sliding.
-	      // Units: distance units per second (Gothic scale is ~cm).
-	      const fallback = 10000;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushSpeed");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getFallSlidePushSpeed = () => NPC_RENDER_TUNING.fallSlidePushSpeed;
 
-		    const getFallSlidePushMaxPerFrame = () => {
-		      // Visual/feel smoothing: cap the per-frame push distance so high `npcFallSlidePushSpeed` doesn't look like teleport.
-		      // Units: distance units per frame (Gothic scale is ~cm).
-		      const fallback = 35;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcFallSlidePushMax");
-		        if (raw == null) return fallback;
-		        const v = Number(raw);
-		        if (!Number.isFinite(v) || v < 0 || v > 2000) return fallback;
-		        return v;
-		      } catch {
-		        return fallback;
-		      }
-		    };
+			    const getFallSlidePushMaxPerFrame = () => NPC_RENDER_TUNING.fallSlidePushMaxPerFrame;
 
-	    const getFallWallPushDurationSeconds = () => {
-	      // Duration of the smooth fall->wall push transition.
-	      const fallback = 0.4;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcFallWallPushDuration");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 10) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getFallWallPushDurationSeconds = () => NPC_RENDER_TUNING.fallWallPushDurationSeconds;
 
-	    const getFallDownHeight = () => {
-	      // ZenGin-like: keep "fallDown" until the character has dropped this many units in Y.
-	      // Override for tuning via `?npcFallDownHeight=...`.
-	      const fallback = 500;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcFallDownHeight");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 20000) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
 
-	    const getSlideToFallGraceSeconds = () => {
-	      // Reduce slide->fall flicker: require the "too steep" condition to persist.
-	      const fallback = 0.1;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcSlideToFallGrace");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-	        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
-	        return v;
-	      } catch {
-	        return fallback;
-	      }
-	    };
+		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
-		    const getSlideExitGraceSeconds = () => {
-		      // Reduce slide<->walk flicker: require leaving-slide conditions to persist.
-		      const fallback = 0.2;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcSlideExitGrace");
-		        if (raw == null) return fallback;
-		        const v = Number(raw);
-		        if (!Number.isFinite(v) || v < 0 || v > 5) return fallback;
-		        return v;
-		      } catch {
-		        return fallback;
-		      }
-		    };
+			    const getSlideExitGraceSeconds = () => NPC_RENDER_TUNING.slideExitGraceSeconds;
 
-		    const getSlideEntryBlockEnabled = () => {
-		      // Block "walking onto" very steep patches (treat them like walls).
-		      const fallback = true;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcSlideEntryBlock");
-		        if (raw == null) return fallback;
-		        if (raw === "0" || raw === "false") return false;
-		        if (raw === "1" || raw === "true") return true;
-		        return fallback;
-		      } catch {
-		        return fallback;
-		      }
-		    };
+			    const getSlideEntryBlockEnabled = () => NPC_RENDER_TUNING.slideEntryBlockEnabled;
 
-		    const getSlideEntryBlockDeg = () => {
-		      // If the contact slope is steeper than this and we'd start sliding, block entry instead.
-		      // This prevents "sticky" jitter when tiny near-wall triangles classify as a slide surface.
-		      const fallback = 75;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcSlideEntryBlockDeg");
-		        if (raw == null) return fallback;
-		        const v = Number(raw);
-		        if (!Number.isFinite(v) || v <= 0 || v >= 89) return fallback;
-		        return v;
-		      } catch {
-		        return fallback;
-		      }
-		    };
+			    const getSlideEntryBlockDeg = () => NPC_RENDER_TUNING.slideEntryBlockDeg;
 
-		    const getVisualSmoothEnabled = () => {
-		      const fallback = true;
-		      try {
-		        const raw = new URLSearchParams(window.location.search).get("npcVisualSmooth");
-        if (raw == null) return fallback;
-        if (raw === "0" || raw === "false") return false;
-        if (raw === "1" || raw === "true") return true;
-        return fallback;
-      } catch {
-        return fallback;
-      }
-    };
+			    const getVisualSmoothEnabled = () => NPC_RENDER_TUNING.visualSmoothEnabled;
 
-	    const getVisualSmoothHalfLifeUp = () => {
-	      const fallback = 0.05;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothUp");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+		    const getVisualSmoothHalfLifeUp = () => NPC_RENDER_TUNING.visualSmoothHalfLifeUp;
 
-	    const getVisualSmoothHalfLifeDown = () => {
-	      const fallback = 0.15;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothDown");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+		    const getVisualSmoothHalfLifeDown = () => NPC_RENDER_TUNING.visualSmoothHalfLifeDown;
 
-	    const getVisualSmoothMaxDown = () => {
-	      const fallback = 6;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxDown");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+		    const getVisualSmoothMaxDown = () => NPC_RENDER_TUNING.visualSmoothMaxDown;
 
-	    const getVisualSmoothMaxUp = () => {
-	      const fallback = 10;
-	      try {
-	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxUp");
-	        if (raw == null) return fallback;
-	        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 50) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+		    const getVisualSmoothMaxUp = () => NPC_RENDER_TUNING.visualSmoothMaxUp;
 
-    const walkDeg = getMaxSlopeDeg();
-    return {
-      radius: 35,
-      capsuleHeight: 170,
-      stepHeight: 60,
+	    const walkDeg = getMaxSlopeDeg();
+	    return {
+	      radius: NPC_RENDER_TUNING.radius,
+	      capsuleHeight: NPC_RENDER_TUNING.capsuleHeight,
+	      stepHeight: NPC_RENDER_TUNING.stepHeight,
       // Slopes:
       // - climb if slope <= maxSlopeClimbAngle
       // - slide if slope > minSlopeSlideAngle
-      maxSlopeClimbAngle: THREE.MathUtils.degToRad(walkDeg),
-      minSlopeSlideAngle: THREE.MathUtils.degToRad(walkDeg),
-      // Gravity tuning (ZenGin-like defaults).
-      gravity: 981,
-      maxFallSpeed: 8000,
+	      maxSlopeClimbAngle: THREE.MathUtils.degToRad(walkDeg),
+	      minSlopeSlideAngle: THREE.MathUtils.degToRad(walkDeg),
+	      // Gravity tuning (ZenGin-like defaults).
+	      gravity: NPC_RENDER_TUNING.gravity,
+	      maxFallSpeed: NPC_RENDER_TUNING.maxFallSpeed,
       // How fast we "stick" down while grounded (helps when going downhill on ramps/stairs).
       // Units: distance units per second (Gothic scale is ~cm).
       groundStickSpeed: getGroundStickSpeed(),
@@ -481,9 +227,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
 	      groundRecoverDistance: getGroundRecoverDistance(),
 	      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
-	      groundRecoverMaxDrop: getGroundRecoverMaxDrop(),
-	      // Small clearance to avoid visual ground intersection.
-	      groundClearance: 4,
+		      groundRecoverMaxDrop: getGroundRecoverMaxDrop(),
+		      // Small clearance to avoid visual ground intersection.
+		      groundClearance: NPC_RENDER_TUNING.groundClearance,
 
       // Counter-act KCC's horizontal slowdown when climbing slopes/steps.
       slopeSpeedCompEnabled: getSlopeSpeedCompEnabled(),
@@ -561,46 +307,21 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     visualRoot.position.y = smoothY - targetY;
   };
 
-  useEffect(() => {
-    if (!rapierWorld) return;
-    if (!rapier) return;
+	  useEffect(() => {
+	    if (!rapierWorld) return;
+	    if (!rapier) return;
 
-    const getOffset = () => {
-      const fallback = 1; // 1 unit ~ 1cm in Gothic scale; avoids "sticky" edges.
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcKccOffset");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        return Number.isFinite(v) && v > 0 ? v : fallback;
-      } catch {
-        return fallback;
-      }
-    };
-
-    const getSnapDistance = () => {
-      // Helps keep contact when going down ramps/stair-like slopes.
-      const fallback = 20;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcKccSnap");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        return Number.isFinite(v) && v >= 0 ? v : fallback;
-      } catch {
-        return fallback;
-      }
-    };
-
-    const controller = rapierWorld.createCharacterController(getOffset());
-    controller.setSlideEnabled(true);
-    controller.setMaxSlopeClimbAngle(kccConfig.maxSlopeClimbAngle);
-    controller.setMinSlopeSlideAngle(kccConfig.minSlopeSlideAngle);
+	    const controller = rapierWorld.createCharacterController(NPC_RENDER_TUNING.controllerOffset);
+	    controller.setSlideEnabled(true);
+	    controller.setMaxSlopeClimbAngle(kccConfig.maxSlopeClimbAngle);
+	    controller.setMinSlopeSlideAngle(kccConfig.minSlopeSlideAngle);
 
     const minWidth = Math.max(1, kccConfig.radius * 0.5);
     controller.enableAutostep(kccConfig.stepHeight, minWidth, false);
 
-    const snap = getSnapDistance();
-    if (snap > 0) controller.enableSnapToGround(snap);
-    else if (typeof (controller as any).disableSnapToGround === "function") (controller as any).disableSnapToGround();
+	    const snap = NPC_RENDER_TUNING.controllerSnapDistance;
+	    if (snap > 0) controller.enableSnapToGround(snap);
+	    else if (typeof (controller as any).disableSnapToGround === "function") (controller as any).disableSnapToGround();
 
     controller.setApplyImpulsesToDynamicBodies(false);
     controller.setCharacterMass(1);
@@ -687,18 +408,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     }
   }, []);
 
-  const motionDebugFromQuery = useMemo(() => {
-    try {
-      if (typeof window === "undefined") return false;
-      const qs = new URLSearchParams(window.location.search);
-      // Gate noisy logs behind an explicit query param.
-      // Accept legacy typo `montionDebug=1` too.
-      return qs.get("motionDebug") === "1" || qs.get("montionDebug") === "1";
-    } catch {
-      return false;
-    }
-  }, []);
-
   const motionDebugLastRef = useRef<
     | {
         isFalling: boolean;
@@ -710,23 +419,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     | undefined
   >(undefined);
 
-  const manualControlSpeeds = useMemo(() => {
-    const defaults = { walk: 180, run: 350 };
-    try {
-      if (typeof window === "undefined") return defaults;
-      const qs = new URLSearchParams(window.location.search);
-      const walkRaw = qs.get("cavalornSpeed");
-      const runRaw = qs.get("cavalornRunSpeed");
-      const walk = walkRaw != null ? Number(walkRaw) : defaults.walk;
-      const run = runRaw != null ? Number(runRaw) : defaults.run;
-      return {
-        walk: Number.isFinite(walk) && walk > 0 ? walk : defaults.walk,
-        run: Number.isFinite(run) && run > 0 ? run : defaults.run,
-      };
-    } catch {
-      return defaults;
-    }
-  }, []);
+  const manualControlSpeeds = NPC_RENDER_TUNING.manualControlSpeeds;
 
   const freepointOwnerOverlayRef = useRef<ReturnType<typeof createFreepointOwnerOverlay> | null>(null);
 
@@ -2082,7 +1775,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       const isMotionDebugRuntime =
         typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && cavalornGroupRef.current === npcGroup;
-      const shouldStoreKccDbg = (motionDebugFromQuery || isMotionDebugRuntime) && cavalornGroupRef.current === npcGroup;
+      const shouldStoreKccDbg = isMotionDebugRuntime && cavalornGroupRef.current === npcGroup;
 	      if (shouldStoreKccDbg) {
 	        const dbg =
 	          (ud._kccDbg as any) ??
@@ -2856,7 +2549,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       const runtimeMotionDebug = typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug);
-      const shouldLogMotion = (motionDebugFromQuery || runtimeMotionDebug) && cavalornGroupRef.current === npcGroup;
+      const shouldLogMotion = runtimeMotionDebug && cavalornGroupRef.current === npcGroup;
       trySnapNpcToGroundWithRapier(npcGroup);
 
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
