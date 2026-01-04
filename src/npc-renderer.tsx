@@ -150,23 +150,38 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getGroundRecoverRayStartAbove = () => {
-      const fallback = 60;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverAbove");
-        if (raw == null) return fallback;
-        const v = Number(raw);
-        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
-        return v;
-      } catch {
-        return fallback;
-      }
-    };
+	    const getGroundRecoverRayStartAbove = () => {
+	      const fallback = 60;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverAbove");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
+	        if (!Number.isFinite(v) || v < 0 || v > 5000) return fallback;
+	        return v;
+	      } catch {
+	        return fallback;
+	      }
+	    };
 
-    const getSlopeSpeedCompEnabled = () => {
-      const fallback = true;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedComp");
+	    const getGroundRecoverMaxDrop = () => {
+	      // When we do a ray-based recovery snap (after a brief loss of grounded), cap the Y correction per frame
+	      // to avoid visible "teleport" down steep ramps/steps.
+	      const fallback = 6;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcGroundRecoverMaxDrop");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
+	        if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
+	        return v;
+	      } catch {
+	        return fallback;
+	      }
+	    };
+
+	    const getSlopeSpeedCompEnabled = () => {
+	      const fallback = true;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcSlopeSpeedComp");
         if (raw == null) return fallback;
         if (raw === "0" || raw === "false") return false;
         if (raw === "1" || raw === "true") return true;
@@ -461,11 +476,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       // A tiny always-on downward component while grounded to let Rapier's snap-to-ground work
       // even when moving with `desired.y = 0` (required by the KCC docs).
       groundSnapDownEps: getGroundSnapDownEps(),
-      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
-      groundRecoverDistance: getGroundRecoverDistance(),
-      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
-      // Small clearance to avoid visual ground intersection.
-      groundClearance: 4,
+	      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
+	      groundRecoverDistance: getGroundRecoverDistance(),
+	      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
+	      groundRecoverMaxDrop: getGroundRecoverMaxDrop(),
+	      // Small clearance to avoid visual ground intersection.
+	      groundClearance: 4,
 
       // Counter-act KCC's horizontal slowdown when climbing slopes/steps.
       slopeSpeedCompEnabled: getSlopeSpeedCompEnabled(),
@@ -1343,20 +1359,44 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       ud._slideBlockedAlong = 0;
     }
 
-    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
-    let dy = vy * dtClamped;
-    let stickDown = 0;
-    if (wasStableGrounded) {
-      const snapDown = kccConfig.groundSnapDownEps;
-      if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
+	    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
+	    let dy = vy * dtClamped;
+	    let stickDown = 0;
+	    if (wasStableGrounded) {
+	      const snapDown = kccConfig.groundSnapDownEps;
+	      if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
 
-      // Only apply extra "stick" when idle. When moving uphill over steps/ramps, a forced downward component
-      // can noticeably slow down climbing or even prevent autostep from triggering.
-      if (!wasSliding && desiredDistXZ < 1e-3) {
-        stickDown = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
-        if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
-      }
-    }
+	      // Extra "stick" helps keep contact when going downhill on ramps/stairs.
+	      // Avoid applying it when moving uphill, because that can slow climbing or prevent autostep from triggering.
+	      if (!wasSliding) {
+	        const stickMax = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
+	        if (desiredDistXZ < 1e-3) {
+	          stickDown = stickMax;
+	        } else {
+	          const n =
+	            (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
+	            ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
+	          const ny = n?.y ?? 0;
+	          if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.2 && ny < 0.999) {
+	            const clampedNy = Math.max(-1, Math.min(1, ny));
+	            const slopeAngle = Math.acos(clampedNy);
+	            if (slopeAngle > THREE.MathUtils.degToRad(8)) {
+	              // Downhill direction is the gravity vector projected onto the ground plane.
+	              let sx = clampedNy * n.x;
+	              let sz = clampedNy * n.z;
+	              const sLen = Math.hypot(sx, sz);
+	              if (sLen > 1e-6) {
+	                sx /= sLen;
+	                sz /= sLen;
+	                const along = dx * sx + dz * sz; // >0 means moving downhill; <0 means uphill
+	                if (along > 1e-6) stickDown = stickMax;
+	              }
+	            }
+	          }
+	        }
+	        if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
+	      }
+	    }
 
     // While sliding, add an explicit downhill movement that scales with slope steepness.
     // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
@@ -1558,20 +1598,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         }
       }
 
-			      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
-			      // Instead, start a short pushback transition (fixed duration) and keep falling.
-			      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-			      const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
-			      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
-			      const isFallWallPushActive =
-			        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
-			      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && kccConfig.fallSlidePushSpeed > 0) {
-			        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
-			        if (pushN) {
-			          ud._kccFallWallPushDir = { x: pushN.x, z: pushN.z };
-			          const seedDt = Math.min(dtClamped, 1 / 60);
-			          const totalDist = kccConfig.fallSlidePushSpeed * seedDt;
-			          ud._kccFallWallPushTotalDist = totalDist;
+				      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
+				      // Instead, start a short pushback transition (fixed duration) and keep falling.
+				      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+				      const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
+				      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
+				      const isFallWallPushActive =
+				        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
+				      const fallAnimT = (ud._fallAnimT as number | undefined) ?? 0;
+				      const fallDownSeconds = kccConfig.fallDownSeconds ?? 0;
+				      const inFallDownPhase = fallDownSeconds > 1e-6 && fallAnimT < fallDownSeconds - 1e-6;
+				      const fallSlidePushSpeedBase = kccConfig.fallSlidePushSpeed;
+				      const fallSlidePushSpeedEffective = inFallDownPhase ? fallSlidePushSpeedBase * 0.4 : fallSlidePushSpeedBase;
+				      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && fallSlidePushSpeedEffective > 0) {
+				        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
+				        if (pushN) {
+				          ud._kccFallWallPushDir = { x: pushN.x, z: pushN.z };
+				          const seedDt = Math.min(dtClamped, 1 / 60);
+				          const totalDist = fallSlidePushSpeedEffective * seedDt;
+				          ud._kccFallWallPushTotalDist = totalDist;
 
 			          const u1 = Math.max(0, Math.min(1, dtClamped / FALL_WALL_PUSH_DURATION_S));
 			          const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep(0->u1)
@@ -1602,41 +1647,44 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 			            // ignore
 			          }
 			          fallSlidePush = { x: pushX, z: pushZ };
-			          fallWallPushDbg = {
-			            phase: "start",
-			            duration: FALL_WALL_PUSH_DURATION_S,
-			            u1,
-			            s1,
-			            seedDt,
-			            pushDistRaw,
-			            pushDist,
-			            pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-			            push: { x: pushX, z: pushZ },
-			            totalDist,
-			          };
-			          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
+				          fallWallPushDbg = {
+				            phase: "start",
+				            duration: FALL_WALL_PUSH_DURATION_S,
+				            u1,
+				            s1,
+				            seedDt,
+				            pushDistRaw,
+				            pushDist,
+				            pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+				            push: { x: pushX, z: pushZ },
+				            totalDist,
+				          };
+				          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
 
-			          // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
-			          try {
-			            const nowMs = Date.now();
-		            const lastAt = (ud as any)._fallSlidePushLogAtMs as number | undefined;
-		            if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
-		              (ud as any)._fallSlidePushLogAtMs = nowMs;
-		              const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
-		              console.log(
-		                "[NPCFallSlidePushJSON]" +
-		                  JSON.stringify({
-		                    t: nowMs,
-			                    npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
-			                    npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
-			                    push: { x: pushX, z: pushZ },
-			                    pushSpeed: kccConfig.fallSlidePushSpeed,
-			                    pushTotalDist: totalDist,
-			                    pushDistRaw,
-			                    pushDist,
-			                    pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-			                    duration: FALL_WALL_PUSH_DURATION_S,
-			                    seedDt,
+				          // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
+				          try {
+				            const nowMs = Date.now();
+			            const lastAt = (ud as any)._fallSlidePushLogAtMs as number | undefined;
+			            if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+			              (ud as any)._fallSlidePushLogAtMs = nowMs;
+			              const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+			              console.log(
+			                "[NPCFallSlidePushJSON]" +
+			                  JSON.stringify({
+			                    t: nowMs,
+				                    npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+				                    npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+				                    push: { x: pushX, z: pushZ },
+				                    pushSpeed: fallSlidePushSpeedBase,
+				                    pushSpeedEffective: fallSlidePushSpeedEffective,
+				                    fallAnimT,
+				                    fallPhase: inFallDownPhase ? "fallDown" : "fall",
+				                    pushTotalDist: totalDist,
+				                    pushDistRaw,
+				                    pushDist,
+				                    pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+				                    duration: FALL_WALL_PUSH_DURATION_S,
+				                    seedDt,
 			                    u1,
 			                    s1,
 			                    dt: dtClamped,
@@ -1669,6 +1717,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				      // triangle near the wall base and incorrectly switch into falling/sliding. Prefer a downward floor-probe
 				      // when collisions don't provide a walkable normal.
 				      let floorProbeNy: number | null = null;
+				      let floorProbeNormal: { x: number; y: number; z: number } | null = null;
 				      let floorProbeSrc: string | null = null;
 				      if (rawGroundedNow && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
 				        const needsProbe = bestGroundNy == null || (Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-6);
@@ -1680,24 +1729,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				            const feetY = npcGroup.position.y;
 				            const startAbove = kccConfig.groundRecoverRayStartAbove;
 				            const maxToi = startAbove + kccConfig.groundRecoverDistance;
-				            const tryProbeNy = (x: number, z: number): number | null => {
+				            const tryProbe = (x: number, z: number): { ny: number; n: { x: number; y: number; z: number } } | null => {
 				              const ray = new rapier.Ray({ x, y: feetY + startAbove, z }, { x: 0, y: -1, z: 0 });
 				              const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
 				              if (!hit) return null;
+				              const nx = hit.normal?.x ?? 0;
 				              const ny = hit.normal?.y ?? 0;
-				              if (!(typeof ny === "number" && Number.isFinite(ny) && ny >= minWalkNy)) return null;
+				              const nz = hit.normal?.z ?? 0;
+				              if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) return null;
+				              if (!(ny >= minWalkNy)) return null;
 				              const p = ray.pointAt(hit.timeOfImpact);
 				              const deltaDownToHit = feetY - p.y;
 				              if (deltaDownToHit < -1e-3 || deltaDownToHit > kccConfig.groundRecoverDistance + 1e-3) return null;
-				              return ny;
+				              return { ny, n: { x: nx, y: ny, z: nz } };
 				            };
 
 				            const baseX = npcGroup.position.x;
 				            const baseZ = npcGroup.position.z;
 
-				            const nyCenter = tryProbeNy(baseX, baseZ);
-				            if (nyCenter != null) {
-				              floorProbeNy = nyCenter;
+				            const hitCenter = tryProbe(baseX, baseZ);
+				            if (hitCenter != null) {
+				              floorProbeNy = hitCenter.ny;
+				              floorProbeNormal = hitCenter.n;
 				              floorProbeSrc = "center";
 				            } else {
 				              // If we are grounded but the center-ray misses walkable ground, we might be "wedged" against a wall
@@ -1714,14 +1767,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				                // Only do the extra probes when the movement direction aligns with a steep contact (likely a wall hit).
 				                if (align > 0.35) {
 				                  const off = Math.max(2, kccConfig.radius * 0.85);
-				                  const nyA = tryProbeNy(baseX + steepDir.x * off, baseZ + steepDir.z * off);
-				                  const nyB = tryProbeNy(baseX - steepDir.x * off, baseZ - steepDir.z * off);
-				                  if (nyA != null || nyB != null) {
-				                    if (nyA != null && (nyB == null || nyA >= nyB)) {
-				                      floorProbeNy = nyA;
+				                  const hitA = tryProbe(baseX + steepDir.x * off, baseZ + steepDir.z * off);
+				                  const hitB = tryProbe(baseX - steepDir.x * off, baseZ - steepDir.z * off);
+				                  if (hitA != null || hitB != null) {
+				                    if (hitA != null && (hitB == null || hitA.ny >= hitB.ny)) {
+				                      floorProbeNy = hitA.ny;
+				                      floorProbeNormal = hitA.n;
 				                      floorProbeSrc = "+steep";
-				                    } else if (nyB != null) {
-				                      floorProbeNy = nyB;
+				                    } else if (hitB != null) {
+				                      floorProbeNy = hitB.ny;
+				                      floorProbeNormal = hitB.n;
 				                      floorProbeSrc = "-steep";
 				                    }
 				                  }
@@ -1743,6 +1798,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 				      }
 				      (ud as any)._kccFloorProbeNy = floorProbeNy;
 				      (ud as any)._kccFloorProbeSrc = floorProbeSrc;
+				      (ud as any)._kccFloorProbeNormal = floorProbeNormal;
 
 			      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
 			      // Emits at most once per ~200ms per NPC, and only when a push is being applied.
@@ -1909,15 +1965,16 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // If we are not grounded, attempt a lightweight ray-based recovery snap to avoid edge flicker on ramps/stairs.
       // This uses Rapier queries only (no legacy world mesh code).
-      let recoveredToGround = false;
-      let groundRayToi: number | null = null;
-      let groundRayNormalY: number | null = null;
-      let groundRayColliderHandle: number | null = null;
-      if (
-        !rawGroundedNow &&
-        !tooSteepToStandNow &&
-        !fallHitSlideSurfaceNow &&
-        (wasStableGrounded || stableGrounded) &&
+	      let recoveredToGround = false;
+	      let groundRayToi: number | null = null;
+	      let groundRayNormalY: number | null = null;
+	      let groundRayColliderHandle: number | null = null;
+	      let groundRecoverDropApplied: number | null = null;
+	      if (
+	        !rawGroundedNow &&
+	        !tooSteepToStandNow &&
+	        !fallHitSlideSurfaceNow &&
+	        (wasStableGrounded || stableGrounded) &&
         vy <= 0 &&
         kccConfig.groundRecoverDistance > 0
       ) {
@@ -1945,18 +2002,22 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
               const deltaDownToHit = feetY - p.y;
               if (deltaDownToHit >= -1e-3 && deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3) {
                 // Consider ourselves grounded again (even if we don't adjust Y), to avoid 1-frame fall flicker at edges.
-                recoveredToGround = true;
+	                recoveredToGround = true;
 
-                const targetFeetY = Math.min(feetY, p.y + kccConfig.groundClearance);
-                const drop = feetY - targetFeetY;
-                if (drop > 1e-3) {
-                  collider.setTranslation({
-                    x: npcGroup.position.x,
-                    y: targetFeetY + capsuleHeight / 2,
-                    z: npcGroup.position.z,
-                  });
-                  npcGroup.position.y = targetFeetY;
-                }
+	                const targetFeetYRaw = Math.min(feetY, p.y + kccConfig.groundClearance);
+	                const dropWanted = feetY - targetFeetYRaw;
+	                const maxDrop = kccConfig.groundRecoverMaxDrop ?? 0;
+	                const drop = maxDrop > 0 ? Math.min(dropWanted, maxDrop) : 0;
+	                groundRecoverDropApplied = drop;
+	                if (drop > 1e-3) {
+	                  const targetFeetY = feetY - drop;
+	                  collider.setTranslation({
+	                    x: npcGroup.position.x,
+	                    y: targetFeetY + capsuleHeight / 2,
+	                    z: npcGroup.position.z,
+	                  });
+	                  npcGroup.position.y = targetFeetY;
+	                }
 
                 vy = 0;
                 ud._kccVy = 0;
@@ -2021,6 +2082,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	            groundNy: null as number | null,
 	            groundNyEffective: null as number | null,
 	            floorProbeNy: null as number | null,
+	            floorProbeSrc: null as string | null,
 	            collisions: 0,
 	            groundRay: null as any,
 	            recoveredToGround: false,
@@ -2044,11 +2106,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	        dbg.groundNy = bestGroundNy;
 	        dbg.groundNyEffective = (ud as any)._kccGroundNyEffective ?? null;
 	        dbg.floorProbeNy = (ud as any)._kccFloorProbeNy ?? null;
+	        dbg.floorProbeSrc = (ud as any)._kccFloorProbeSrc ?? null;
 	        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
 	        dbg.groundRay =
 	          groundRayToi != null
-	            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle }
-            : null;
+	            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle, recoverDrop: groundRecoverDropApplied }
+	            : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
         dbg.slide =
