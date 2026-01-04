@@ -1313,16 +1313,31 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 		    const SLIDE_TO_FALL_GRACE_S = kccConfig.slideToFallGraceSeconds;
 		    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
 			    const FALL_WALL_PUSH_DURATION_S = kccConfig.fallWallPushDurationSeconds;
-		    const fromX = npcGroup.position.x;
-		    const fromZ = npcGroup.position.z;
-		    let dx = desiredX - fromX;
-		    let dz = desiredZ - fromZ;
-		    let desiredDistXZ = Math.hypot(dx, dz);
+			    const fromX = npcGroup.position.x;
+			    const fromZ = npcGroup.position.z;
+			    let dx = desiredX - fromX;
+			    let dz = desiredZ - fromZ;
+			    let desiredDistXZ = Math.hypot(dx, dz);
 
-    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-    const wasSliding = Boolean(ud.isSliding);
-    const wasFalling = Boolean(ud.isFalling);
+	    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+	    const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+	    const wasSliding = Boolean(ud.isSliding);
+	    const wasFalling = Boolean(ud.isFalling);
+
+	    // While in the initial fallDown phase, ignore steering/movement input (ZenGin-like: no air-control during "crouch").
+	    // We still allow physics reactions like wall pushback and gravity.
+	    if (wasFalling) {
+	      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
+	      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
+	      const inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+	      if (inFallDownPhase && desiredDistXZ > 1e-6) {
+	        desiredX = fromX;
+	        desiredZ = fromZ;
+	        dx = 0;
+	        dz = 0;
+	        desiredDistXZ = 0;
+	      }
+	    }
     let vy = (ud._kccVy as number | undefined) ?? 0;
 
 	    let slideSpeedApplied: number | null = null;
