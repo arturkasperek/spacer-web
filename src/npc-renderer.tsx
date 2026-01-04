@@ -405,12 +405,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getVisualSmoothHalfLifeUp = () => {
-      const fallback = 0.08;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothUp");
-        if (raw == null) return fallback;
-        const v = Number(raw);
+	    const getVisualSmoothHalfLifeUp = () => {
+	      const fallback = 0.05;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothUp");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
         if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
         return v;
       } catch {
@@ -418,12 +418,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getVisualSmoothHalfLifeDown = () => {
-      const fallback = 0.03;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothDown");
-        if (raw == null) return fallback;
-        const v = Number(raw);
+	    const getVisualSmoothHalfLifeDown = () => {
+	      const fallback = 0.15;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothDown");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
         if (!Number.isFinite(v) || v < 0 || v > 2) return fallback;
         return v;
       } catch {
@@ -431,12 +431,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getVisualSmoothMaxDown = () => {
-      const fallback = 12;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxDown");
-        if (raw == null) return fallback;
-        const v = Number(raw);
+	    const getVisualSmoothMaxDown = () => {
+	      const fallback = 6;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxDown");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
         if (!Number.isFinite(v) || v < 0 || v > 200) return fallback;
         return v;
       } catch {
@@ -444,12 +444,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       }
     };
 
-    const getVisualSmoothMaxUp = () => {
-      const fallback = 2;
-      try {
-        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxUp");
-        if (raw == null) return fallback;
-        const v = Number(raw);
+	    const getVisualSmoothMaxUp = () => {
+	      const fallback = 10;
+	      try {
+	        const raw = new URLSearchParams(window.location.search).get("npcVisualSmoothMaxUp");
+	        if (raw == null) return fallback;
+	        const v = Number(raw);
         if (!Number.isFinite(v) || v < 0 || v > 50) return fallback;
         return v;
       } catch {
