@@ -146,6 +146,7 @@ export async function loadNpcCharacter(
 
     const visualRoot = getNpcVisualRoot(npcGroup);
     const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
+    const healthBarRoot = (npcGroup.userData as any)?.healthBar?.root as THREE.Object3D | undefined;
     const modelObj = instance.object;
     if (sprite && modelObj) {
       visualRoot.updateMatrixWorld(true);
@@ -154,7 +155,18 @@ export async function loadNpcCharacter(
       const center = box.getCenter(new THREE.Vector3());
       const topWorld = new THREE.Vector3(center.x, box.max.y, center.z);
       const topLocal = visualRoot.worldToLocal(topWorld);
-      sprite.position.y = topLocal.y + 25;
+      const LABEL_OFFSET_Y = 25;
+      const HPBAR_OFFSET_Y = LABEL_OFFSET_Y + 18;
+      sprite.position.y = topLocal.y + LABEL_OFFSET_Y;
+      if (healthBarRoot) healthBarRoot.position.y = topLocal.y + HPBAR_OFFSET_Y;
+    } else if (healthBarRoot && modelObj) {
+      visualRoot.updateMatrixWorld(true);
+      modelObj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(modelObj);
+      const center = box.getCenter(new THREE.Vector3());
+      const topWorld = new THREE.Vector3(center.x, box.max.y, center.z);
+      const topLocal = visualRoot.worldToLocal(topWorld);
+      healthBarRoot.position.y = topLocal.y + 43;
     }
 
     npcGroup.userData.modelLoaded = true;
@@ -169,4 +181,3 @@ export async function loadNpcCharacter(
     }
   }
 }
-

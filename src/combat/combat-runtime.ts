@@ -55,6 +55,14 @@ function readStatsFromNpcData(npc: NpcData): CombatStats {
   };
 }
 
+function readStatsWithHpQuality(npc: NpcData): { stats: CombatStats; unknownHp: boolean } {
+  const info: any = npc.npcInfo ?? {};
+  const rawHpMax = toNum(info.hpmax ?? info.hpMax);
+  const rawHp = toNum(info.hp ?? info.hpCur);
+  const unknownHp = rawHpMax <= 0 && rawHp <= 0;
+  return { stats: readStatsFromNpcData(npc), unknownHp };
+}
+
 function defaultMeleeProfile(weaponState: WeaponState): MeleeAttackProfile {
   // First-cut timings (will be replaced with animation-driven windows).
   return {
@@ -125,10 +133,36 @@ export function createCombatRuntime(): CombatRuntime {
       const npc = g.userData.npcData as NpcData | undefined;
       if (!npc) continue;
       const st = ensureNpc(npc);
-      const stats = readStatsFromNpcData(npc);
-      st.hpMax = stats.hpMax;
-      st.hp = Math.min(st.hpMax, Math.max(0, stats.hp));
+      const { stats, unknownHp } = readStatsWithHpQuality(npc);
+
+      // Once combat runtime owns HP, keep it stable and write back to npcInfo.
+      // But allow late-arriving VM values to replace our initial "unknown 0/0" default.
+      const hadUnknownHp = Boolean((st as any)._hpUnknown);
+      if (!hadUnknownHp) (st as any)._hpUnknown = unknownHp;
+      const hpUnknown = Boolean((st as any)._hpUnknown);
+
+      if (hpUnknown && !unknownHp) {
+        st.hpMax = stats.hpMax;
+        st.hp = Math.min(st.hpMax, Math.max(0, stats.hp));
+        (st as any)._hpUnknown = false;
+      } else {
+        // If we know max HP from scripts, keep it in sync (without overriding current HP).
+        if (!unknownHp && stats.hpMax > 0 && stats.hpMax !== st.hpMax) {
+          st.hpMax = stats.hpMax;
+          if (st.hp > st.hpMax) st.hp = st.hpMax;
+        }
+        if (st.hp > st.hpMax) st.hp = st.hpMax;
+        if (st.hp < 0) st.hp = 0;
+      }
+
       st.dead = st.hp <= 0;
+
+      // Persist HP to npcInfo so UI/debugging and subsequent ticks have a single source of truth.
+      {
+        const info: any = npc.npcInfo ?? (npc.npcInfo = {});
+        info.hp = st.hp;
+        info.hpmax = st.hpMax;
+      }
 
       const q = g.quaternion;
       // Forward in our yaw convention is +Z rotated by quaternion.

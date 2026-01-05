@@ -482,6 +482,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         sprite.lookAt(cameraPos);
       }
 
+      const healthBar = (npcGroup.userData as any)?.healthBar as
+        | { root?: THREE.Object3D; fill?: THREE.Object3D; width?: number; setText?: (text: string) => void }
+        | undefined;
+      if (healthBar?.root) {
+        healthBar.root.lookAt(cameraPos);
+      }
+
       const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
       if (instance) {
         instance.update(delta);
@@ -489,6 +496,25 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
+
+      if (healthBar?.root && healthBar?.fill && typeof healthBar.width === "number" && Number.isFinite(healthBar.width)) {
+        const info = (npcData.npcInfo || {}) as any;
+        const rawHp = Number(info.hp);
+        const rawHpMax = Number(info.hpmax ?? info.hpMax);
+        const hp = Number.isFinite(rawHp) ? Math.max(0, Math.floor(rawHp)) : 0;
+        const hpMax = Number.isFinite(rawHpMax) ? Math.max(0, Math.floor(rawHpMax)) : 0;
+        const ratio =
+          hpMax > 0 ? Math.max(0, Math.min(1, hp / hpMax))
+            : 1;
+
+        const fill = healthBar.fill as any;
+        if (fill?.scale) fill.scale.x = ratio;
+        if (fill?.position) fill.position.x = -healthBar.width / 2 + (healthBar.width * ratio) / 2;
+        if (healthBar.setText) {
+          healthBar.setText(hpMax > 0 ? `${hp}/${hpMax}` : `${hp}/?`);
+        }
+      }
+
       const npcId = `npc-${npcData.instanceIndex}`;
       {
         const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
