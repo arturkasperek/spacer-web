@@ -68,17 +68,17 @@ export const NPC_RENDER_TUNING = {
   controllerOffset: 1,
   controllerSnapDistance: 20,
 
-  // Manual control (Cavalorn)
+  // Manual control (player hero)
   manualControlSpeeds: { walk: 180, run: 350 },
 } as const;
 
 export type UseNpcPhysicsArgs = {
   loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
   physicsFrameRef: MutableRefObject<number>;
-  cavalornGroupRef: MutableRefObject<THREE.Group | null>;
+  playerGroupRef: MutableRefObject<THREE.Group | null>;
 };
 
-export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, cavalornGroupRef }: UseNpcPhysicsArgs) {
+export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }: UseNpcPhysicsArgs) {
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
@@ -1326,8 +1326,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, cavalornGroupRef
       updateNpcVisualSmoothing(npcGroup, dtClamped);
 
       const isMotionDebugRuntime =
-        typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && cavalornGroupRef.current === npcGroup;
-      const shouldStoreKccDbg = isMotionDebugRuntime && cavalornGroupRef.current === npcGroup;
+        typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && playerGroupRef.current === npcGroup;
+      const shouldStoreKccDbg = isMotionDebugRuntime && playerGroupRef.current === npcGroup;
   	      if (shouldStoreKccDbg) {
   	        const dbg =
   	          (ud._kccDbg as any) ??

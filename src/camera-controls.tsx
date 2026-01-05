@@ -1,6 +1,7 @@
 import { useThree, useFrame } from "@react-three/fiber";
 import { useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import * as THREE from "three";
+import { getPlayerPose } from "./player-runtime";
 
 export interface CameraControlsRef {
   updateMouseState: (pitch: number, yaw: number) => void;
@@ -33,6 +34,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const isQuickClickRef = useRef(false);
   const pointerLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const followCameraPosRef = useRef(new THREE.Vector3());
+  const didSnapToHeroRef = useRef(false);
+  const tmpPlayerPosRef = useRef(new THREE.Vector3());
+  const tmpPlayerQuatRef = useRef(new THREE.Quaternion());
+  const tmpForwardRef = useRef(new THREE.Vector3());
+  const tmpDesiredPosRef = useRef(new THREE.Vector3());
+  const tmpLookAtRef = useRef(new THREE.Vector3());
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -86,14 +94,16 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      const qs = new URLSearchParams(window.location.search);
+      const freeCamera = qs.has("freeCamera");
       // In manual NPC control mode, Space is used for melee attack.
-      if (event.code === "Space" && new URLSearchParams(window.location.search).has("controlCavalorn")) {
+      if (event.code === "Space" && !freeCamera) {
         return;
       }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if (
         (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
-        new URLSearchParams(window.location.search).has("controlCavalorn")
+        !freeCamera
       ) {
         return;
       }
@@ -112,14 +122,16 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      const qs = new URLSearchParams(window.location.search);
+      const freeCamera = qs.has("freeCamera");
       // In manual NPC control mode, Space is used for melee attack.
-      if (event.code === "Space" && new URLSearchParams(window.location.search).has("controlCavalorn")) {
+      if (event.code === "Space" && !freeCamera) {
         return;
       }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if (
         (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
-        new URLSearchParams(window.location.search).has("controlCavalorn")
+        !freeCamera
       ) {
         return;
       }
@@ -270,6 +282,59 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   };
 
   useFrame((_state, delta) => {
+    const qs = (() => {
+      try {
+        return typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const freeCamera = Boolean(qs?.has("freeCamera"));
+    const followHero = !freeCamera && !Boolean(qs?.has("noFollowHero"));
+    if (!followHero) didSnapToHeroRef.current = false;
+
+    if (followHero) {
+      const pose = getPlayerPose();
+      if (pose) {
+        const followDistance = 220;
+        const followHeight = 140;
+        const lookAtHeight = 110;
+
+        const playerPos = tmpPlayerPosRef.current.set(pose.position.x, pose.position.y, pose.position.z);
+        const playerQuat = tmpPlayerQuatRef.current.set(
+          pose.quaternion.x,
+          pose.quaternion.y,
+          pose.quaternion.z,
+          pose.quaternion.w
+        );
+
+        const forward = tmpForwardRef.current.set(0, 0, 1).applyQuaternion(playerQuat);
+        forward.y = 0;
+        if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+        else forward.normalize();
+
+        const desiredPos = tmpDesiredPosRef.current.copy(playerPos).addScaledVector(forward, -followDistance);
+        desiredPos.y = playerPos.y + followHeight;
+
+        const lookAt = tmpLookAtRef.current.copy(playerPos);
+        lookAt.y = playerPos.y + lookAtHeight;
+
+        const camPos = camera.position;
+
+        if (!didSnapToHeroRef.current) {
+          didSnapToHeroRef.current = true;
+          followCameraPosRef.current.copy(desiredPos);
+        } else {
+          const t = 1 - Math.exp(-10 * Math.max(0, delta));
+          followCameraPosRef.current.lerp(desiredPos, t);
+        }
+        camPos.copy(followCameraPosRef.current);
+        camera.lookAt(lookAt);
+        return;
+      }
+    }
+
     updateMovement(delta);
   });
 

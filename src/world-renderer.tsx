@@ -218,7 +218,29 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         // This also ensures `onWorldLoaded` can set any global world references used by VM externals.
         onLoadingStatus('Loading VM script...');
         try {
-          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn);
+          const resolveHeroSpawnpoint = (): string => {
+            try {
+              // Prefer zCVobStartpoint (player start) if ZenKit exposes it.
+              // Fallback to NW_XARDAS_START (used by scripts) and finally START.
+              const startpoints = (world as any)?.getStartpoints?.();
+              if (startpoints && typeof startpoints.size === "function" && typeof startpoints.get === "function") {
+                const n = Number(startpoints.size());
+                if (Number.isFinite(n) && n > 0) {
+                  const sp0 = startpoints.get(0);
+                  const name = (sp0?.vobName || sp0?.name || sp0?.objectName || "").trim();
+                  if (name) return name;
+                }
+              }
+
+              const preferWaypoint = "NW_XARDAS_START";
+              const r = (world as any)?.findWaypointByName?.(preferWaypoint);
+              if (r?.success) return preferWaypoint;
+            } catch {
+              // ignore
+            }
+            return "START";
+          };
+          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn, resolveHeroSpawnpoint());
           console.log('VM loaded successfully');
           onLoadingStatus('VM loaded');
         } catch (vmError) {

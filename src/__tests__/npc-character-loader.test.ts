@@ -89,7 +89,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: null },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -111,7 +110,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: null },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -132,7 +130,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: null },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -156,7 +153,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: modelScriptRegistry as any },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -176,7 +172,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: { startLoadScript: jest.fn() } as any },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -201,7 +196,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: null },
       waypointMoverRef: { current: waypointMover as any },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 
@@ -231,7 +225,6 @@ describe("npc-character-loader", () => {
       characterCachesRef: { current: {} as any },
       modelScriptRegistryRef: { current: null },
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
       getNpcVisualRoot: (g) => g,
     });
 

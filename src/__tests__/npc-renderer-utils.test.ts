@@ -12,13 +12,10 @@ describe("npc-renderer-utils", () => {
     expect(mod.normalizeNameKey("   ")).toBe("");
   });
 
-  it("isCavalornNpcData matches by symbolName or display name", () => {
-    expect(mod.isCavalornNpcData(undefined)).toBe(false);
-    expect(mod.isCavalornNpcData({ symbolName: "BAU_4300_ADDON_CAVALORN" } as any)).toBe(true);
-    expect(mod.isCavalornNpcData({ symbolName: " bau_4300_addon_cavalorn " } as any)).toBe(true);
-    expect(mod.isCavalornNpcData({ name: "CAVALORN" } as any)).toBe(true);
-    expect(mod.isCavalornNpcData({ name: " cavalorn " } as any)).toBe(true);
-    expect(mod.isCavalornNpcData({ symbolName: "NOT_CAVALORN", name: "NOT_CAVALORN" } as any)).toBe(false);
+  it("isHeroNpcData matches by symbolName", () => {
+    expect(mod.isHeroNpcData(undefined)).toBe(false);
+    expect(mod.isHeroNpcData({ symbolName: "PC_HERO" } as any)).toBe(true);
+    expect(mod.isHeroNpcData({ symbolName: " pc_hero " } as any)).toBe(true);
+    expect(mod.isHeroNpcData({ symbolName: "NOT_HERO", name: "PC_HERO" } as any)).toBe(false);
   });
 });
-

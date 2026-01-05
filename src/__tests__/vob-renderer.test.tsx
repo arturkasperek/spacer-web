@@ -229,6 +229,10 @@ const createMockWorld = (): World => ({
       }
     }))
   })),
+  getStartpoints: jest.fn(() => ({
+    size: jest.fn(() => 0),
+    get: jest.fn(() => null as any),
+  })),
   loadFromArray: jest.fn(() => true),
   isLoaded: true,
   getLastError: jest.fn(() => null),
@@ -290,6 +294,7 @@ const createMockZenKit = (): ZenKit => ({
 const addWorldProperties = (partial: Partial<World>): World => ({
   ...partial,
   loadFromArray: jest.fn(() => true),
+  getStartpoints: (partial as any).getStartpoints || jest.fn(() => ({ size: () => 0, get: () => null as any })),
   getWaypointCount: jest.fn(() => 0),
   getWaypoint: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),
   findWaypointByName: jest.fn(() => ({ success: false, data: { name: '', position: { x: 0, y: 0, z: 0 }, direction: { x: 0, y: 0, z: 0 }, water_depth: 0, under_water: false, free_point: false }, errorMessage: 'Not implemented' })),

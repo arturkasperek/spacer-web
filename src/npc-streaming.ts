@@ -3,7 +3,7 @@ import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
 import { disposeObject3D, shouldUpdateStreaming, type StreamingState } from "./distance-streaming";
 import type { NpcData } from "./types";
-import { isCavalornNpcData } from "./npc-renderer-utils";
+import { isHeroNpcData } from "./npc-renderer-utils";
 import { aabbIntersects, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
 import { createNpcMesh } from "./npc-utils";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
@@ -32,8 +32,8 @@ export function updateNpcStreaming({
   loadNpcCharacter,
   removeNpcKccCollider,
   waypointMoverRef,
-  cavalornGroupRef,
-  manualControlCavalornEnabled,
+  playerGroupRef,
+  manualControlHeroEnabled,
   NPC_LOAD_DISTANCE,
   NPC_UNLOAD_DISTANCE,
   NPC_ACTIVE_BBOX_HALF_Y,
@@ -55,8 +55,8 @@ export function updateNpcStreaming({
   loadNpcCharacter: (npcGroup: THREE.Group, npcData: NpcData) => Promise<void> | void;
   removeNpcKccCollider: (npcGroup: THREE.Object3D) => void;
   waypointMoverRef: MutableRefObject<WaypointMover | null>;
-  cavalornGroupRef: MutableRefObject<THREE.Group | null>;
-  manualControlCavalornEnabled: boolean;
+  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  manualControlHeroEnabled: boolean;
   NPC_LOAD_DISTANCE: number;
   NPC_UNLOAD_DISTANCE: number;
   NPC_ACTIVE_BBOX_HALF_Y: number;
@@ -114,21 +114,21 @@ export function updateNpcStreaming({
     if (!entry) continue;
     if (aabbIntersects(entry.waybox, unloadBox)) continue;
     // Never unload the manually-controlled player character; otherwise, moving the camera away from
-    // the routine waybox would despawn Cavalorn and make long-range teleports impossible.
-    if (manualControlCavalornEnabled) {
+    // the routine waybox would despawn the hero and make long-range teleports impossible.
+    if (manualControlHeroEnabled) {
       const g = loadedNpcsRef.current.get(id);
       const npcData = g?.userData?.npcData as NpcData | undefined;
-      if ((g?.userData as any)?.isCavalorn === true || isCavalornNpcData(npcData) || isCavalornNpcData(entry.npcData)) {
+      if ((g?.userData as any)?.isPlayer === true || isHeroNpcData(npcData) || isHeroNpcData(entry.npcData)) {
         continue;
       }
     }
     toUnload.push(id);
   }
 
-  // Ensure Cavalorn is always loadable when manual control is enabled, even if the camera is far from his routine waybox.
-  if (manualControlCavalornEnabled && cavalornGroupRef.current == null) {
+  // Ensure the hero is always loadable when manual control is enabled, even if the camera is far from his routine waybox.
+  if (manualControlHeroEnabled && playerGroupRef.current == null) {
     for (const [id, entry] of allNpcsByIdRef.current.entries()) {
-      if (!isCavalornNpcData(entry.npcData)) continue;
+      if (!isHeroNpcData(entry.npcData)) continue;
       if (!loadedNpcsRef.current.has(id) && !toLoad.includes(id)) toLoad.push(id);
       break;
     }
@@ -138,37 +138,40 @@ export function updateNpcStreaming({
   for (const npcId of toLoad) {
     const npc = allNpcsByIdRef.current.get(npcId);
     if (!npc) continue;
+    const isHero = isHeroNpcData(npc.npcData);
 
     // Create NPC mesh imperatively
     // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
     // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
-    const spreadRadius = kccConfig.radius * 0.6;
-    const existing: Array<{ x: number; z: number; y?: number }> = [];
-    for (const other of loadedNpcsRef.current.values()) {
-      if (!other || other.userData.isDisposed) continue;
-      existing.push({ x: other.position.x, z: other.position.z, y: other.position.y });
-    }
-    const spread = spreadSpawnXZ({
-      baseX: npc.position.x,
-      baseZ: npc.position.z,
-      baseY: npc.position.y,
-      existing,
-      minSeparation: spreadRadius * 2 + 0.05,
-      maxTries: 24,
-      maxYDelta: 200,
-    });
-    if (spread.applied) {
-      npc.position.x = spread.x;
-      npc.position.z = spread.z;
+    if (!isHero) {
+      const spreadRadius = kccConfig.radius * 0.6;
+      const existing: Array<{ x: number; z: number; y?: number }> = [];
+      for (const other of loadedNpcsRef.current.values()) {
+        if (!other || other.userData.isDisposed) continue;
+        existing.push({ x: other.position.x, z: other.position.z, y: other.position.y });
+      }
+      const spread = spreadSpawnXZ({
+        baseX: npc.position.x,
+        baseZ: npc.position.z,
+        baseY: npc.position.y,
+        existing,
+        minSeparation: spreadRadius * 2 + 0.05,
+        maxTries: 24,
+        maxYDelta: 200,
+      });
+      if (spread.applied) {
+        npc.position.x = spread.x;
+        npc.position.z = spread.z;
+      }
     }
 
     const npcGroup = createNpcMesh(npc.npcData, npc.position);
     loadedNpcsRef.current.set(npcId, npcGroup);
     npcGroup.userData.moveConstraint = applyMoveConstraint;
     {
-      if (isCavalornNpcData(npc.npcData)) {
-        npcGroup.userData.isCavalorn = true;
-        cavalornGroupRef.current = npcGroup;
+      if (isHeroNpcData(npc.npcData)) {
+        npcGroup.userData.isPlayer = true;
+        playerGroupRef.current = npcGroup;
       }
     }
 
@@ -206,8 +209,7 @@ export function updateNpcStreaming({
       npcsGroupRef.current.remove(npcGroup);
       disposeObject3D(npcGroup);
       loadedNpcsRef.current.delete(npcId);
-      if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
+      if (playerGroupRef.current === npcGroup) playerGroupRef.current = null;
     }
   }
 }
-

@@ -109,8 +109,8 @@ describe("npc-streaming", () => {
       loadNpcCharacter,
       removeNpcKccCollider: jest.fn(),
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
-      manualControlCavalornEnabled: false,
+      playerGroupRef: { current: null },
+      manualControlHeroEnabled: false,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,
@@ -151,8 +151,8 @@ describe("npc-streaming", () => {
       loadNpcCharacter,
       removeNpcKccCollider: jest.fn(),
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: null },
-      manualControlCavalornEnabled: false,
+      playerGroupRef: { current: null },
+      manualControlHeroEnabled: false,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,
@@ -162,15 +162,15 @@ describe("npc-streaming", () => {
     expect(loadedOrder).toEqual([2, 1]);
   });
 
-  it("does not unload Cavalorn when manual control is enabled", () => {
-    const cavalornData = makeNpcData(99, "BAU_4300_ADDON_CAVALORN", { name: "CAVALORN" });
+  it("does not unload hero when manual control is enabled", () => {
+    const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
     const npcId = "npc-99";
     const group = new THREE.Group();
-    group.userData.npcData = cavalornData;
-    group.userData.isCavalorn = true;
+    group.userData.npcData = heroData;
+    group.userData.isPlayer = true;
 
     const loadedNpcsRef = { current: new Map([[npcId, group]]) };
-    const allNpcsByIdRef = { current: new Map([[npcId, { npcData: cavalornData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) }]]) };
+    const allNpcsByIdRef = { current: new Map([[npcId, { npcData: heroData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) }]]) };
 
     const removeNpcKccCollider = jest.fn();
 
@@ -192,8 +192,8 @@ describe("npc-streaming", () => {
       loadNpcCharacter: jest.fn(),
       removeNpcKccCollider,
       waypointMoverRef: { current: null },
-      cavalornGroupRef: { current: group },
-      manualControlCavalornEnabled: true,
+      playerGroupRef: { current: group },
+      manualControlHeroEnabled: true,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,
@@ -203,13 +203,13 @@ describe("npc-streaming", () => {
     expect(removeNpcKccCollider).not.toHaveBeenCalled();
   });
 
-  it("forces Cavalorn into the load set when manual control is enabled and he is not loaded", () => {
-    const cavalornData = makeNpcData(99, "BAU_4300_ADDON_CAVALORN", { name: "CAVALORN" });
+  it("forces hero into the load set when manual control is enabled and he is not loaded", () => {
+    const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
     const npcId = "npc-99";
-    const entry = { npcData: cavalornData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) };
+    const entry = { npcData: heroData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) };
 
     const loadedNpcsRef = { current: new Map<string, any>() };
-    const cavalornGroupRef = { current: null as any };
+    const playerGroupRef = { current: null as any };
 
     mod.updateNpcStreaming({
       enabled: true,
@@ -229,15 +229,53 @@ describe("npc-streaming", () => {
       loadNpcCharacter: jest.fn(),
       removeNpcKccCollider: jest.fn(),
       waypointMoverRef: { current: null },
-      cavalornGroupRef,
-      manualControlCavalornEnabled: true,
+      playerGroupRef,
+      manualControlHeroEnabled: true,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,
     });
 
     expect(loadedNpcsRef.current.has(npcId)).toBe(true);
-    expect(cavalornGroupRef.current).toBeTruthy();
-    expect((cavalornGroupRef.current as any).userData.isCavalorn).toBe(true);
+    expect(playerGroupRef.current).toBeTruthy();
+    expect((playerGroupRef.current as any).userData.isPlayer).toBe(true);
+  });
+
+  it("does not apply spawn spreading to the hero", () => {
+    const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
+    const npcId = "npc-99";
+    const heroPos = new THREE.Vector3(10, 0, 20);
+    const entry = { npcData: heroData, position: heroPos, waybox: aabbAround(10, 0, 20, 1) };
+
+    const loadedNpcsRef = { current: new Map<string, any>() };
+
+    mod.updateNpcStreaming({
+      enabled: true,
+      world: {} as any,
+      cameraPosition: new THREE.Vector3(0, 0, 0),
+      camera: undefined,
+      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
+      npcItemsRef: { current: [{ id: npcId, waybox: entry.waybox }] },
+      loadedNpcsRef,
+      allNpcsRef: { current: [entry] },
+      allNpcsByIdRef: { current: new Map([[npcId, entry]]) },
+      npcsGroupRef: { current: null as any },
+      scene: new THREE.Scene(),
+      kccConfig: { radius: 30 },
+      applyMoveConstraint: jest.fn(() => ({ blocked: false, moved: true })),
+      trySnapNpcToGroundWithRapier: jest.fn(() => true),
+      loadNpcCharacter: jest.fn(),
+      removeNpcKccCollider: jest.fn(),
+      waypointMoverRef: { current: null },
+      playerGroupRef: { current: null },
+      manualControlHeroEnabled: false,
+      NPC_LOAD_DISTANCE: 50,
+      NPC_UNLOAD_DISTANCE: 100,
+      NPC_ACTIVE_BBOX_HALF_Y: 100,
+    });
+
+    expect(mockSpreadSpawnXZ).not.toHaveBeenCalled();
+    expect(heroPos.x).toBe(10);
+    expect(heroPos.z).toBe(20);
   });
 });

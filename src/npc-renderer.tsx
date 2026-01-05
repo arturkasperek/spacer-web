@@ -26,6 +26,7 @@ import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader
 import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
+import { setPlayerPoseFromObject3D } from "./player-runtime";
 
 interface NpcRendererProps {
   world: World | null;
@@ -77,12 +78,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const didPreloadAnimationsRef = useRef(false);
   const waypointMoverRef = useRef<WaypointMover | null>(null);
   const physicsFrameRef = useRef(0);
-  const cavalornGroupRef = useRef<THREE.Group | null>(null);
+  const playerGroupRef = useRef<THREE.Group | null>(null);
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const { kccConfig, getNpcVisualRoot, applyMoveConstraint, trySnapNpcToGroundWithRapier, removeNpcKccCollider } =
-    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, cavalornGroupRef });
+    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef });
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());
@@ -95,11 +96,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  const manualControlCavalornEnabled = useMemo(() => {
+  const manualControlHeroEnabled = useMemo(() => {
     try {
-      return typeof window !== "undefined" && new URLSearchParams(window.location.search).has("controlCavalorn");
+      if (typeof window === "undefined") return true;
+      const qs = new URLSearchParams(window.location.search);
+      if (qs.has("freeCamera") || qs.has("noControlHero")) return false;
+      return true;
     } catch {
-      return false;
+      return true;
     }
   }, []);
 
@@ -125,14 +129,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     right: false,
   });
   const manualRunToggleRef = useRef(false);
-  const teleportCavalornSeqRef = useRef(0);
-  const teleportCavalornSeqAppliedRef = useRef(0);
+  const teleportHeroSeqRef = useRef(0);
+  const teleportHeroSeqAppliedRef = useRef(0);
   const manualAttackSeqRef = useRef(0);
   const manualAttackSeqAppliedRef = useRef(0);
   const combatRuntimeRef = useRef(createCombatRuntime());
 
   useEffect(() => {
-    if (!manualControlCavalornEnabled) return;
+    if (!manualControlHeroEnabled) return;
 
     const setKey = (e: KeyboardEvent, pressed: boolean) => {
       let handled = true;
@@ -158,7 +162,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           if (pressed && !e.repeat) manualAttackSeqRef.current += 1;
           break;
         case "KeyT":
-          if (pressed && !e.repeat) teleportCavalornSeqRef.current += 1;
+          if (pressed && !e.repeat) teleportHeroSeqRef.current += 1;
           break;
         default:
           handled = false;
@@ -176,7 +180,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       window.removeEventListener("keydown", onKeyDown as any);
       window.removeEventListener("keyup", onKeyUp as any);
     };
-  }, [manualControlCavalornEnabled]);
+  }, [manualControlHeroEnabled]);
 
   // Create a stable serialized key from the Map for dependency tracking
   const npcsKey = getMapKey(npcs);
@@ -305,7 +309,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       if (npcsGroupRef.current) npcsGroupRef.current.remove(npcGroup);
       disposeObject3D(npcGroup);
       loadedNpcsRef.current.delete(npcId);
-      if (cavalornGroupRef.current === npcGroup) cavalornGroupRef.current = null;
+      if (playerGroupRef.current === npcGroup) playerGroupRef.current = null;
     }
   }, [npcsWithPositions]);
 
@@ -377,7 +381,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       characterCachesRef,
       modelScriptRegistryRef,
       waypointMoverRef,
-      cavalornGroupRef,
       getNpcVisualRoot,
     });
   };
@@ -402,8 +405,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       loadNpcCharacter,
       removeNpcKccCollider,
       waypointMoverRef,
-      cavalornGroupRef,
-      manualControlCavalornEnabled,
+      playerGroupRef,
+      manualControlHeroEnabled,
       NPC_LOAD_DISTANCE,
       NPC_UNLOAD_DISTANCE,
       NPC_ACTIVE_BBOX_HALF_Y,
@@ -434,11 +437,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     // This is what triggers scripts like `zs_bandit_loop()` that call `AI_GotoFP(...)`.
     tickNpcDaedalusStateLoop({ loadedNpcsRef, waypointMoverRef });
 
-    // Debug helper: teleport Cavalorn in front of the camera (manual control only).
-    if (manualControlCavalornEnabled && teleportCavalornSeqAppliedRef.current !== teleportCavalornSeqRef.current) {
-      const cavalorn = cavalornGroupRef.current;
+    // Keep a lightweight hero pose snapshot for camera follow (no Three.js refs).
+    setPlayerPoseFromObject3D(playerGroupRef.current);
+
+    // Debug helper: teleport the hero in front of the camera (manual control only).
+    if (manualControlHeroEnabled && teleportHeroSeqAppliedRef.current !== teleportHeroSeqRef.current) {
+      const player = playerGroupRef.current;
       const cam = camera;
-      if (cavalorn && cam) {
+      if (player && cam) {
         cam.getWorldDirection(tmpTeleportForward);
         tmpTeleportForward.y = 0;
         if (tmpTeleportForward.lengthSq() < 1e-8) tmpTeleportForward.set(0, 0, -1);
@@ -448,27 +454,27 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const targetX = cam.position.x + tmpTeleportForward.x * TELEPORT_DISTANCE;
         const targetY = cam.position.y + 50;
         const targetZ = cam.position.z + tmpTeleportForward.z * TELEPORT_DISTANCE;
-        cavalorn.position.x = targetX;
-        cavalorn.position.y = targetY;
-        cavalorn.position.z = targetZ;
+        player.position.x = targetX;
+        player.position.y = targetY;
+        player.position.z = targetZ;
 
         // Face the same direction as the camera.
         const yaw = Math.atan2(tmpTeleportForward.x, tmpTeleportForward.z);
         tmpTeleportDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
-        cavalorn.quaternion.copy(tmpTeleportDesiredQuat);
+        player.quaternion.copy(tmpTeleportDesiredQuat);
 
-        cavalorn.userData._kccSnapped = false;
-        cavalorn.userData._kccVy = 0;
-        cavalorn.userData._kccGrounded = false;
-        cavalorn.userData._kccStableGrounded = false;
-        cavalorn.userData._kccGroundedFor = 0;
-        cavalorn.userData._kccUngroundedFor = 0;
-        cavalorn.userData._kccSlideSpeed = 0;
-        cavalorn.userData.isFalling = true;
-        cavalorn.userData.isSliding = false;
+        player.userData._kccSnapped = false;
+        player.userData._kccVy = 0;
+        player.userData._kccGrounded = false;
+        player.userData._kccStableGrounded = false;
+        player.userData._kccGroundedFor = 0;
+        player.userData._kccUngroundedFor = 0;
+        player.userData._kccSlideSpeed = 0;
+        player.userData.isFalling = true;
+        player.userData.isSliding = false;
 
-        persistNpcPosition(cavalorn);
-        teleportCavalornSeqAppliedRef.current = teleportCavalornSeqRef.current;
+        persistNpcPosition(player);
+        teleportHeroSeqAppliedRef.current = teleportHeroSeqRef.current;
       }
     }
 
@@ -531,11 +537,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       const runtimeMotionDebug = typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug);
-      const shouldLogMotion = runtimeMotionDebug && cavalornGroupRef.current === npcGroup;
+      const shouldLogMotion = runtimeMotionDebug && playerGroupRef.current === npcGroup;
       trySnapNpcToGroundWithRapier(npcGroup);
 
-      const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
-      if (isManualCavalorn) {
+      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
+      if (isManualHero) {
         if (manualAttackSeqAppliedRef.current !== manualAttackSeqRef.current) {
           manualAttackSeqAppliedRef.current = manualAttackSeqRef.current;
           combatRuntimeRef.current.ensureNpc(npcData);
@@ -614,7 +620,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       // Apply animation root motion during script-driven one-shot animations (AI_PlayAni / Npc_PlayAni).
       // This makes e.g. dance/attack "step" animations move the NPC like in the original engine.
-      if (!isManualCavalorn && instance && Boolean((npcGroup.userData as any)._emSuppressLocomotion)) {
+      if (!isManualHero && instance && Boolean((npcGroup.userData as any)._emSuppressLocomotion)) {
         const d = (instance.object as any)?.userData?.__rootMotionDelta as { x: number; y: number; z: number } | undefined;
         if (d && (Math.abs(d.x) > 1e-6 || Math.abs(d.z) > 1e-6)) {
           tmpEmRootMotionWorld.set(d.x, 0, d.z).applyQuaternion(npcGroup.quaternion);
@@ -764,6 +770,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      setPlayerPoseFromObject3D(null);
       if (npcsGroupRef.current) {
         scene.remove(npcsGroupRef.current);
         // Dispose all NPCs

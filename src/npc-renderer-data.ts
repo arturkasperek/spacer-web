@@ -92,4 +92,3 @@ export function computeNpcsWithPositions({
 
   return renderableNpcs;
 }
-

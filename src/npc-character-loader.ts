@@ -18,14 +18,12 @@ export async function loadNpcCharacter(
     characterCachesRef,
     modelScriptRegistryRef,
     waypointMoverRef,
-    cavalornGroupRef,
     getNpcVisualRoot,
   }: {
     zenKit: ZenKit | null;
     characterCachesRef: MutableRefObject<CharacterCaches>;
     modelScriptRegistryRef: MutableRefObject<ModelScriptRegistry | null>;
     waypointMoverRef: MutableRefObject<WaypointMover | null>;
-    cavalornGroupRef: MutableRefObject<THREE.Group | null>;
     getNpcVisualRoot: (npcGroup: THREE.Group) => THREE.Object3D;
   }
 ) {
@@ -129,14 +127,6 @@ export async function loadNpcCharacter(
     npcGroup.userData.startMoveToFreepoint = (freepointName: string, options?: any) => {
       return waypointMoverRef.current?.startMoveToFreepoint(npcId, npcGroup, freepointName, options) ?? false;
     };
-
-    const symbolName = (npcData.symbolName || "").trim().toUpperCase();
-    const displayName = (npcData.name || "").trim().toUpperCase();
-    const isCavalorn = symbolName === "BAU_4300_ADDON_CAVALORN" || displayName === "CAVALORN";
-    if (isCavalorn) {
-      npcGroup.userData.isCavalorn = true;
-      cavalornGroupRef.current = npcGroup;
-    }
 
     const placeholder = npcGroup.getObjectByName("npc-placeholder");
     if (placeholder) {

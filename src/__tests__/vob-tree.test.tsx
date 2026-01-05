@@ -100,6 +100,7 @@ const addWaypointMethods = (world: Partial<World>): World => {
 
     // Default implementations with correct return types
     getVobs: world.getVobs || (() => defaultVobCollection),
+    getStartpoints: (world as any).getStartpoints || (() => defaultVobCollection),
     loadFromArray: world.loadFromArray || (() => ({ success: true })),
     isLoaded: world.isLoaded ?? true,
     getLastError: world.getLastError || (() => ''),

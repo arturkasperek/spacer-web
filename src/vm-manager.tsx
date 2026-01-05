@@ -7,6 +7,7 @@ import { normalizeMdsToScriptKey } from "./model-script-registry";
 import { getWorldTime } from "./world-time";
 import { getNpcRoutineWaypointName } from "./npc-routine-runtime";
 import { getWaynetWaypointPosition } from "./waynet-index";
+import { HERO_SYMBOL_NAME, normalizeNameKey } from "./npc-renderer-utils";
 
 // Re-export types for consumers
 export type { NpcSpawnCallback } from './types';
@@ -17,6 +18,7 @@ export interface VmLoadResult {
 }
 
 let runtimeVm: DaedalusVm | null = null;
+const npcVisualsByIndex = new Map<number, NpcVisual>();
 
 // ---------------------------------------------------------------------------
 // NPC spawn order (Wld_InsertNpc call order)
@@ -31,6 +33,13 @@ let nextNpcSpawnOrder = 1;
 export function getNpcSpawnOrder(npcInstanceIndex: number): number | null {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
   return npcSpawnOrderByInstance.get(npcInstanceIndex) ?? null;
+}
+
+function recordNpcSpawnOrder(npcInstanceIndex: number): void {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
+  if (!npcSpawnOrderByInstance.has(npcInstanceIndex)) {
+    npcSpawnOrderByInstance.set(npcInstanceIndex, nextNpcSpawnOrder++);
+  }
 }
 
 export function __resetNpcSpawnOrderForTests(): void {
@@ -210,6 +219,37 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
   return info;
 }
 
+const symbolIndexCacheByVm = new WeakMap<DaedalusVm, Map<string, number | null>>();
+
+function findSymbolIndexByName(vm: DaedalusVm, name: string): number | null {
+  const key = normalizeNameKey(name);
+  if (!key) return null;
+  let cache = symbolIndexCacheByVm.get(vm);
+  if (!cache) {
+    cache = new Map();
+    symbolIndexCacheByVm.set(vm, cache);
+  }
+  if (cache.has(key)) return cache.get(key) ?? null;
+
+  const count = Number(vm.symbolCount);
+  if (!Number.isFinite(count) || count <= 0) {
+    cache.set(key, null);
+    return null;
+  }
+
+  for (let i = 0; i < count; i++) {
+    const r = vm.getSymbolNameByIndex(i);
+    if (!r.success || !r.data) continue;
+    if (normalizeNameKey(r.data) === key) {
+      cache.set(key, i);
+      return i;
+    }
+  }
+
+  cache.set(key, null);
+  return null;
+}
+
 
 
 /**
@@ -228,7 +268,7 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
 
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
-  const npcVisualsByIndex = new Map<number, NpcVisual>();
+  npcVisualsByIndex.clear();
 
   const isTimeBetweenLikeZenGin = (h1: number, m1: number, h2: number, m2: number, nowH: number, nowM: number): boolean => {
     const time1 = Math.floor(h1) * 60 + Math.floor(m1);
@@ -364,9 +404,7 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
         return;
       }
 
-      if (!npcSpawnOrderByInstance.has(npcInstanceIndex)) {
-        npcSpawnOrderByInstance.set(npcInstanceIndex, nextNpcSpawnOrder++);
-      }
+      recordNpcSpawnOrder(npcInstanceIndex);
 
       const npcInfo = getNpcInfo(vm, npcInstanceIndex);
 
@@ -1166,7 +1204,8 @@ export async function loadVm(
   zenKit: ZenKit,
   scriptPath: string = '/SCRIPTS/_COMPILED/GOTHIC.DAT',
   startupFunction: string = 'startup_newworld',
-  onNpcSpawn?: NpcSpawnCallback
+  onNpcSpawn?: NpcSpawnCallback,
+  heroSpawnpointName: string = "START"
 ): Promise<VmLoadResult> {
   // Load script
   const { script } = await loadDaedalusScript(zenKit, scriptPath);
@@ -1194,6 +1233,32 @@ export async function loadVm(
 
   // Call startup function
   callStartupFunction(vm, startupFunction);
+
+  // Spawn the player hero explicitly. In the original engine, the player character is created by the engine
+  // (not by Daedalus scripts calling `Wld_InsertNpc`), so we replicate that here.
+  if (onNpcSpawn) {
+    try {
+      const heroIndex = findSymbolIndexByName(vm, HERO_SYMBOL_NAME);
+      if (heroIndex != null && heroIndex > 0) {
+        recordNpcSpawnOrder(heroIndex);
+        const heroInfo = getNpcInfo(vm, heroIndex);
+        const visual = npcVisualsByIndex.get(heroIndex);
+        onNpcSpawn({
+          instanceIndex: heroIndex,
+          symbolName: heroInfo.symbolName || HERO_SYMBOL_NAME,
+          name: heroInfo.name,
+          spawnpoint: heroSpawnpointName,
+          npcInfo: heroInfo,
+          dailyRoutine: undefined,
+          visual,
+        });
+      } else {
+        console.warn(`[VM] Could not find hero instance '${HERO_SYMBOL_NAME}' (index: ${String(heroIndex)})`);
+      }
+    } catch (e) {
+      console.warn("[VM] Failed to spawn hero NPC:", e);
+    }
+  }
 
   runtimeVm = vm;
 
