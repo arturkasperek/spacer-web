@@ -86,6 +86,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      // In manual NPC control mode, Space is used for melee attack.
+      if (event.code === "Space" && new URLSearchParams(window.location.search).has("controlCavalorn")) {
+        return;
+      }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if (
         (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
@@ -108,6 +112,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      // In manual NPC control mode, Space is used for melee attack.
+      if (event.code === "Space" && new URLSearchParams(window.location.search).has("controlCavalorn")) {
+        return;
+      }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if (
         (event.code === "ShiftLeft" || event.code === "ShiftRight") &&

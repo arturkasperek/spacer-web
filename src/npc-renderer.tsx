@@ -25,6 +25,7 @@ import { computeNpcsWithPositions } from "./npc-renderer-data";
 import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader";
 import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
+import { createCombatRuntime } from "./combat/combat-runtime";
 
 interface NpcRendererProps {
   world: World | null;
@@ -126,6 +127,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const manualRunToggleRef = useRef(false);
   const teleportCavalornSeqRef = useRef(0);
   const teleportCavalornSeqAppliedRef = useRef(0);
+  const manualAttackSeqRef = useRef(0);
+  const manualAttackSeqAppliedRef = useRef(0);
+  const combatRuntimeRef = useRef(createCombatRuntime());
 
   useEffect(() => {
     if (!manualControlCavalornEnabled) return;
@@ -149,6 +153,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         case "ShiftRight":
           // Toggle run/walk on a single press (no hold).
           if (pressed && !e.repeat) manualRunToggleRef.current = !manualRunToggleRef.current;
+          break;
+        case "Space":
+          if (pressed && !e.repeat) manualAttackSeqRef.current += 1;
           break;
         case "KeyT":
           if (pressed && !e.repeat) teleportCavalornSeqRef.current += 1;
@@ -350,7 +357,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       characterCachesRef.current.binary,
       characterCachesRef.current.animations,
       "HUMANS",
-      HUMAN_LOCOMOTION_PRELOAD_ANIS
+      [...HUMAN_LOCOMOTION_PRELOAD_ANIS, "T_1HATTACKL", "T_1HATTACKR", "T_2HATTACKL"]
     );
   }, [enabled, zenKit]);
 
@@ -483,6 +490,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const npcData = npcGroup.userData.npcData as NpcData | undefined;
       if (!npcData) continue;
       const npcId = `npc-${npcData.instanceIndex}`;
+      {
+        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+        if (typeof ud.requestMeleeAttack !== "function") {
+          ud.requestMeleeAttack = (opts?: any) => {
+            combatRuntimeRef.current.ensureNpc(npcData);
+            return combatRuntimeRef.current.requestMeleeAttack(npcData.instanceIndex, opts);
+          };
+        }
+        if (typeof ud.getCombatState !== "function") {
+          ud.getCombatState = () => combatRuntimeRef.current.getState(npcData.instanceIndex);
+        }
+      }
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       const runtimeMotionDebug = typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug);
@@ -491,6 +510,28 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       const isManualCavalorn = manualControlCavalornEnabled && cavalornGroupRef.current === npcGroup;
       if (isManualCavalorn) {
+        if (manualAttackSeqAppliedRef.current !== manualAttackSeqRef.current) {
+          manualAttackSeqAppliedRef.current = manualAttackSeqRef.current;
+          combatRuntimeRef.current.ensureNpc(npcData);
+          const ok = combatRuntimeRef.current.requestMeleeAttack(npcData.instanceIndex, { kind: "left" });
+          if (!ok) {
+            try {
+              const st = combatRuntimeRef.current.getState(npcData.instanceIndex);
+              console.warn("[combat] melee attack request rejected", { npc: npcData.instanceIndex, state: st });
+            } catch {
+              // ignore
+            }
+          } else {
+            // Start the attack animation immediately (hit resolution is still done in the global combat update).
+            combatRuntimeRef.current.update({
+              nowMs: Date.now(),
+              dtSeconds: 0,
+              loadedNpcs: [npcGroup],
+              resolveAnim: resolveNpcAnimationRef,
+            });
+          }
+        }
+
         const MAX_DT = 0.05;
         const MAX_STEPS = 8;
         let remaining = Math.max(0, delta);
@@ -685,6 +726,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     }
 
+    // Combat update after movement tick: for now only melee hit resolution for loaded NPCs.
+    combatRuntimeRef.current.update({
+      nowMs: Date.now(),
+      dtSeconds: Math.max(0, delta),
+      loadedNpcs: loadedNpcsRef.current.values(),
+      resolveAnim: resolveNpcAnimationRef,
+    });
   });
 
   // Cleanup on unmount
