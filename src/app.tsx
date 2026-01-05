@@ -82,17 +82,83 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     if (didInitCameraRef.current) return;
     const controls = cameraControlsRef.current;
     if (!controls) return;
+    if (!world) return;
 
-    const pos: [number, number, number] = [-24675.45, 3322.9, -21834.6];
-    const yaw = 2.4152;
-    const lookAt: [number, number, number] = [
-      pos[0] + -Math.sin(yaw),
-      pos[1],
-      pos[2] + -Math.cos(yaw),
-    ];
-    controls.setPose(pos, lookAt);
+    const getVobWorldTransform = (vob: any): { pos: THREE.Vector3; quat: THREE.Quaternion } | null => {
+      if (!vob?.position) return null;
+      const rotArray = vob?.rotation?.toArray?.();
+      const m: number[] = [];
+      if (rotArray && typeof rotArray.size === "function" && typeof rotArray.get === "function") {
+        const n = rotArray.size();
+        for (let i = 0; i < n; i++) m.push(rotArray.get(i));
+      } else {
+        m.push(1, 0, 0, 0, 1, 0, 0, 0, 1);
+      }
+
+      const transformMat = new THREE.Matrix4();
+      transformMat.set(
+        -m[0],
+        -m[3],
+        -m[6],
+        -(vob.position?.x ?? 0),
+        m[1],
+        m[4],
+        m[7],
+        vob.position?.y ?? 0,
+        m[2],
+        m[5],
+        m[8],
+        vob.position?.z ?? 0,
+        0,
+        0,
+        0,
+        1
+      );
+
+      const pos = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+      transformMat.decompose(pos, quat, scale);
+      return { pos, quat };
+    };
+
+    const resolveStartTarget = (): { pos: THREE.Vector3; quat: THREE.Quaternion } => {
+      try {
+        const startpoints = (world as any)?.getStartpoints?.();
+        if (startpoints && typeof startpoints.size === "function" && typeof startpoints.get === "function") {
+          const n = Number(startpoints.size());
+          if (Number.isFinite(n) && n > 0) {
+            const sp0 = startpoints.get(0);
+            const tr = getVobWorldTransform(sp0);
+            if (tr) return tr;
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      return { pos: new THREE.Vector3(0, 0, 0), quat: new THREE.Quaternion() };
+    };
+
+    const tr = resolveStartTarget();
+    const followDistance = 220;
+    const followHeight = 140;
+    const lookAtHeight = 110;
+
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(tr.quat);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+    else forward.normalize();
+
+    const lookAt = tr.pos.clone();
+    lookAt.y += lookAtHeight;
+
+    const camPos = tr.pos.clone().addScaledVector(forward, -followDistance);
+    camPos.y += followHeight;
+
+    controls.setPose([camPos.x, camPos.y, camPos.z], [lookAt.x, lookAt.y, lookAt.z]);
     didInitCameraRef.current = true;
-  }, [camera, cameraControlsRef]);
+  }, [camera, cameraControlsRef, world]);
 
   return (
     <>
