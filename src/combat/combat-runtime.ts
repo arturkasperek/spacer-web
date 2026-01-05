@@ -160,8 +160,12 @@ export function createCombatRuntime(): CombatRuntime {
       // Persist HP to npcInfo so UI/debugging and subsequent ticks have a single source of truth.
       {
         const info: any = npc.npcInfo ?? (npc.npcInfo = {});
-        info.hp = st.hp;
-        info.hpmax = st.hpMax;
+        // Avoid poisoning `npcInfo` with our fallback "unknown 0/0 => 100/100" values.
+        // Only publish once we have real script HP (or after the unknown state is cleared).
+        if (!hpUnknown) {
+          info.hp = st.hp;
+          info.hpmax = st.hpMax;
+        }
       }
 
       const q = g.quaternion;

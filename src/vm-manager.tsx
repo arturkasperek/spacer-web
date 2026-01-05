@@ -134,17 +134,25 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
     instanceIndex: npcInstanceIndex,
   };
 
-  // Initialize the instance explicitly - this executes the instance definition code
-  const initResult = vm.initInstanceByIndex(npcInstanceIndex);
-  if (!initResult.success) {
-    console.warn(`⚠️  Failed to initialize NPC instance ${npcInstanceIndex}: ${initResult.errorMessage}`);
-    // Continue trying to read properties even if initialization failed, as some might be static
-  }
-
   // Get symbol name from index
   const nameResult = vm.getSymbolNameByIndex(npcInstanceIndex);
   if (nameResult.success && nameResult.data) {
     info.symbolName = nameResult.data;
+
+    // Important: many NPC instances call functions with `self` during instance initialization
+    // (e.g. `b_setattributestochapter(self, ...)`). Make sure `self` is set before init.
+    try {
+      vm.setGlobalSelf(nameResult.data);
+    } catch {
+      // ignore
+    }
+
+    // Initialize the instance explicitly - this executes the instance definition code
+    const initResult = vm.initInstanceByIndex(npcInstanceIndex);
+    if (!initResult.success) {
+      console.warn(`⚠️  Failed to initialize NPC instance ${npcInstanceIndex}: ${initResult.errorMessage}`);
+      // Continue trying to read properties even if initialization failed, as some might be static
+    }
 
     // Get NPC properties using qualified class names
     // Properties are available after initialization
@@ -153,8 +161,6 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
       { qualified: 'C_NPC.id', type: 'int', key: 'id' },
       { qualified: 'C_NPC.guild', type: 'int', key: 'guild' },
       { qualified: 'C_NPC.level', type: 'int', key: 'level' },
-      { qualified: 'C_NPC.attribute[ATR_HITPOINTS]', type: 'int', key: 'hp' },
-      { qualified: 'C_NPC.attribute[ATR_HITPOINTS_MAX]', type: 'int', key: 'hpmax' },
     ];
 
     for (const prop of properties) {
@@ -173,6 +179,31 @@ function getNpcInfo(vm: DaedalusVm, npcInstanceIndex: number): Record<string, an
       } catch (e) {
         // Property access failed, skip
       }
+    }
+
+    const getIntSafe = (qualified: string): number | null => {
+      try {
+        const v = vm.getSymbolInt(qualified, nameResult.data);
+        return typeof v === "number" && Number.isFinite(v) ? v : null;
+      } catch {
+        return null;
+      }
+    };
+
+    // HP/HPMax (works with ZenKit versions that support `symbol[index]` parsing; falls back gracefully otherwise).
+    const hpFallback = getIntSafe("C_NPC.attribute"); // ATR_HITPOINTS (index 0)
+    let hp = getIntSafe("C_NPC.attribute[ATR_HITPOINTS]");
+    let hpmax = getIntSafe("C_NPC.attribute[ATR_HITPOINTS_MAX]");
+
+    if ((hp === 0 || hp == null) && typeof hpFallback === "number" && hpFallback !== 0) hp = hpFallback;
+    if ((hpmax === 0 || hpmax == null) && typeof hpFallback === "number" && hpFallback !== 0) hpmax = hpFallback;
+
+    if (typeof hp === "number") info.hp = hp;
+    if (typeof hpmax === "number") info.hpmax = hpmax;
+
+    // If we couldn't fetch max HP separately, assume full HP at spawn (common in scripts).
+    if (typeof info.hp === "number" && Number.isFinite(info.hp) && (!("hpmax" in info) || info.hpmax === 0)) {
+      info.hpmax = info.hp;
     }
   }
 
