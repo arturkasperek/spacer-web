@@ -542,6 +542,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
 	      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
 	      if (isManualHero) {
+        let pendingMouseYawRad = 0;
+        if (typeof window !== "undefined") {
+          const dDeg = Number((window as any).__heroMouseYawDeltaDeg ?? 0);
+          if (Number.isFinite(dDeg) && dDeg !== 0) pendingMouseYawRad = (dDeg * Math.PI) / 180;
+          (window as any).__heroMouseYawDeltaDeg = 0;
+        }
+        const nowMs = Date.now();
+
         if (manualAttackSeqAppliedRef.current !== manualAttackSeqRef.current) {
           manualAttackSeqAppliedRef.current = manualAttackSeqRef.current;
           combatRuntimeRef.current.ensureNpc(npcData);
@@ -574,15 +582,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         let didTurnInPlaceThisFrame = false;
         let lastTurnSign = 0;
 
+        const mouseYawRate = pendingMouseYawRad / Math.max(1e-6, Math.max(0, delta));
+
         for (let step = 0; step < MAX_STEPS && remaining > 0; step++) {
           const dt = Math.min(remaining, MAX_DT);
           remaining -= dt;
 
           const keys = manualKeysRef.current;
+          const mouseYawThisStep = mouseYawRate * dt;
           // In Gothic: ArrowRight turns right (clockwise when looking from above).
           const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
           const move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-          if (turn === 0 && move === 0) break;
+          if (turn === 0 && move === 0 && Math.abs(mouseYawThisStep) < 1e-6) break;
 
           // Gothic-like manual controls:
           // - ArrowLeft/ArrowRight: turn in place (and lean slightly when moving)
@@ -596,7 +607,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           // Roughly match "full rotation ~5s" like Gothic/OpenGothic.
           // 2π / 5s ≈ 1.257 rad/s, run slightly faster.
           const turnSpeed = manualRunToggleRef.current ? 1.65 : 1.30; // rad/sec
-          const desiredYaw = currentYaw + turn * turnSpeed * dt;
+          const desiredYaw = currentYaw + turn * turnSpeed * dt + mouseYawThisStep;
           tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, desiredYaw);
           // Apply rotation directly (no extra smoothing), so turning speed matches intended rate.
           npcGroup.quaternion.copy(tmpManualDesiredQuat);
@@ -620,9 +631,11 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
           movedThisFrame = movedThisFrame || r.moved;
 
-          if (move === 0 && turn !== 0) {
+          if (move === 0 && (turn !== 0 || Math.abs(mouseYawThisStep) >= 1e-6)) {
             didTurnInPlaceThisFrame = true;
-            lastTurnSign = turn;
+            lastTurnSign = turn !== 0 ? turn : (mouseYawThisStep < 0 ? -1 : 1);
+            (manualUd as any)._manualLastTurnAtMs = nowMs;
+            (manualUd as any)._manualLastTurnSign = lastTurnSign;
           }
         }
 
@@ -655,10 +668,20 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	        if (instance) {
 	          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
 	          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
-	          (manualUd as any)._manualWasTurningInPlace = didTurnInPlaceThisFrame;
-	          if (didTurnInPlaceThisFrame && !suppressByCombatOrScript) {
+            const lastTurnAtMs = Number((manualUd as any)._manualLastTurnAtMs);
+            const graceMs = 300;
+            const withinGrace =
+              moveNow === 0 && Number.isFinite(lastTurnAtMs) && (nowMs - lastTurnAtMs) >= 0 && (nowMs - lastTurnAtMs) < graceMs;
+            const shouldTurnAnim = moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
+            (manualUd as any)._manualWasTurningInPlace = shouldTurnAnim;
+
+	          if (shouldTurnAnim && !suppressByCombatOrScript) {
 	            (manualUd as any)._manualSuppressLocomotion = true;
-	            const rightTurn = lastTurnSign < 0;
+              const signFromHistory = Number((manualUd as any)._manualLastTurnSign);
+              const effSign = didTurnInPlaceThisFrame
+                ? lastTurnSign
+                : (Number.isFinite(signFromHistory) && signFromHistory !== 0 ? signFromHistory : lastTurnSign || 1);
+	            const rightTurn = effSign < 0;
 
             // Use actual human anim names present in `/ANIMS/_COMPILED` (no `S_TURN*` in the base set).
             const name = rightTurn ? "t_RunTurnR" : "t_RunTurnL";

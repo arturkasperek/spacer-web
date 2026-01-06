@@ -5,6 +5,12 @@ import { getPlayerPose } from "./player-runtime";
 import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
 
+declare global {
+  interface Window {
+    __heroMouseYawDeltaDeg?: number;
+  }
+}
+
 export interface CameraControlsRef {
   updateMouseState: (pitch: number, yaw: number) => void;
   setPose: (position: [number, number, number], lookAt: [number, number, number]) => void;
@@ -330,12 +336,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         mouseDownTimeRef.current = Date.now();
         mouseDownPosRef.current = { x: event.clientX, y: event.clientY };
         isQuickClickRef.current = false;
-        
+
         // Clear any existing timeout
         if (pointerLockTimeoutRef.current) {
           clearTimeout(pointerLockTimeoutRef.current);
         }
-        
+
         // Delay pointer lock to allow quick clicks
         pointerLockTimeoutRef.current = setTimeout(() => {
           if (isMouseDown && !isQuickClickRef.current) {
@@ -365,15 +371,21 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       lastManualCamInputAtRef.current = Date.now();
       const scale = 0.12; // deg per pixel
       userPitchOffsetDegRef.current = userPitchOffsetDegRef.current - deltaY * scale;
-      userYawOffsetDegRef.current = userYawOffsetDegRef.current - deltaX * scale;
+      // In original Gothic, mouse look also turns the hero, while the camera stays behind.
+      // We still allow pitch offsets (look up/down), but yaw turns the player.
+      if (typeof window !== "undefined") {
+        const dYaw = -deltaX * scale;
+        window.__heroMouseYawDeltaDeg = (window.__heroMouseYawDeltaDeg ?? 0) + dYaw;
+      }
     };
     document.addEventListener('mousemove', handleMouseMove);
 
     const handleMouseUp = (event: MouseEvent) => {
       if (event.button === 0) {
+        if (typeof window !== "undefined") window.__heroMouseYawDeltaDeg = 0;
         const clickDuration = Date.now() - mouseDownTimeRef.current;
         const mouseDownPos = mouseDownPosRef.current;
-        
+
         // Clear pointer lock timeout if it exists
         if (pointerLockTimeoutRef.current) {
           clearTimeout(pointerLockTimeoutRef.current);
@@ -405,12 +417,17 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
             return;
           }
         }
-        
+
         isMouseDown = false;
         if (document.pointerLockElement === gl.domElement) {
           document.exitPointerLock();
         }
       }
+    };
+
+    const handlePointerLockChange = () => {
+      // If user leaves pointer lock via ESC, stop the mouse-walk immediately.
+      if (typeof window !== "undefined" && document.pointerLockElement !== gl.domElement) window.__heroMouseYawDeltaDeg = 0;
     };
 
     // Mouse wheel for movement speed (matching zen-viewer)
@@ -434,6 +451,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     window.addEventListener('keyup', handleKeyUp);
     gl.domElement.addEventListener('mousedown', handleMouseDown);
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("pointerlockchange", handlePointerLockChange);
     gl.domElement.style.cursor = 'grab';
 
     return () => {
@@ -443,6 +461,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       gl.domElement.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener("pointerlockchange", handlePointerLockChange);
+      if (typeof window !== "undefined") window.__heroMouseYawDeltaDeg = 0;
     };
   }, [gl, camera]);
 
