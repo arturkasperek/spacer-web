@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
 import { useRapier } from "@react-three/rapier";
 import { loadVm, type NpcSpawnCallback } from './vm-manager';
+import { loadCameraModes } from "./camera-daedalus";
 import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
 import { tgaNameToCompiledUrl } from './vob-utils';
 
@@ -218,6 +219,11 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         // This also ensures `onWorldLoaded` can set any global world references used by VM externals.
         onLoadingStatus('Loading VM script...');
         try {
+          const cameraModesPromise = loadCameraModes(zenKit).catch((e) => {
+            console.warn("Failed to load CAMERA.DAT presets:", e);
+            return {};
+          });
+
           const resolveHeroSpawnpoint = (): string => {
             try {
               // Prefer zCVobStartpoint (player start) if ZenKit exposes it.
@@ -241,6 +247,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
             return "START";
           };
           await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn, resolveHeroSpawnpoint());
+          await cameraModesPromise;
           console.log('VM loaded successfully');
           onLoadingStatus('VM loaded');
         } catch (vmError) {

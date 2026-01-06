@@ -93,7 +93,11 @@ export function updateNpcStreaming({
   const toLoad: string[] = [];
   for (const item of npcItemsRef.current) {
     if (loadedNpcsRef.current.has(item.id)) continue;
-    if (!aabbIntersects(item.waybox, loadBox)) continue;
+    // Always keep the player hero loaded, regardless of streaming distance.
+    // In the original engine, the player is always present; we also rely on this for long-range teleports.
+    const entry = allNpcsByIdRef.current.get(item.id);
+    if (!entry) continue;
+    if (!isHeroNpcData(entry.npcData) && !aabbIntersects(item.waybox, loadBox)) continue;
     toLoad.push(item.id);
   }
   toLoad.sort((a, b) => {
@@ -112,6 +116,8 @@ export function updateNpcStreaming({
   for (const id of loadedNpcsRef.current.keys()) {
     const entry = allNpcsByIdRef.current.get(id);
     if (!entry) continue;
+    // Never unload the hero.
+    if (isHeroNpcData(entry.npcData)) continue;
     if (aabbIntersects(entry.waybox, unloadBox)) continue;
     // Never unload the manually-controlled player character; otherwise, moving the camera away from
     // the routine waybox would despawn the hero and make long-range teleports impossible.
@@ -125,8 +131,8 @@ export function updateNpcStreaming({
     toUnload.push(id);
   }
 
-  // Ensure the hero is always loadable when manual control is enabled, even if the camera is far from his routine waybox.
-  if (manualControlHeroEnabled && playerGroupRef.current == null) {
+  // Ensure the hero is loadable even if the camera is far from his routine waybox.
+  if (playerGroupRef.current == null) {
     for (const [id, entry] of allNpcsByIdRef.current.entries()) {
       if (!isHeroNpcData(entry.npcData)) continue;
       if (!loadedNpcsRef.current.has(id) && !toLoad.includes(id)) toLoad.push(id);

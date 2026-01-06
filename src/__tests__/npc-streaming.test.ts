@@ -162,7 +162,7 @@ describe("npc-streaming", () => {
     expect(loadedOrder).toEqual([2, 1]);
   });
 
-  it("does not unload hero when manual control is enabled", () => {
+  it("does not unload hero even when manual control is disabled", () => {
     const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
     const npcId = "npc-99";
     const group = new THREE.Group();
@@ -193,7 +193,7 @@ describe("npc-streaming", () => {
       removeNpcKccCollider,
       waypointMoverRef: { current: null },
       playerGroupRef: { current: group },
-      manualControlHeroEnabled: true,
+      manualControlHeroEnabled: false,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,
@@ -203,7 +203,7 @@ describe("npc-streaming", () => {
     expect(removeNpcKccCollider).not.toHaveBeenCalled();
   });
 
-  it("forces hero into the load set when manual control is enabled and he is not loaded", () => {
+  it("forces hero into the load set even when camera is far", () => {
     const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
     const npcId = "npc-99";
     const entry = { npcData: heroData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) };
@@ -230,7 +230,7 @@ describe("npc-streaming", () => {
       removeNpcKccCollider: jest.fn(),
       waypointMoverRef: { current: null },
       playerGroupRef,
-      manualControlHeroEnabled: true,
+      manualControlHeroEnabled: false,
       NPC_LOAD_DISTANCE: 50,
       NPC_UNLOAD_DISTANCE: 100,
       NPC_ACTIVE_BBOX_HALF_Y: 100,

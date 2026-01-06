@@ -27,6 +27,7 @@ import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
+import { useCameraSettings } from "./camera-settings";
 
 interface NpcRendererProps {
   world: World | null;
@@ -60,6 +61,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
+  const cameraSettings = useCameraSettings();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpManualRight = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
@@ -96,16 +98,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  const manualControlHeroEnabled = useMemo(() => {
-    try {
-      if (typeof window === "undefined") return true;
-      const qs = new URLSearchParams(window.location.search);
-      if (qs.has("freeCamera") || qs.has("noControlHero")) return false;
-      return true;
-    } catch {
-      return true;
-    }
-  }, []);
+  const manualControlHeroEnabled = !cameraSettings.freeCamera;
 
   const motionDebugLastRef = useRef<
     | {
@@ -161,9 +154,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         case "Space":
           if (pressed && !e.repeat) manualAttackSeqRef.current += 1;
           break;
-        case "KeyT":
-          if (pressed && !e.repeat) teleportHeroSeqRef.current += 1;
-          break;
         default:
           handled = false;
       }
@@ -181,6 +171,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       window.removeEventListener("keyup", onKeyUp as any);
     };
   }, [manualControlHeroEnabled]);
+
+  // Debug helper: teleport the hero in front of the camera (works in both camera modes).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "KeyT") return;
+      if (e.repeat) return;
+      teleportHeroSeqRef.current += 1;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    return () => window.removeEventListener("keydown", onKeyDown as any);
+  }, []);
 
   // Create a stable serialized key from the Map for dependency tracking
   const npcsKey = getMapKey(npcs);
@@ -440,8 +442,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
     // Keep a lightweight hero pose snapshot for camera follow (no Three.js refs).
     setPlayerPoseFromObject3D(playerGroupRef.current);
 
-    // Debug helper: teleport the hero in front of the camera (manual control only).
-    if (manualControlHeroEnabled && teleportHeroSeqAppliedRef.current !== teleportHeroSeqRef.current) {
+    // Debug helper: teleport the hero in front of the camera.
+    if (teleportHeroSeqAppliedRef.current !== teleportHeroSeqRef.current) {
       const player = playerGroupRef.current;
       const cam = camera;
       if (player && cam) {

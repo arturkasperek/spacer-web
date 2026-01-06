@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toggleViewSetting, useViewSettings } from "./view-settings.js";
+import { toggleCameraSetting, useCameraSettings } from "./camera-settings";
 
 export const TOP_MENU_HEIGHT = 26;
 
@@ -40,7 +41,8 @@ function MenuItem({ label, checked, onClick }: MenuItemProps) {
 
 export function TopMenuBar() {
   const view = useViewSettings();
-  const [open, setOpen] = useState(false);
+  const camera = useCameraSettings();
+  const [openMenu, setOpenMenu] = useState<"view" | "camera" | null>(null);
   const [motionHeld, setMotionHeld] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -57,16 +59,16 @@ export function TopMenuBar() {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!openMenu) return;
     const onDown = (e: MouseEvent) => {
       const el = rootRef.current;
       if (!el) return;
       if (e.target instanceof Node && el.contains(e.target)) return;
-      setOpen(false);
+      setOpenMenu(null);
     };
     document.addEventListener("mousedown", onDown, true);
     return () => document.removeEventListener("mousedown", onDown, true);
-  }, [open]);
+  }, [openMenu]);
 
   return (
     <div
@@ -96,20 +98,20 @@ export function TopMenuBar() {
         <button
           type="button"
           data-testid="top-menu-view"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => setOpenMenu((m) => (m === "view" ? null : "view"))}
           style={{
             height: TOP_MENU_HEIGHT - 4,
             padding: "0 10px",
             borderRadius: 2,
-            border: open ? "1px solid rgba(0,0,0,0.35)" : "1px solid transparent",
-            background: open ? "rgba(255,255,255,0.85)" : "transparent",
+            border: openMenu === "view" ? "1px solid rgba(0,0,0,0.35)" : "1px solid transparent",
+            background: openMenu === "view" ? "rgba(255,255,255,0.85)" : "transparent",
             cursor: "pointer",
           }}
         >
           View
         </button>
 
-        {open && (
+        {openMenu === "view" && (
           <div
             role="menu"
             style={{
@@ -129,6 +131,45 @@ export function TopMenuBar() {
             <MenuItem label="Vobspots" checked={view.showVobSpots} onClick={() => toggleViewSetting("showVobSpots")} />
             <MenuItem label="Waypoints" checked={view.showWaypoints} onClick={() => toggleViewSetting("showWaypoints")} />
             <MenuItem label="Lights" checked={view.showLights} onClick={() => toggleViewSetting("showLights")} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ position: "relative" }}>
+        <button
+          type="button"
+          data-testid="top-menu-camera"
+          onClick={() => setOpenMenu((m) => (m === "camera" ? null : "camera"))}
+          style={{
+            height: TOP_MENU_HEIGHT - 4,
+            padding: "0 10px",
+            borderRadius: 2,
+            border: openMenu === "camera" ? "1px solid rgba(0,0,0,0.35)" : "1px solid transparent",
+            background: openMenu === "camera" ? "rgba(255,255,255,0.85)" : "transparent",
+            cursor: "pointer",
+          }}
+        >
+          Camera
+        </button>
+
+        {openMenu === "camera" && (
+          <div
+            role="menu"
+            style={{
+              position: "absolute",
+              top: TOP_MENU_HEIGHT - 2,
+              left: 0,
+              background: "rgba(245,245,245,0.98)",
+              border: "1px solid rgba(0,0,0,0.25)",
+              boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
+              borderRadius: 2,
+              padding: "4px 0",
+              minWidth: 180,
+              zIndex: 2100,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MenuItem label="Free camera" checked={camera.freeCamera} onClick={() => toggleCameraSetting("freeCamera")} />
           </div>
         )}
       </div>

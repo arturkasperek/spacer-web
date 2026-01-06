@@ -2,6 +2,8 @@ import { useThree, useFrame } from "@react-three/fiber";
 import { useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import * as THREE from "three";
 import { getPlayerPose } from "./player-runtime";
+import { getCameraSettings, useCameraSettings } from "./camera-settings";
+import { getCameraMode } from "./camera-daedalus";
 
 export interface CameraControlsRef {
   updateMouseState: (pitch: number, yaw: number) => void;
@@ -11,6 +13,7 @@ export interface CameraControlsRef {
 
 export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { camera, gl } = useThree();
+  const cameraSettings = useCameraSettings();
   const [keys, setKeys] = useState({
     KeyW: false,
     KeyS: false,
@@ -94,8 +97,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
-      const qs = new URLSearchParams(window.location.search);
-      const freeCamera = qs.has("freeCamera");
+      const freeCamera = getCameraSettings().freeCamera;
       // In manual NPC control mode, Space is used for melee attack.
       if (event.code === "Space" && !freeCamera) {
         return;
@@ -122,8 +124,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
-      const qs = new URLSearchParams(window.location.search);
-      const freeCamera = qs.has("freeCamera");
+      const freeCamera = getCameraSettings().freeCamera;
       // In manual NPC control mode, Space is used for melee attack.
       if (event.code === "Space" && !freeCamera) {
         return;
@@ -282,23 +283,20 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   };
 
   useFrame((_state, delta) => {
-    const qs = (() => {
-      try {
-        return typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-      } catch {
-        return null;
-      }
-    })();
-
-    const freeCamera = Boolean(qs?.has("freeCamera"));
-    const followHero = !freeCamera && !Boolean(qs?.has("noFollowHero"));
+    const freeCamera = cameraSettings.freeCamera;
+    const followHero = !freeCamera;
     if (!followHero) didSnapToHeroRef.current = false;
 
     if (followHero) {
       const pose = getPlayerPose();
       if (pose) {
-        const followDistance = 220;
-        const followHeight = 140;
+        const camDef = getCameraMode("CAMMODNORMAL");
+        const bestRangeCm = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange * 100 : 220;
+        const bestElevDeg = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        const bestElevRad = (bestElevDeg * Math.PI) / 180;
+
+        const followDistance = Math.max(0, Math.cos(bestElevRad) * bestRangeCm);
+        const followHeight = Math.max(0, Math.sin(bestElevRad) * bestRangeCm);
         const lookAtHeight = 110;
 
         const playerPos = tmpPlayerPosRef.current.set(pose.position.x, pose.position.y, pose.position.z);
