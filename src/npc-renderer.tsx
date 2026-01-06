@@ -8,7 +8,7 @@ import { getMapKey } from './npc-utils';
 import { type CharacterCaches, type CharacterInstance } from './character/character-instance.js';
 import { preloadAnimationSequences } from "./character/animation.js";
 import { fetchBinaryCached } from "./character/binary-cache.js";
-import { HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
+import { createHumanLocomotionController, HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionController, type LocomotionMode } from "./npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
 import { clearNpcFreepointReservations, setFreepointsWorld, updateNpcWorldPosition, removeNpcWorldPosition } from "./npc-freepoints";
 import { clearNpcEmRuntimeState, updateNpcEventManager } from "./npc-em-runtime";
@@ -540,8 +540,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const shouldLogMotion = runtimeMotionDebug && playerGroupRef.current === npcGroup;
       trySnapNpcToGroundWithRapier(npcGroup);
 
-      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
-      if (isManualHero) {
+	      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
+	      if (isManualHero) {
         if (manualAttackSeqAppliedRef.current !== manualAttackSeqRef.current) {
           manualAttackSeqAppliedRef.current = manualAttackSeqRef.current;
           combatRuntimeRef.current.ensureNpc(npcData);
@@ -626,8 +626,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           }
         }
 
-        // Procedural lean while turning (Gothic-like "bank" into the turn).
-        // Note: this is purely visual (model tilt), not physics.
+	        // Procedural lean while turning (Gothic-like "bank" into the turn).
+	        // Note: this is purely visual (model tilt), not physics.
         if (wantLean && instance?.object) {
           const keys = manualKeysRef.current;
           const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
@@ -641,50 +641,63 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           roll = roll + (targetRoll - roll) * k;
           manualUd._manualLeanRoll = roll;
 
-          // Apply only to the visual model so UI (name/HP) doesn't tilt.
-          instance.object.rotation.z = roll;
-        }
+	          // Apply only to the visual model so UI (name/HP) doesn't tilt.
+	          instance.object.rotation.z = roll;
+	        }
 
-        // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
-        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
-        if (instance) {
-          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
-          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
-          (manualUd as any)._manualWasTurningInPlace = didTurnInPlaceThisFrame;
-          if (didTurnInPlaceThisFrame && !suppressByCombatOrScript) {
-            (manualUd as any)._manualSuppressLocomotion = true;
-            const rightTurn = lastTurnSign < 0;
+	        const keysNow = manualKeysRef.current;
+	        const turnNow = (keysNow.left ? 1 : 0) - (keysNow.right ? 1 : 0);
+	        const moveNow = (keysNow.up ? 1 : 0) - (keysNow.down ? 1 : 0);
+	        const manualLocomotionMode: LocomotionMode = moveNow !== 0 ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
+
+	        // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
+	        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
+	        if (instance) {
+	          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
+	          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
+	          (manualUd as any)._manualWasTurningInPlace = didTurnInPlaceThisFrame;
+	          if (didTurnInPlaceThisFrame && !suppressByCombatOrScript) {
+	            (manualUd as any)._manualSuppressLocomotion = true;
+	            const rightTurn = lastTurnSign < 0;
 
             // Use actual human anim names present in `/ANIMS/_COMPILED` (no `S_TURN*` in the base set).
             const name = rightTurn ? "t_RunTurnR" : "t_RunTurnL";
             const prev = (manualUd as any)._manualTurnAnim as string | undefined;
             (manualUd as any)._manualTurnAnim = name;
 
-            if ((prev || "").toUpperCase() !== name.toUpperCase()) {
-              instance.setAnimation(name, {
-                loop: true,
-                resetTime: true,
-                fallbackNames: [
-                  rightTurn ? "t_WalkwTurnR" : "t_WalkwTurnL",
-                  rightTurn ? "t_SneakTurnR" : "t_SneakTurnL",
-                  "s_Run",
-                ],
-              });
-            }
-          } else {
-            delete (manualUd as any)._manualSuppressLocomotion;
-            delete (manualUd as any)._manualTurnAnim;
+	            if ((prev || "").toUpperCase() !== name.toUpperCase()) {
+	              instance.setAnimation(name, {
+	                loop: true,
+	                resetTime: true,
+	                fallbackNames: [
+	                  rightTurn ? "t_WalkwTurnR" : "t_WalkwTurnL",
+	                  rightTurn ? "t_SneakTurnR" : "t_SneakTurnL",
+	                  "s_Run",
+	                ],
+	              });
+	            }
+	          } else {
+	            delete (manualUd as any)._manualSuppressLocomotion;
+	            delete (manualUd as any)._manualTurnAnim;
 
-            // When we stop turning, immediately restore locomotion/idle animation.
-            // Otherwise the locomotion controller may think it's still in the same mode and not re-apply.
-            if (wasTurning && !suppressByCombatOrScript) {
-              instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["s_Run"] });
-            }
-          }
-        }
+	            // When we stop turning:
+	            // - if we start moving this frame (even while holding turn), force locomotion to re-apply so we
+	            //   don't end up sliding with an idle/turn pose due to locomotion state being stale.
+	            // - otherwise restore idle immediately.
+	            if (wasTurning && !suppressByCombatOrScript) {
+	              if (manualLocomotionMode !== "idle") {
+	                const fresh = createHumanLocomotionController();
+	                npcGroup.userData.locomotion = fresh;
+	                fresh.update(instance, manualLocomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
+	              } else if (moveNow === 0 && turnNow === 0) {
+	                instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["s_Run"] });
+	              }
+	            }
+	          }
+	        }
 
-        locomotionMode = movedThisFrame ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
-      } else {
+	        locomotionMode = manualLocomotionMode;
+	      } else {
         const mover = waypointMoverRef.current;
         const em = updateNpcEventManager(npcData.instanceIndex, npcId, npcGroup, delta, {
           mover,
