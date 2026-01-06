@@ -63,8 +63,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const worldTime = useWorldTime();
   const cameraSettings = useCameraSettings();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
-  const tmpManualRight = useMemo(() => new THREE.Vector3(), []);
-  const tmpManualDir = useMemo(() => new THREE.Vector3(), []);
   const tmpEmRootMotionWorld = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
   const tmpManualUp = useMemo(() => new THREE.Vector3(0, 1, 0), []);
@@ -570,40 +568,119 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const MAX_STEPS = 8;
         let remaining = Math.max(0, delta);
 
+        const manualUd: any = npcGroup.userData ?? (npcGroup.userData = {});
+        const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+        const wantLean = true;
+        let didTurnInPlaceThisFrame = false;
+        let lastTurnSign = 0;
+
         for (let step = 0; step < MAX_STEPS && remaining > 0; step++) {
           const dt = Math.min(remaining, MAX_DT);
           remaining -= dt;
 
           const keys = manualKeysRef.current;
-          const x = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-          const z = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-          if (x === 0 && z === 0) break;
+          // In Gothic: ArrowRight turns right (clockwise when looking from above).
+          const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+          const move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          if (turn === 0 && move === 0) break;
 
-          camera.getWorldDirection(tmpManualForward);
+          // Gothic-like manual controls:
+          // - ArrowLeft/ArrowRight: turn in place (and lean slightly when moving)
+          // - ArrowUp/ArrowDown: move forward/back along current facing
+          tmpManualForward.set(0, 0, 1).applyQuaternion(npcGroup.quaternion);
           tmpManualForward.y = 0;
-          if (tmpManualForward.lengthSq() < 1e-8) tmpManualForward.set(0, 0, -1);
+          if (tmpManualForward.lengthSq() < 1e-8) tmpManualForward.set(0, 0, 1);
           else tmpManualForward.normalize();
 
-          // Right vector in Three.js: up x forward
-          tmpManualRight.crossVectors(tmpManualUp, tmpManualForward).normalize();
+          const currentYaw = Math.atan2(tmpManualForward.x, tmpManualForward.z);
+          // Roughly match "full rotation ~5s" like Gothic/OpenGothic.
+          // 2π / 5s ≈ 1.257 rad/s, run slightly faster.
+          const turnSpeed = manualRunToggleRef.current ? 1.65 : 1.30; // rad/sec
+          const desiredYaw = currentYaw + turn * turnSpeed * dt;
+          tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, desiredYaw);
+          // Apply rotation directly (no extra smoothing), so turning speed matches intended rate.
+          npcGroup.quaternion.copy(tmpManualDesiredQuat);
 
-          tmpManualDir.copy(tmpManualForward).multiplyScalar(z).addScaledVector(tmpManualRight, x);
-          if (tmpManualDir.lengthSq() < 1e-8) break;
-          tmpManualDir.normalize();
+          // Recompute forward after rotation update for movement integration.
+          tmpManualForward.set(0, 0, 1).applyQuaternion(npcGroup.quaternion);
+          tmpManualForward.y = 0;
+          if (tmpManualForward.lengthSq() < 1e-8) tmpManualForward.set(0, 0, 1);
+          else tmpManualForward.normalize();
 
           const speed = manualRunToggleRef.current ? manualControlSpeeds.run : manualControlSpeeds.walk;
-          let desiredX = npcGroup.position.x + tmpManualDir.x * speed * dt;
-          let desiredZ = npcGroup.position.z + tmpManualDir.z * speed * dt;
+          let desiredX = npcGroup.position.x;
+          let desiredZ = npcGroup.position.z;
+          if (move !== 0) {
+            desiredX += tmpManualForward.x * speed * dt * move;
+            desiredZ += tmpManualForward.z * speed * dt * move;
+          }
 
           const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);
-          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpManualDir.x, z: tmpManualDir.z };
-
-          const yaw = Math.atan2(tmpManualDir.x, tmpManualDir.z);
-          tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
-          const t = 1 - Math.exp(-10 * dt);
-          npcGroup.quaternion.slerp(tmpManualDesiredQuat, t);
+          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpManualForward.x * move, z: tmpManualForward.z * move };
 
           movedThisFrame = movedThisFrame || r.moved;
+
+          if (move === 0 && turn !== 0) {
+            didTurnInPlaceThisFrame = true;
+            lastTurnSign = turn;
+          }
+        }
+
+        // Procedural lean while turning (Gothic-like "bank" into the turn).
+        // Note: this is purely visual (model tilt), not physics.
+        if (wantLean && instance?.object) {
+          const keys = manualKeysRef.current;
+          const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+          const move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          const maxLeanRad = manualRunToggleRef.current ? 0.17 : 0.12; // ~10deg / ~7deg
+          const targetRoll = move !== 0 ? -turn * maxLeanRad : 0;
+
+          let roll = manualUd._manualLeanRoll as number | undefined;
+          if (typeof roll !== "number" || !Number.isFinite(roll)) roll = 0;
+          const k = 1 - Math.exp(-14 * Math.max(0, delta));
+          roll = roll + (targetRoll - roll) * k;
+          manualUd._manualLeanRoll = roll;
+
+          // Apply only to the visual model so UI (name/HP) doesn't tilt.
+          instance.object.rotation.z = roll;
+        }
+
+        // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
+        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
+        if (instance) {
+          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
+          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
+          (manualUd as any)._manualWasTurningInPlace = didTurnInPlaceThisFrame;
+          if (didTurnInPlaceThisFrame && !suppressByCombatOrScript) {
+            (manualUd as any)._manualSuppressLocomotion = true;
+            const rightTurn = lastTurnSign < 0;
+
+            // Use actual human anim names present in `/ANIMS/_COMPILED` (no `S_TURN*` in the base set).
+            const name = rightTurn ? "t_RunTurnR" : "t_RunTurnL";
+            const prev = (manualUd as any)._manualTurnAnim as string | undefined;
+            (manualUd as any)._manualTurnAnim = name;
+
+            if ((prev || "").toUpperCase() !== name.toUpperCase()) {
+              instance.setAnimation(name, {
+                loop: true,
+                resetTime: true,
+                fallbackNames: [
+                  rightTurn ? "t_WalkwTurnR" : "t_WalkwTurnL",
+                  rightTurn ? "t_SneakTurnR" : "t_SneakTurnL",
+                  "s_Run",
+                ],
+              });
+            }
+          } else {
+            delete (manualUd as any)._manualSuppressLocomotion;
+            delete (manualUd as any)._manualTurnAnim;
+
+            // When we stop turning, immediately restore locomotion/idle animation.
+            // Otherwise the locomotion controller may think it's still in the same mode and not re-apply.
+            if (wasTurning && !suppressByCombatOrScript) {
+              instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["s_Run"] });
+            }
+          }
         }
 
         locomotionMode = movedThisFrame ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
@@ -683,7 +760,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
       if (instance) {
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
-        const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
+        const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion) || Boolean((npcGroup.userData as any)._manualSuppressLocomotion);
         const scriptIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
 
         // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
