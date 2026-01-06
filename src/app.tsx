@@ -18,6 +18,7 @@ import { WorldTimeOverlay } from "./world-time-overlay.js";
 import { WorldTimeLighting } from "./world-time-lighting.js";
 import { NpcInspectorOverlay } from "./npc-inspector-overlay.js";
 import { TopMenuBar, TOP_MENU_HEIGHT } from "./top-menu-bar.js";
+import { setUiSettings, useUiSettings } from "./ui-settings";
 import { useViewSettings } from "./view-settings.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
@@ -219,6 +220,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
   const viewSettings = useViewSettings();
+  const ui = useUiSettings();
   const [loadingStatus, setLoadingStatus] = useState<string>('');
   const [world, setWorld] = useState<World | null>(null);
   const [zenKit, setZenKit] = useState<ZenKit | null>(null);
@@ -360,25 +362,28 @@ export function App() {
   return (
     <>
       <TopMenuBar />
-      <WorldTimeOverlay />
+      {ui.showStatusBar && <WorldTimeOverlay onClose={() => setUiSettings({ showStatusBar: false })} />}
       <NpcInspectorOverlay selected={inspectedNpc} onClose={() => setInspectedNpc(null)} topOffsetPx={TOP_MENU_HEIGHT} />
       {/* VOB Tree - left side panel */}
-      <VOBTree
-        world={world}
-        onVobClick={handleVobClick}
-        onWaypointSelect={handleWaypointSelect}
-        onWaypointTeleport={handleWaypointTeleport}
-        selectedVob={selectedVob}
-        selectedWaypoint={selectedWaypoint}
-        topOffsetPx={TOP_MENU_HEIGHT}
-      />
+      {ui.showVobTree && (
+        <VOBTree
+          world={world}
+          onVobClick={handleVobClick}
+          onWaypointSelect={handleWaypointSelect}
+          onWaypointTeleport={handleWaypointTeleport}
+          selectedVob={selectedVob}
+          selectedWaypoint={selectedWaypoint}
+          topOffsetPx={TOP_MENU_HEIGHT}
+          onClose={() => setUiSettings({ showVobTree: false })}
+        />
+      )}
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
         <div style={{
           position: 'absolute',
           top: `${TOP_MENU_HEIGHT + 10}px`,
-          left: '330px', // Adjusted to be after the VOB tree
+          left: ui.showVobTree ? '330px' : '10px', // Adjusted to be after the VOB tree
           background: 'rgba(0, 0, 0, 0.8)',
           color: 'white',
           padding: '10px',

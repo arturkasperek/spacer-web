@@ -3,11 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { TopMenuBar } from "../top-menu-bar";
 import { __resetViewSettingsForTests, getViewSettings } from "../view-settings";
 import { __resetCameraSettingsForTests, getCameraSettings } from "../camera-settings";
+import { __resetUiSettingsForTests, getUiSettings } from "../ui-settings";
 
 describe("TopMenuBar", () => {
   beforeEach(() => {
     __resetViewSettingsForTests();
     __resetCameraSettingsForTests();
+    __resetUiSettingsForTests();
   });
 
   it("toggles view settings from View menu", async () => {
@@ -48,5 +50,22 @@ describe("TopMenuBar", () => {
 
     await user.click(freeCam);
     expect(getCameraSettings().freeCamera).toBe(true);
+  });
+
+  it("toggles UI panels from View menu", async () => {
+    const user = userEvent.setup();
+    render(<TopMenuBar />);
+
+    await user.click(screen.getByTestId("top-menu-view"));
+
+    const vobTree = screen.getByRole("menuitemcheckbox", { name: /vob tree/i });
+    expect(vobTree).toHaveAttribute("aria-checked", "true");
+    await user.click(vobTree);
+    expect(getUiSettings().showVobTree).toBe(false);
+
+    const timeBar = screen.getByRole("menuitemcheckbox", { name: /time bar/i });
+    expect(timeBar).toHaveAttribute("aria-checked", "true");
+    await user.click(timeBar);
+    expect(getUiSettings().showStatusBar).toBe(false);
   });
 });

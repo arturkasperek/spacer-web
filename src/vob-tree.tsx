@@ -39,6 +39,7 @@ interface VOBTreeProps {
   selectedVob?: Vob | null;
   selectedWaypoint?: WayPointData | null;
   topOffsetPx?: number;
+  onClose?: () => void;
 }
 
 function buildVOBTree(world: World): TreeNode[] {
@@ -164,7 +165,16 @@ function flattenTree(
   return result;
 }
 
-export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTeleport, selectedVob, selectedWaypoint, topOffsetPx = 0 }: VOBTreeProps) {
+export function VOBTree({
+  world,
+  onVobClick,
+  onWaypointSelect,
+  onWaypointTeleport,
+  selectedVob,
+  selectedWaypoint,
+  topOffsetPx = 0,
+  onClose,
+}: VOBTreeProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const listRef = useRef<any>(null);
@@ -602,13 +612,42 @@ export function VOBTree({ world, onVobClick, onWaypointSelect, onWaypointTelepor
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         background: 'rgba(0, 0, 0, 0.5)'
       }}>
-        <h3 style={{ 
-          margin: '0 0 8px 0', 
-          fontSize: '14px',
-          fontWeight: 'bold'
-        }}>
-          VOB Tree
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <h3 style={{ 
+            margin: '0 0 8px 0', 
+            fontSize: '14px',
+            fontWeight: 'bold'
+          }}>
+            VOB Tree
+          </h3>
+          {typeof onClose === 'function' && (
+            <button
+              type="button"
+              data-testid="vob-tree-close"
+              aria-label="Close"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              style={{
+                cursor: 'pointer',
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: 'white',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: 4,
+                height: 22,
+                width: 22,
+                lineHeight: '20px',
+                padding: 0,
+                display: 'grid',
+                placeItems: 'center',
+              }}
+              title="Close"
+            >
+              ×
+            </button>
+          )}
+        </div>
         <div style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.6)' }}>
           Total VOBs: {totalCount}
         </div>

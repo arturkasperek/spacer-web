@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toggleViewSetting, useViewSettings } from "./view-settings.js";
 import { toggleCameraSetting, useCameraSettings } from "./camera-settings";
+import { toggleUiSetting, useUiSettings } from "./ui-settings";
 
 export const TOP_MENU_HEIGHT = 26;
 
@@ -42,6 +43,7 @@ function MenuItem({ label, checked, onClick }: MenuItemProps) {
 export function TopMenuBar() {
   const view = useViewSettings();
   const camera = useCameraSettings();
+  const ui = useUiSettings();
   const [openMenu, setOpenMenu] = useState<"view" | "camera" | null>(null);
   const [motionHeld, setMotionHeld] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -131,6 +133,9 @@ export function TopMenuBar() {
             <MenuItem label="Vobspots" checked={view.showVobSpots} onClick={() => toggleViewSetting("showVobSpots")} />
             <MenuItem label="Waypoints" checked={view.showWaypoints} onClick={() => toggleViewSetting("showWaypoints")} />
             <MenuItem label="Lights" checked={view.showLights} onClick={() => toggleViewSetting("showLights")} />
+            <div style={{ height: 1, background: "rgba(0,0,0,0.12)", margin: "4px 0" }} />
+            <MenuItem label="VOB Tree" checked={ui.showVobTree} onClick={() => toggleUiSetting("showVobTree")} />
+            <MenuItem label="Time Bar" checked={ui.showStatusBar} onClick={() => toggleUiSetting("showStatusBar")} />
           </div>
         )}
       </div>

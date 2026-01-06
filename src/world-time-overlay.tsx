@@ -3,7 +3,7 @@ import { setWorldTime, useWorldTime } from "./world-time.js";
 
 const clampInt = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.trunc(value)));
 
-export function WorldTimeOverlay() {
+export function WorldTimeOverlay({ onClose }: { onClose?: () => void } = {}) {
   const t = useWorldTime();
   const [open, setOpen] = useState(false);
   const [dayInput, setDayInput] = useState(String(t.day));
@@ -43,21 +43,42 @@ export function WorldTimeOverlay() {
         fontSize: 12,
       }}
     >
-      <button
-        type="button"
-        data-testid="world-time-display"
-        onClick={() => (open ? setOpen(false) : openEditor())}
-        style={{
-          cursor: "pointer",
-          background: "rgba(0, 0, 0, 0.65)",
-          color: "white",
-          padding: "6px 10px",
-          borderRadius: 6,
-          border: "1px solid rgba(255,255,255,0.25)",
-        }}
-      >
-        {display}
-      </button>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          data-testid="world-time-display"
+          onClick={() => (open ? setOpen(false) : openEditor())}
+          style={{
+            cursor: "pointer",
+            background: "rgba(0, 0, 0, 0.65)",
+            color: "white",
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid rgba(255,255,255,0.25)",
+          }}
+        >
+          {display}
+        </button>
+        {onClose && (
+          <button
+            type="button"
+            data-testid="world-time-close"
+            aria-label="Close"
+            onClick={() => onClose()}
+            style={{
+              cursor: "pointer",
+              background: "rgba(0, 0, 0, 0.65)",
+              color: "white",
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.25)",
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       {open && (
         <div
@@ -111,4 +132,3 @@ export function WorldTimeOverlay() {
     </div>
   );
 }
-
