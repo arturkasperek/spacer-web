@@ -24,6 +24,8 @@ import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
 import { PlayerInputProvider } from "./player-input-context.js";
+import { CameraDebugProvider } from "./camera-debug-context.js";
+import { CameraDebugPanel } from "./camera-debug-panel.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -403,50 +405,53 @@ export function App() {
         </div>
       )}
 
-      <Canvas
-        gl={{
-          alpha: false,
-          antialias: true,
-          logarithmicDepthBuffer: true,  // Better depth precision for large scenes
-          outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
-          sortObjects: true,  // Ensure proper depth sorting
-          pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
-          powerPreference: 'default',  // Match zen-viewer default
-          toneMapping: THREE.NoToneMapping  // Disable tone mapping for more faded appearance
-        }}
-        camera={{
-          position: [0, 0, 0],
-          fov: 75,
-          near: 1.0,
-          far: 100000
-        }}
-        style={{ background: '#222222' }}
-      >
-        <PlayerInputProvider>
-          <Physics>
-            <Scene
-              cameraControlsRef={cameraControlsRef}
-              worldPath={worldPath}
-              onLoadingStatus={handleLoadingStatus}
-              world={world}
-              zenKit={zenKit}
-              onWorldLoaded={handleWorldLoaded}
-              cameraPosition={cameraPosition}
-              onCameraPositionChange={handleCameraPositionChange}
-              onVobStats={handleVobStats}
-              selectedVob={selectedVob}
-              onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
-              selectedWaypoint={selectedWaypoint}
-              onVobClickFromScene={handleVobClickFromScene}
-              onWaypointClickFromScene={handleWaypointClickFromScene}
-              onNpcClickFromScene={handleNpcClickFromScene}
-              npcs={npcs}
-              onNpcSpawn={handleNpcSpawn}
-              viewSettings={viewSettings}
-            />
-          </Physics>
-        </PlayerInputProvider>
-      </Canvas>
+      <CameraDebugProvider>
+        <Canvas
+          gl={{
+            alpha: false,
+            antialias: true,
+            logarithmicDepthBuffer: true,  // Better depth precision for large scenes
+            outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
+            sortObjects: true,  // Ensure proper depth sorting
+            pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
+            powerPreference: 'default',  // Match zen-viewer default
+            toneMapping: THREE.NoToneMapping  // Disable tone mapping for more faded appearance
+          }}
+          camera={{
+            position: [0, 0, 0],
+            fov: 75,
+            near: 1.0,
+            far: 100000
+          }}
+          style={{ background: '#222222' }}
+        >
+          <PlayerInputProvider>
+            <Physics>
+              <Scene
+                cameraControlsRef={cameraControlsRef}
+                worldPath={worldPath}
+                onLoadingStatus={handleLoadingStatus}
+                world={world}
+                zenKit={zenKit}
+                onWorldLoaded={handleWorldLoaded}
+                cameraPosition={cameraPosition}
+                onCameraPositionChange={handleCameraPositionChange}
+                onVobStats={handleVobStats}
+                selectedVob={selectedVob}
+                onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+                selectedWaypoint={selectedWaypoint}
+                onVobClickFromScene={handleVobClickFromScene}
+                onWaypointClickFromScene={handleWaypointClickFromScene}
+                onNpcClickFromScene={handleNpcClickFromScene}
+                npcs={npcs}
+                onNpcSpawn={handleNpcSpawn}
+                viewSettings={viewSettings}
+              />
+            </Physics>
+          </PlayerInputProvider>
+        </Canvas>
+        <CameraDebugPanel />
+      </CameraDebugProvider>
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>
   );

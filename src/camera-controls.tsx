@@ -5,6 +5,7 @@ import { getPlayerPose } from "./player-runtime";
 import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
 import { usePlayerInput } from "./player-input-context";
+import { useCameraDebug } from "./camera-debug-context";
 
 declare global {
   interface Window {
@@ -22,6 +23,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { camera, gl } = useThree();
   const cameraSettings = useCameraSettings();
   const playerInput = usePlayerInput();
+  const cameraDebug = useCameraDebug();
   const [keys, setKeys] = useState({
     KeyW: false,
     KeyS: false,
@@ -337,8 +339,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         }
 
         // Simple fixed camera behind player
-        const bestRangeM = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
-        const bestElevDeg = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        // Apply debug overrides if set
+        const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
+        const camDefBestElev = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        
+        const bestRangeM = cameraDebug.state.bestRangeOverride ?? camDefBestRange;
+        const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
         const lookAtHeight = 110; // cm - height on player model where camera looks at
 
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
