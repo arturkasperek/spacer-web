@@ -3,7 +3,7 @@
   "type": "module",
   "dependencies": {
     "@dimforge/rapier3d": "^0.19.3",
-    "@kolarz3/zenkit": "^0.0.24",
+    "@kolarz3/zenkit": "v0.0.25",
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.4.2",
     "@react-three/handle": "^6.6.16",

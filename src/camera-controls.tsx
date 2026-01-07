@@ -68,16 +68,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const userPitchOffsetDegRef = useRef(0);
   const lastEffectiveRangeMRef = useRef<number | null>(null);
   const lastCollisionMaxRangeMRef = useRef<number | null>(null);
-  const zoomDebugRef = useRef({
-    lastLogAtMs: 0,
-    lastWheelAtMs: 0,
-    activeUntilMs: 0,
-    sessionId: 0,
-    frameLogsThisSession: 0,
-    lastClamp: false,
-    lastEffectiveRangeM: null as number | null,
-    lastDesiredRangeM: null as number | null,
-  });
+  const camRangeDebugLastSrcRef = useRef<"fallback" | "camera.dat" | null>(null);
   const tmpPlayerPosRef = useRef(new THREE.Vector3());
   const tmpPlayerQuatRef = useRef(new THREE.Quaternion());
   const tmpForwardRef = useRef(new THREE.Vector3());
@@ -557,41 +548,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 	        userRange01Ref.current = Math.max(0, Math.min(1, next));
 	      }
 
-      if (typeof window !== "undefined" && window.__cameraZoomDebug) {
-        const now = Date.now();
-        // Activate a short "zoom debug session" to avoid constant frame spam.
-        // Each wheel tick extends the session.
-        const sessionWindowMs = 900;
-        if (!freeCamera) {
-          if (now > zoomDebugRef.current.activeUntilMs) {
-            zoomDebugRef.current.sessionId += 1;
-            zoomDebugRef.current.frameLogsThisSession = 0;
-          }
-          zoomDebugRef.current.activeUntilMs = now + sessionWindowMs;
-        }
-        const eff = lastEffectiveRangeMRef.current;
-        const dbg = {
-          t: now,
-          event: "wheel",
-          sessionId: zoomDebugRef.current.sessionId,
-          freeCamera,
-          deltaY: event.deltaY,
-          userRange01: userRange01Ref.current,
-          srcRangeM: srcRangeMRef.current,
-          dstRangeM: dstRangeMRef.current,
-          effectiveRangeM: eff,
-        };
-        // Throttle noisy wheel spam slightly.
-        if (now - zoomDebugRef.current.lastWheelAtMs > 25) {
-          zoomDebugRef.current.lastWheelAtMs = now;
-          try {
-            console.log("[CameraZoomDebugJSON]" + JSON.stringify(dbg));
-          } catch {
-            console.log("[CameraZoomDebugJSON]" + String(dbg));
-          }
-        }
-      }
-
       event.preventDefault();
     };
 
@@ -704,13 +660,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         tmpTargetNoOffsetRef.current.set(playerPos.x, playerPos.y + lookAtHeight, playerPos.z);
         dstTargetRef.current.copy(tmpTargetNoOffsetRef.current);
 
-        // Initialize camera state once.
-        if (!didSnapToHeroRef.current) {
-          didSnapToHeroRef.current = true;
+	        // Initialize camera state once.
+	        if (!didSnapToHeroRef.current) {
+	          didSnapToHeroRef.current = true;
 
-          // Seed zoom so that default equals bestRange.
-          const denom = Math.max(1e-6, maxRangeM - minRangeM);
-          userRange01Ref.current = Math.max(0, Math.min(1, (bestRangeM - minRangeM) / denom));
+	          // Seed zoom so that default equals bestRange.
+	          const denom = Math.max(1e-6, maxRangeM - minRangeM);
+	          userRange01Ref.current = Math.max(0, Math.min(1, (bestRangeM - minRangeM) / denom));
 
           dstSpinDegRef.current.set(bestElevDeg, heroYawDeg, 0);
           srcSpinDegRef.current.copy(dstSpinDegRef.current);
@@ -723,9 +679,25 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           offsetAngDegRef.current.set(0, 0, 0);
           rotOffsetDegRef.current.set(0, 0, 0);
 
-          srcRangeMRef.current = bestRangeM;
-          dstRangeMRef.current = bestRangeM;
-        }
+	          srcRangeMRef.current = bestRangeM;
+	          dstRangeMRef.current = bestRangeM;
+	        }
+
+	        // Log camera range sources whenever we switch from fallback to camera.dat (or vice versa),
+	        // and preserve the current range when camera.dat becomes available to avoid jumps.
+	        const srcKey: "fallback" | "camera.dat" = camDef ? "camera.dat" : "fallback";
+	        if (camRangeDebugLastSrcRef.current !== srcKey) {
+	          const prev = camRangeDebugLastSrcRef.current;
+	          camRangeDebugLastSrcRef.current = srcKey;
+
+	          if (prev === "fallback" && srcKey === "camera.dat") {
+	            const currentRangeM = srcRangeMRef.current ?? bestRangeM;
+	            const denom = Math.max(1e-6, maxRangeM - minRangeM);
+	            userRange01Ref.current = Math.max(0, Math.min(1, (currentRangeM - minRangeM) / denom));
+	            dstRangeMRef.current = currentRangeM;
+	          }
+
+	        }
 
         // Keep camera behind hero by default, but allow temporary mouse offsets.
         const now = Date.now();
@@ -833,64 +805,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         if (clampedNow) {
           srcRangeMRef.current = Math.min(srcRangeMRef.current ?? effectiveRangeM, effectiveRangeM);
           dstRangeMRef.current = Math.min(dstRangeMRef.current ?? effectiveRangeM, effectiveRangeM);
-        }
-
-        // Debug: help diagnose zoom jumps near collision thresholds.
-        if (typeof window !== "undefined" && window.__cameraZoomDebug) {
-          const now = Date.now();
-          // Log only during a short window after the user uses the mouse wheel.
-          if (now > zoomDebugRef.current.activeUntilMs) {
-            // Keep internal "last" in sync so the next session starts cleanly.
-            zoomDebugRef.current.lastClamp = Boolean(collisionEnabled && worldMesh && effectiveRangeCm + 0.5 < rangeCm);
-            zoomDebugRef.current.lastEffectiveRangeM = effectiveRangeM;
-            zoomDebugRef.current.lastDesiredRangeM = rangeCm / 100;
-          } else {
-          const clamped = Boolean(collisionEnabled && worldMesh && effectiveRangeCm + 0.5 < rangeCm);
-          const desiredRangeM = rangeCm / 100;
-          const last = zoomDebugRef.current;
-          const shouldEmit =
-            // keep it reasonably low-frequency while still capturing the jump
-            now - last.lastLogAtMs > 120 ||
-            clamped !== last.lastClamp ||
-            (last.lastEffectiveRangeM != null && Math.abs(last.lastEffectiveRangeM - effectiveRangeM) > 0.05) ||
-            (last.lastDesiredRangeM != null && Math.abs(last.lastDesiredRangeM - desiredRangeM) > 0.05);
-
-          if (shouldEmit) {
-            // Hard cap per session to prevent spam if something goes unstable.
-            if (zoomDebugRef.current.frameLogsThisSession > 25) {
-              // ignore
-            } else {
-            zoomDebugRef.current.lastLogAtMs = now;
-            zoomDebugRef.current.lastClamp = clamped;
-            zoomDebugRef.current.lastEffectiveRangeM = effectiveRangeM;
-            zoomDebugRef.current.lastDesiredRangeM = desiredRangeM;
-            zoomDebugRef.current.frameLogsThisSession += 1;
-            const dbg = {
-              t: now,
-              event: "frame",
-              sessionId: zoomDebugRef.current.sessionId,
-              clamped,
-              collisionEnabled,
-              hasWorldMesh: Boolean(worldMesh),
-              userRange01: userRange01Ref.current,
-              minRangeM,
-              maxRangeM,
-              desiredRangeM,
-              effectiveRangeM,
-              maxCollisionRangeM: lastCollisionMaxRangeMRef.current,
-              srcRangeM: srcRangeMRef.current,
-              dstRangeM: dstRangeMRef.current,
-              camPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
-              targetPos: { x: cameraPosRef.current.x, y: cameraPosRef.current.y, z: cameraPosRef.current.z },
-            };
-            try {
-              console.log("[CameraZoomDebugJSON]" + JSON.stringify(dbg));
-            } catch {
-              console.log("[CameraZoomDebugJSON]" + String(dbg));
-            }
-            }
-          }
-          }
         }
 
         // Offset angle feedback from collision (OpenGothic-like).

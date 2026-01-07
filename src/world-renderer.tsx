@@ -65,6 +65,13 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         const ZenKitModule = zenkitModule.default as unknown as () => Promise<ZenKit>;
         const zenKit = await ZenKitModule();
 
+        // Start loading CAMERA.DAT presets as early as possible so the follow camera can use them
+        // even if the hero is spawned before the VM fully finishes loading.
+        const cameraModesPromise = loadCameraModes(zenKit).catch((e) => {
+          console.warn("Failed to load CAMERA.DAT presets:", e);
+          return {};
+        });
+
         onLoadingStatus(`Loading ${worldPath}...`);
 
         // Fetch the ZEN file
@@ -219,11 +226,6 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         // This also ensures `onWorldLoaded` can set any global world references used by VM externals.
         onLoadingStatus('Loading VM script...');
         try {
-          const cameraModesPromise = loadCameraModes(zenKit).catch((e) => {
-            console.warn("Failed to load CAMERA.DAT presets:", e);
-            return {};
-          });
-
           const resolveHeroSpawnpoint = (): string => {
             try {
               // Prefer zCVobStartpoint (player start) if ZenKit exposes it.

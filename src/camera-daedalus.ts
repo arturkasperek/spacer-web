@@ -87,9 +87,35 @@ export function discoverCameraModeInstanceNames(
   return names;
 }
 
-export function extractCameraModes(vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex" | "getSymbolFloat" | "getSymbolInt">): Record<string, CameraModeDef> {
+export function discoverCameraModeInstances(
+  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex">
+): Array<{ name: string; symbolIndex: number }> {
+  const count = Number(vm.symbolCount);
+  if (!Number.isFinite(count) || count <= 0) return [];
+
+  const out: Array<{ name: string; symbolIndex: number }> = [];
+  for (let i = 0; i < count; i++) {
+    const r = vm.getSymbolNameByIndex(i);
+    if (!r?.success) continue;
+    const name = String(r.data ?? "");
+    if (!name.startsWith("CAMMOD")) continue;
+    out.push({ name, symbolIndex: i });
+  }
+  return out;
+}
+
+export function extractCameraModes(
+  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex" | "getSymbolFloat" | "getSymbolInt" | "initInstanceByIndex">
+): Record<string, CameraModeDef> {
   const out: Record<string, CameraModeDef> = {};
-  for (const name of discoverCameraModeInstanceNames(vm)) {
+  for (const { name, symbolIndex } of discoverCameraModeInstances(vm)) {
+    // CAMERA.DAT is loaded in its own VM. To read instance member values, the VM must
+    // create/initialize the instance first.
+    try {
+      vm.initInstanceByIndex(symbolIndex);
+    } catch {
+      // Best-effort; if the VM can't init it, `readCameraModeDef` will return null.
+    }
     const def = readCameraModeDef(vm, name);
     if (def) out[name] = def;
   }
@@ -115,13 +141,22 @@ export async function loadCameraModes(
   if (cameraModesPromise) return cameraModesPromise;
 
   cameraModesPromise = (async () => {
-    const { script } = await loadDaedalusScript(zenKit, scriptPath);
-    const vm = createVm(zenKit, script);
-    const modes = extractCameraModes(vm);
-    cameraModesCache = modes;
-    return modes;
+    try {
+      const { script } = await loadDaedalusScript(zenKit, scriptPath);
+      const vm = createVm(zenKit, script);
+      const modes = extractCameraModes(vm);
+      cameraModesCache = modes;
+      if (!Object.keys(modes).length) {
+        console.warn("[Camera.dat] Loaded but found 0 CAMMOD* instances; camera will use fallbacks.");
+      }
+      return modes;
+    } catch (e) {
+      // Allow retries after transient failures.
+      cameraModesPromise = null;
+      cameraModesCache = null;
+      throw e;
+    }
   })();
 
   return cameraModesPromise;
 }
-
