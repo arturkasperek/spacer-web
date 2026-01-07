@@ -23,6 +23,7 @@ import { useViewSettings } from "./view-settings.js";
 import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
+import { PlayerInputProvider } from "./player-input-context.js";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -421,28 +422,30 @@ export function App() {
         }}
         style={{ background: '#222222' }}
       >
-        <Physics>
-          <Scene
-            cameraControlsRef={cameraControlsRef}
-            worldPath={worldPath}
-            onLoadingStatus={handleLoadingStatus}
-            world={world}
-            zenKit={zenKit}
-            onWorldLoaded={handleWorldLoaded}
-            cameraPosition={cameraPosition}
-            onCameraPositionChange={handleCameraPositionChange}
-            onVobStats={handleVobStats}
-            selectedVob={selectedVob}
-            onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
-            selectedWaypoint={selectedWaypoint}
-            onVobClickFromScene={handleVobClickFromScene}
-            onWaypointClickFromScene={handleWaypointClickFromScene}
-            onNpcClickFromScene={handleNpcClickFromScene}
-            npcs={npcs}
-            onNpcSpawn={handleNpcSpawn}
-            viewSettings={viewSettings}
-          />
-        </Physics>
+        <PlayerInputProvider>
+          <Physics>
+            <Scene
+              cameraControlsRef={cameraControlsRef}
+              worldPath={worldPath}
+              onLoadingStatus={handleLoadingStatus}
+              world={world}
+              zenKit={zenKit}
+              onWorldLoaded={handleWorldLoaded}
+              cameraPosition={cameraPosition}
+              onCameraPositionChange={handleCameraPositionChange}
+              onVobStats={handleVobStats}
+              selectedVob={selectedVob}
+              onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+              selectedWaypoint={selectedWaypoint}
+              onVobClickFromScene={handleVobClickFromScene}
+              onWaypointClickFromScene={handleWaypointClickFromScene}
+              onNpcClickFromScene={handleNpcClickFromScene}
+              npcs={npcs}
+              onNpcSpawn={handleNpcSpawn}
+              viewSettings={viewSettings}
+            />
+          </Physics>
+        </PlayerInputProvider>
       </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>

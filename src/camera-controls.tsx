@@ -4,10 +4,10 @@ import * as THREE from "three";
 import { getPlayerPose } from "./player-runtime";
 import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
+import { usePlayerInput } from "./player-input-context";
 
 declare global {
   interface Window {
-    __heroMouseYawDeltaDeg?: number;
     __cameraZoomDebug?: boolean;
   }
 }
@@ -21,6 +21,7 @@ export interface CameraControlsRef {
 export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { camera, gl } = useThree();
   const cameraSettings = useCameraSettings();
+  const playerInput = usePlayerInput();
   const [keys, setKeys] = useState({
     KeyW: false,
     KeyS: false,
@@ -45,6 +46,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const isQuickClickRef = useRef(false);
   const pointerLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const didSnapToHeroRef = useRef(false);
+  
+  // Follow camera mouse offsets
+  const userYawOffsetDegRef = useRef(0);
+  const userPitchOffsetDegRef = useRef(0);
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -178,11 +183,23 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         updateCameraOrientation();
         return;
       }
+
+      // Follow camera: mouse rotates the player (like arrow keys)
+      const scale = 0.2; // deg per pixel
+      
+      // Horizontal mouse movement rotates the player
+      const dYaw = deltaX * scale;
+      playerInput.addMouseYawDelta(dYaw);
+      
+      // Vertical mouse movement adjusts camera pitch offset
+      userPitchOffsetDegRef.current -= deltaY * scale;
+      userPitchOffsetDegRef.current = Math.max(-60, Math.min(60, userPitchOffsetDegRef.current));
     };
     document.addEventListener('mousemove', handleMouseMove);
 
     const handleMouseUp = (event: MouseEvent) => {
       if (event.button === 0) {
+        playerInput.consumeMouseYawDelta(); // Clear on mouse up
         const clickDuration = Date.now() - mouseDownTimeRef.current;
         const mouseDownPos = mouseDownPosRef.current;
 
@@ -226,7 +243,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     };
 
     const handlePointerLockChange = () => {
-      // Pointer lock change handler
+      // If user leaves pointer lock via ESC, stop player rotation
+      if (document.pointerLockElement !== gl.domElement) {
+        playerInput.consumeMouseYawDelta();
+      }
     };
 
     // Mouse wheel for movement speed (matching zen-viewer)
@@ -256,6 +276,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener("pointerlockchange", handlePointerLockChange);
+      playerInput.consumeMouseYawDelta(); // Cleanup
     };
   }, [gl, camera]);
 
@@ -311,6 +332,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Initialize once
         if (!didSnapToHeroRef.current) {
           didSnapToHeroRef.current = true;
+          userYawOffsetDegRef.current = 0;
+          userPitchOffsetDegRef.current = 0;
         }
 
         // Simple fixed camera behind player
@@ -343,11 +366,14 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         );
 
         // Calculate camera position: behind and above player
+        // Camera stays behind player (no yaw offset - player rotation handles it)
+        const cameraYawDeg = heroYawDeg + 180;
+        const cameraElevDeg = bestElevDeg + userPitchOffsetDegRef.current;
+        const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
+        const elevationRad = (cameraElevDeg * Math.PI) / 180;
+        
         // Convert bestRange from meters to cm
         const bestRangeCm = bestRangeM * 100;
-        const cameraYawDeg = heroYawDeg + 180;
-        const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
-        const elevationRad = (bestElevDeg * Math.PI) / 180;
         
         // Calculate horizontal distance (on XZ plane) based on elevation - in cm
         const horizontalDist = bestRangeCm * Math.cos(elevationRad);

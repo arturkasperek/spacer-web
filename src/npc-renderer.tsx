@@ -1,5 +1,6 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
+import { usePlayerInput } from "./player-input-context";
 import * as THREE from "three";
 import type { World, ZenKit } from '@kolarz3/zenkit';
 import { createStreamingState, disposeObject3D } from './distance-streaming';
@@ -62,6 +63,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
   const cameraSettings = useCameraSettings();
+  const playerInput = usePlayerInput();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpEmRootMotionWorld = useMemo(() => new THREE.Vector3(), []);
   const tmpManualDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
@@ -543,10 +545,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
 	      if (isManualHero) {
         let pendingMouseYawRad = 0;
-        if (typeof window !== "undefined") {
-          const dDeg = Number((window as any).__heroMouseYawDeltaDeg ?? 0);
-          if (Number.isFinite(dDeg) && dDeg !== 0) pendingMouseYawRad = (dDeg * Math.PI) / 180;
-          (window as any).__heroMouseYawDeltaDeg = 0;
+        const dDeg = playerInput.consumeMouseYawDelta();
+        if (Number.isFinite(dDeg) && dDeg !== 0) {
+          pendingMouseYawRad = (dDeg * Math.PI) / 180;
         }
         const nowMs = Date.now();
 
