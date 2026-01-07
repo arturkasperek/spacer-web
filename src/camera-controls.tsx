@@ -8,6 +8,7 @@ import { getCameraMode } from "./camera-daedalus";
 declare global {
   interface Window {
     __heroMouseYawDeltaDeg?: number;
+    __cameraZoomDebug?: boolean;
   }
 }
 
@@ -65,14 +66,32 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const lastManualCamInputAtRef = useRef(0);
   const userYawOffsetDegRef = useRef(0);
   const userPitchOffsetDegRef = useRef(0);
+  const lastEffectiveRangeMRef = useRef<number | null>(null);
+  const lastCollisionMaxRangeMRef = useRef<number | null>(null);
+  const zoomDebugRef = useRef({
+    lastLogAtMs: 0,
+    lastWheelAtMs: 0,
+    activeUntilMs: 0,
+    sessionId: 0,
+    frameLogsThisSession: 0,
+    lastClamp: false,
+    lastEffectiveRangeM: null as number | null,
+    lastDesiredRangeM: null as number | null,
+  });
   const tmpPlayerPosRef = useRef(new THREE.Vector3());
   const tmpPlayerQuatRef = useRef(new THREE.Quaternion());
   const tmpForwardRef = useRef(new THREE.Vector3());
   const tmpDesiredPosRef = useRef(new THREE.Vector3());
+  const tmpDesiredOriginCapRef = useRef(new THREE.Vector3());
   const tmpLookAtRef = useRef(new THREE.Vector3());
   const tmpTargetNoOffsetRef = useRef(new THREE.Vector3());
   const tmpDirRef = useRef(new THREE.Vector3());
   const tmpRayDirRef = useRef(new THREE.Vector3());
+  const tmpRayDir2Ref = useRef(new THREE.Vector3());
+  const tmpRayDir3Ref = useRef(new THREE.Vector3());
+  const tmpRayDir4Ref = useRef(new THREE.Vector3());
+  const tmpRayRightRef = useRef(new THREE.Vector3());
+  const tmpRayUpRef = useRef(new THREE.Vector3());
   const raycasterRef = useRef<THREE.Raycaster | null>(null);
   const tmpRayOriginRef = useRef(new THREE.Vector3());
 
@@ -268,6 +287,79 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     return originRef.current.copy(target).addScaledVector(viewDir, bestDistCm);
   };
 
+  const calcCameraCollisionMaxRangeMultiRayCm = (
+    target: THREE.Vector3,
+    dirCol: THREE.Vector3,
+    desiredRangeCm: number,
+    camera: THREE.Camera,
+    worldMesh: THREE.Mesh
+  ): number => {
+    const paddingCm = 50;
+    const n = 1; // 3x3
+    const nn = Math.max(1, n);
+
+    if (!Number.isFinite(desiredRangeCm) || desiredRangeCm <= 0) return 0;
+
+    const desiredOrigin = tmpDesiredOriginCapRef.current.copy(target).addScaledVector(dirCol, -desiredRangeCm);
+
+    const dview = tmpDirRef.current.copy(desiredOrigin).sub(target);
+    const dviewLen = dview.length();
+    if (!Number.isFinite(dviewLen) || dviewLen < 1e-4) return 0;
+
+    const viewDir = tmpRayDir2Ref.current.copy(dview).multiplyScalar(1 / dviewLen);
+    const up0 = tmpRayOriginRef.current.set(0, 1, 0);
+    const right = tmpRayRightRef.current.copy(viewDir).cross(up0);
+    if (right.lengthSq() < 1e-8) right.set(1, 0, 0);
+    right.normalize();
+    const up = tmpRayUpRef.current.copy(right).cross(viewDir).normalize();
+
+    const fov = (camera as any).fov ?? 60;
+    const aspect = (camera as any).aspect ?? 1;
+    const tanY = Math.tan(((fov * Math.PI) / 180) / 2);
+    const tanX = tanY * aspect;
+
+    const raycaster = raycasterRef.current ?? (raycasterRef.current = new THREE.Raycaster());
+    const materialIds: Int32Array | undefined = (worldMesh.geometry as any)?.userData?.materialIds;
+    const noCollDetByMaterialId: Record<number, boolean> | undefined = (worldMesh as any)?.userData?.noCollDetByMaterialId;
+
+    let bestDistCm = desiredRangeCm;
+    const maxRayLen = desiredRangeCm + paddingCm;
+
+    for (let i = -n; i <= n; i++) {
+      for (let r = -n; r <= n; r++) {
+        const u = i / nn;
+        const v = r / nn;
+
+        const rayDir = tmpRayDir4Ref.current
+          .copy(viewDir)
+          .addScaledVector(right, u * tanX)
+          .addScaledVector(up, v * tanY)
+          .normalize();
+
+        raycaster.set(target, rayDir);
+        raycaster.far = maxRayLen;
+
+        const hits = raycaster.intersectObject(worldMesh, false);
+        if (!hits.length) continue;
+
+        for (const h of hits) {
+          const faceIndex = (h as any).faceIndex as number | undefined;
+          if (materialIds && noCollDetByMaterialId && Number.isFinite(faceIndex)) {
+            const matId = materialIds[faceIndex as number];
+            if (noCollDetByMaterialId[matId]) continue;
+          }
+
+          const distAlongView = (dview.dot(rayDir) * h.distance) / desiredRangeCm;
+          const clamped = Math.max(0, distAlongView - paddingCm);
+          if (clamped < bestDistCm) bestDistCm = clamped;
+          break;
+        }
+      }
+    }
+
+    return bestDistCm;
+  };
+
   useEffect(() => {
     // Initialize camera orientation from current position (matching zen-viewer)
     const initialDirection = new THREE.Vector3(0, 0, -1);
@@ -431,17 +523,75 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     };
 
     // Mouse wheel for movement speed (matching zen-viewer)
-    const handleWheel = (event: WheelEvent) => {
-      const freeCamera = getCameraSettings().freeCamera;
-      if (freeCamera) {
-        moveSpeedRef.current += event.deltaY * 0.1;
-        moveSpeedRef.current = Math.max(1, Math.min(500, moveSpeedRef.current));
-      } else {
-        // OpenGothic-style zoom.
-        const prev = userRange01Ref.current;
-        const next = event.deltaY > 0 ? (prev + 0.02) : (prev - 0.02);
-        userRange01Ref.current = Math.max(0, Math.min(1, next));
+	    const handleWheel = (event: WheelEvent) => {
+	      const freeCamera = getCameraSettings().freeCamera;
+	      if (freeCamera) {
+	        moveSpeedRef.current += event.deltaY * 0.1;
+	        moveSpeedRef.current = Math.max(1, Math.min(500, moveSpeedRef.current));
+	      } else {
+	        // OpenGothic-style zoom.
+	        let prev = userRange01Ref.current;
+
+	        // If the camera is currently collision-capped (effective << desired), zooming in would feel "locked"
+	        // because the user would need to scroll enough for `desiredRange` to cross below the cap.
+	        // To match original UX, when the user starts zooming in, resync the desired range to the current
+	        // effective range first, then apply the wheel step.
+	        if (event.deltaY < 0) {
+	          const camDef = getCameraMode("CAMMODNORMAL");
+	          const minRangeM = Number.isFinite(camDef?.minRange) ? camDef!.minRange : 2;
+	          const maxRangeM = Number.isFinite(camDef?.maxRange) ? camDef!.maxRange : 10;
+	          const denom = Math.max(1e-6, maxRangeM - minRangeM);
+
+	          const eff = lastEffectiveRangeMRef.current;
+	          if (eff != null && Number.isFinite(eff)) {
+	            const desiredM = minRangeM + denom * Math.max(0, Math.min(1, prev));
+	            // Heuristic: if desired is far beyond current effective distance, we were capped.
+	            if (desiredM > eff + 0.25) {
+	              prev = Math.max(0, Math.min(1, (eff - minRangeM) / denom));
+	              userRange01Ref.current = prev;
+	            }
+	          }
+	        }
+
+	        const next = event.deltaY > 0 ? (prev + 0.02) : (prev - 0.02);
+	        userRange01Ref.current = Math.max(0, Math.min(1, next));
+	      }
+
+      if (typeof window !== "undefined" && window.__cameraZoomDebug) {
+        const now = Date.now();
+        // Activate a short "zoom debug session" to avoid constant frame spam.
+        // Each wheel tick extends the session.
+        const sessionWindowMs = 900;
+        if (!freeCamera) {
+          if (now > zoomDebugRef.current.activeUntilMs) {
+            zoomDebugRef.current.sessionId += 1;
+            zoomDebugRef.current.frameLogsThisSession = 0;
+          }
+          zoomDebugRef.current.activeUntilMs = now + sessionWindowMs;
+        }
+        const eff = lastEffectiveRangeMRef.current;
+        const dbg = {
+          t: now,
+          event: "wheel",
+          sessionId: zoomDebugRef.current.sessionId,
+          freeCamera,
+          deltaY: event.deltaY,
+          userRange01: userRange01Ref.current,
+          srcRangeM: srcRangeMRef.current,
+          dstRangeM: dstRangeMRef.current,
+          effectiveRangeM: eff,
+        };
+        // Throttle noisy wheel spam slightly.
+        if (now - zoomDebugRef.current.lastWheelAtMs > 25) {
+          zoomDebugRef.current.lastWheelAtMs = now;
+          try {
+            console.log("[CameraZoomDebugJSON]" + JSON.stringify(dbg));
+          } catch {
+            console.log("[CameraZoomDebugJSON]" + String(dbg));
+          }
+        }
       }
+
       event.preventDefault();
     };
 
@@ -595,12 +745,14 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         if (dstSpinDegRef.current.x > maxElevDeg) dstSpinDegRef.current.x = maxElevDeg;
         if (dstSpinDegRef.current.x < minElevDeg) dstSpinDegRef.current.x = minElevDeg;
 
-        // Zoom interpolation (OpenGothic-style).
-        dstRangeMRef.current = minRangeM + (maxRangeM - minRangeM) * Math.max(0, Math.min(1, userRange01Ref.current));
-        if (srcRangeMRef.current == null) srcRangeMRef.current = dstRangeMRef.current;
+        // Zoom interpolation (OpenGothic-style): `userRange01Ref` is the user's intent (0..1).
+        // When collision prevents zooming out, we cap `dstRangeMRef` to the maximum collision-free range,
+        // but we never overwrite `userRange01Ref` (so zoom resumes smoothly when the path clears).
+        const desiredUserRangeM =
+          minRangeM + (maxRangeM - minRangeM) * Math.max(0, Math.min(1, userRange01Ref.current));
+        const desiredUserRangeCm = desiredUserRangeM * 100;
+        if (srcRangeMRef.current == null) srcRangeMRef.current = dstRangeMRef.current ?? desiredUserRangeM;
         const zSpeed = 5;
-        const dz = dstRangeMRef.current - srcRangeMRef.current;
-        srcRangeMRef.current += dz * Math.min(1, 2 * zSpeed * Math.max(0, delta));
 
         // Apply scripted offsets (Camera.dat).
         const rotBestDeg = new THREE.Vector3(0, bestAziDeg, 0);
@@ -628,13 +780,34 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // followCamera: cameraPos tracks src.target when translate is enabled.
         if (translateEnabled) cameraPosRef.current.copy(srcTargetRef.current);
 
-        // Direction vector to place camera.
-        const rangeCm = (srcRangeMRef.current ?? bestRangeM) * 100;
+        // Compute the collision direction for the current camera angles.
         const spinForCollision = tmpLookAtRef.current.copy(srcSpinDegRef.current).add(offsetAngDegRef.current);
         const yawColRad = (spinForCollision.y * Math.PI) / 180;
         const pitchColRad = spinForCollision.x * Math.PI / 180;
         const qCol = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitchColRad, yawColRad, 0, "YXZ"));
-        const dirCol = tmpRayDirRef.current.set(0, 0, 1).applyQuaternion(qCol).normalize();
+        const dirCol = tmpRayDir3Ref.current.set(0, 0, 1).applyQuaternion(qCol).normalize();
+
+        // Probe collision for the *desired* zoom distance (prevents dstRange from jumping to a value
+        // that is still blocked, which caused oscillations when scrolling fast).
+        const worldMesh = collisionEnabled ? ((scene as any)?.getObjectByName?.("WORLD_MESH") as THREE.Mesh | undefined) : undefined;
+        const maxAllowedCm =
+          collisionEnabled && worldMesh
+            ? calcCameraCollisionMaxRangeMultiRayCm(cameraPosRef.current, dirCol, desiredUserRangeCm, camera, worldMesh)
+            : desiredUserRangeCm;
+        const maxAllowedM = maxAllowedCm / 100;
+        lastCollisionMaxRangeMRef.current = maxAllowedM;
+        const cappedDesiredM = Math.min(desiredUserRangeM, Math.max(0, maxAllowedM));
+        const srcRangeMNow = srcRangeMRef.current ?? cappedDesiredM;
+        // Important UX: collision caps should prevent zooming *out* further, but should not suddenly pull the camera
+        // *in* while the user is scrolling out (that feels like a "lock" + reverse zoom).
+        // If the user wants to zoom out and the computed cap is below the current range, keep the current range.
+        dstRangeMRef.current = desiredUserRangeM >= srcRangeMNow ? Math.max(srcRangeMNow, cappedDesiredM) : cappedDesiredM;
+
+        const dz = (dstRangeMRef.current ?? desiredUserRangeM) - (srcRangeMRef.current ?? desiredUserRangeM);
+        srcRangeMRef.current += dz * Math.min(1, 2 * zSpeed * Math.max(0, delta));
+
+        // Direction vector to place camera.
+        const rangeCm = (srcRangeMRef.current ?? bestRangeM) * 100;
 
         const desiredOrigin = originRef.current.copy(cameraPosRef.current).addScaledVector(dirCol, -rangeCm);
 
@@ -642,7 +815,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
         // Collision: ray from target to origin (single-ray approximation, but close enough with BVH).
         if (collisionEnabled) {
-          const worldMesh = (scene as any)?.getObjectByName?.("WORLD_MESH") as THREE.Mesh | undefined;
           if (worldMesh) {
             finalOrigin = calcCameraCollisionMultiRay(
               cameraPosRef.current,
@@ -651,6 +823,73 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
               camera,
               worldMesh
             );
+          }
+        }
+
+        const effectiveRangeCm = finalOrigin.distanceTo(cameraPosRef.current);
+        const effectiveRangeM = effectiveRangeCm / 100;
+        lastEffectiveRangeMRef.current = effectiveRangeM;
+        const clampedNow = Boolean(collisionEnabled && worldMesh && effectiveRangeCm + 0.5 < rangeCm);
+        if (clampedNow) {
+          srcRangeMRef.current = Math.min(srcRangeMRef.current ?? effectiveRangeM, effectiveRangeM);
+          dstRangeMRef.current = Math.min(dstRangeMRef.current ?? effectiveRangeM, effectiveRangeM);
+        }
+
+        // Debug: help diagnose zoom jumps near collision thresholds.
+        if (typeof window !== "undefined" && window.__cameraZoomDebug) {
+          const now = Date.now();
+          // Log only during a short window after the user uses the mouse wheel.
+          if (now > zoomDebugRef.current.activeUntilMs) {
+            // Keep internal "last" in sync so the next session starts cleanly.
+            zoomDebugRef.current.lastClamp = Boolean(collisionEnabled && worldMesh && effectiveRangeCm + 0.5 < rangeCm);
+            zoomDebugRef.current.lastEffectiveRangeM = effectiveRangeM;
+            zoomDebugRef.current.lastDesiredRangeM = rangeCm / 100;
+          } else {
+          const clamped = Boolean(collisionEnabled && worldMesh && effectiveRangeCm + 0.5 < rangeCm);
+          const desiredRangeM = rangeCm / 100;
+          const last = zoomDebugRef.current;
+          const shouldEmit =
+            // keep it reasonably low-frequency while still capturing the jump
+            now - last.lastLogAtMs > 120 ||
+            clamped !== last.lastClamp ||
+            (last.lastEffectiveRangeM != null && Math.abs(last.lastEffectiveRangeM - effectiveRangeM) > 0.05) ||
+            (last.lastDesiredRangeM != null && Math.abs(last.lastDesiredRangeM - desiredRangeM) > 0.05);
+
+          if (shouldEmit) {
+            // Hard cap per session to prevent spam if something goes unstable.
+            if (zoomDebugRef.current.frameLogsThisSession > 25) {
+              // ignore
+            } else {
+            zoomDebugRef.current.lastLogAtMs = now;
+            zoomDebugRef.current.lastClamp = clamped;
+            zoomDebugRef.current.lastEffectiveRangeM = effectiveRangeM;
+            zoomDebugRef.current.lastDesiredRangeM = desiredRangeM;
+            zoomDebugRef.current.frameLogsThisSession += 1;
+            const dbg = {
+              t: now,
+              event: "frame",
+              sessionId: zoomDebugRef.current.sessionId,
+              clamped,
+              collisionEnabled,
+              hasWorldMesh: Boolean(worldMesh),
+              userRange01: userRange01Ref.current,
+              minRangeM,
+              maxRangeM,
+              desiredRangeM,
+              effectiveRangeM,
+              maxCollisionRangeM: lastCollisionMaxRangeMRef.current,
+              srcRangeM: srcRangeMRef.current,
+              dstRangeM: dstRangeMRef.current,
+              camPos: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+              targetPos: { x: cameraPosRef.current.x, y: cameraPosRef.current.y, z: cameraPosRef.current.z },
+            };
+            try {
+              console.log("[CameraZoomDebugJSON]" + JSON.stringify(dbg));
+            } catch {
+              console.log("[CameraZoomDebugJSON]" + String(dbg));
+            }
+            }
+          }
           }
         }
 
