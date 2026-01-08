@@ -105,9 +105,14 @@ export function getMapKey(npcs: Map<number, NpcData>): string {
 /**
  * Create NPC mesh (box + text sprite) imperatively
  */
-export function createNpcMesh(npcData: NpcData, position: THREE.Vector3): THREE.Group {
+export function createNpcMesh(npcData: NpcData, position: THREE.Vector3, rotation?: THREE.Quaternion): THREE.Group {
   const group = new THREE.Group();
   group.position.copy(position);
+  
+  // Apply rotation if provided (from waypoint direction)
+  if (rotation) {
+    group.quaternion.copy(rotation);
+  }
 
   // Separate visual root so we can smooth rendering without desyncing physics/collision transforms.
   const visualRoot = new THREE.Group();

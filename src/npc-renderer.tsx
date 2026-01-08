@@ -189,7 +189,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
   // Build quick lookup maps for waypoints and VOBs so routine-based positioning doesn't re-scan the whole world.
   // This is synchronous so spawnpoint/routine resolution never races the index-build effect.
-  const { waypointPosIndex, waypointDirIndex, vobPosIndex } = useMemo(() => buildNpcWorldIndices(world), [world]);
+  const { waypointPosIndex, waypointDirIndex, vobPosIndex, vobDirIndex } = useMemo(() => buildNpcWorldIndices(world), [world]);
 
   const npcRoutineWayboxIndex = useMemo(() => {
     const out = new Map<number, Aabb | null>();
@@ -409,6 +409,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       waypointMoverRef,
       playerGroupRef,
       manualControlHeroEnabled,
+      waypointDirIndex,
+      vobDirIndex,
       NPC_LOAD_DISTANCE,
       NPC_UNLOAD_DISTANCE,
       NPC_ACTIVE_BBOX_HALF_Y,

@@ -350,8 +350,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
         
-        // Use root bone height if available, fallback to 110cm
-        const lookAtHeight = pose.rootBoneHeight ?? 110; // cm - height of root bone or fallback
+        // Use root bone world Y if available, fallback to playerPos.y + 110cm
+        const lookAtY = pose.rootBoneWorldY ?? (playerPos.y + 110); // cm - absolute Y in world
         
         // Initialize once
         if (!didSnapToHeroRef.current) {
@@ -378,7 +378,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Camera target (look at point on player) - all positions in cm
         const target = new THREE.Vector3(
           playerPos.x,
-          playerPos.y + lookAtHeight,  // No division - positions are in cm
+          lookAtY,  // Use absolute world Y position of root bone
           playerPos.z
         );
 

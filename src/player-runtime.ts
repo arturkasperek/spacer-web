@@ -3,17 +3,17 @@ import * as THREE from "three";
 export type PlayerPose = {
   position: { x: number; y: number; z: number };
   quaternion: { x: number; y: number; z: number; w: number };
-  rootBoneHeight: number | null;
+  rootBoneWorldY: number | null; // Absolute Y position of root bone in world space
 };
 
 let playerPose: PlayerPose | null = null;
 
-let cachedRootBoneHeight: number | null = null; // Store measured height once
+let cachedRootBoneWorldY: number | null = null; // Store measured world Y position once
 
-function findRootBoneHeight(obj: THREE.Object3D): number | null {
-  // Use cached height if already measured
-  if (cachedRootBoneHeight !== null) {
-    return cachedRootBoneHeight;
+function findRootBoneWorldY(obj: THREE.Object3D): number | null {
+  // Use cached position if already successfully measured
+  if (cachedRootBoneWorldY !== null) {
+    return cachedRootBoneWorldY;
   }
   
   // Search for root bone
@@ -37,24 +37,23 @@ function findRootBoneHeight(obj: THREE.Object3D): number | null {
     
     const worldPos = new THREE.Vector3();
     bone.getWorldPosition(worldPos);
-    const height = worldPos.y - obj.position.y;
     
-    // Cache the height permanently
-    cachedRootBoneHeight = height;
-    return height;
+    // Cache the absolute world Y position only when found
+    cachedRootBoneWorldY = worldPos.y;
+    return worldPos.y;
   }
   
   // Fallback to direct bone search
   if (rootBone) {
     const worldPos = new THREE.Vector3();
     rootBone.getWorldPosition(worldPos);
-    const height = worldPos.y - obj.position.y;
     
-    // Cache the height permanently
-    cachedRootBoneHeight = height;
-    return height;
+    // Cache the absolute world Y position only when found
+    cachedRootBoneWorldY = worldPos.y;
+    return worldPos.y;
   }
 
+  // Don't cache null - keep trying until we find the bone
   return null;
 }
 
@@ -65,12 +64,12 @@ export function setPlayerPoseFromObject3D(obj: THREE.Object3D | null | undefined
   }
   const p = obj.position;
   const q = obj.quaternion;
-  const rootBoneHeight = findRootBoneHeight(obj);
+  const rootBoneWorldY = findRootBoneWorldY(obj);
   
   playerPose = {
     position: { x: p.x, y: p.y, z: p.z },
     quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
-    rootBoneHeight,
+    rootBoneWorldY,
   };
 }
 
@@ -80,7 +79,7 @@ export function getPlayerPose(): PlayerPose | null {
   return {
     position: { ...pose.position },
     quaternion: { ...pose.quaternion },
-    rootBoneHeight: pose.rootBoneHeight,
+    rootBoneWorldY: pose.rootBoneWorldY,
   };
 }
 

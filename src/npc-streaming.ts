@@ -3,7 +3,7 @@ import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
 import { disposeObject3D, shouldUpdateStreaming, type StreamingState } from "./distance-streaming";
 import type { NpcData } from "./types";
-import { isHeroNpcData } from "./npc-renderer-utils";
+import { isHeroNpcData, normalizeNameKey } from "./npc-renderer-utils";
 import { aabbIntersects, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
 import { createNpcMesh } from "./npc-utils";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
@@ -34,6 +34,8 @@ export function updateNpcStreaming({
   waypointMoverRef,
   playerGroupRef,
   manualControlHeroEnabled,
+  waypointDirIndex,
+  vobDirIndex,
   NPC_LOAD_DISTANCE,
   NPC_UNLOAD_DISTANCE,
   NPC_ACTIVE_BBOX_HALF_Y,
@@ -57,6 +59,8 @@ export function updateNpcStreaming({
   waypointMoverRef: MutableRefObject<WaypointMover | null>;
   playerGroupRef: MutableRefObject<THREE.Group | null>;
   manualControlHeroEnabled: boolean;
+  waypointDirIndex: Map<string, THREE.Quaternion>;
+  vobDirIndex: Map<string, THREE.Quaternion>;
   NPC_LOAD_DISTANCE: number;
   NPC_UNLOAD_DISTANCE: number;
   NPC_ACTIVE_BBOX_HALF_Y: number;
@@ -146,6 +150,24 @@ export function updateNpcStreaming({
     if (!npc) continue;
     const isHero = isHeroNpcData(npc.npcData);
 
+    // Get rotation from waypoint direction if available, fallback to VOB direction
+    let rotation: THREE.Quaternion | undefined;
+    if (npc.npcData.spawnpoint) {
+      const key = normalizeNameKey(npc.npcData.spawnpoint);
+      
+      // Try waypoint first
+      let quat = waypointDirIndex.get(key);
+      
+      // Fallback to VOB if waypoint has no direction
+      if (!quat) {
+        quat = vobDirIndex.get(key);
+      }
+      
+      if (quat) {
+        rotation = quat.clone();
+      }
+    }
+
     // Create NPC mesh imperatively
     // If multiple NPCs share the same spawn waypoint, spread them slightly in XZ so they don't start fully overlapped.
     // (ZenGin would typically resolve this via dynamic character collision; we do a simple deterministic spread here.)
@@ -171,7 +193,7 @@ export function updateNpcStreaming({
       }
     }
 
-    const npcGroup = createNpcMesh(npc.npcData, npc.position);
+    const npcGroup = createNpcMesh(npc.npcData, npc.position, rotation);
     loadedNpcsRef.current.set(npcId, npcGroup);
     npcGroup.userData.moveConstraint = applyMoveConstraint;
     {
