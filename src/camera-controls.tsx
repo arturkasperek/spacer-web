@@ -331,13 +331,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       if (pose) {
         const camDef = getCameraMode("CAMMODNORMAL");
         
-        // Initialize once
-        if (!didSnapToHeroRef.current) {
-          didSnapToHeroRef.current = true;
-          userYawOffsetDegRef.current = 0;
-          userPitchOffsetDegRef.current = 0;
-        }
-
         // Simple fixed camera behind player
         // Apply debug overrides if set
         const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
@@ -345,9 +338,18 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         
         const bestRangeM = cameraDebug.state.bestRangeOverride ?? camDefBestRange;
         const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
-        const lookAtHeight = 110; // cm - height on player model where camera looks at
-
+        
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
+        
+        // Use root bone height if available, fallback to 110cm
+        const lookAtHeight = pose.rootBoneHeight ?? 110; // cm - height of root bone or fallback
+        
+        // Initialize once
+        if (!didSnapToHeroRef.current) {
+          didSnapToHeroRef.current = true;
+          userYawOffsetDegRef.current = 0;
+          userPitchOffsetDegRef.current = 0;
+        }
         const playerQuat = new THREE.Quaternion(
           pose.quaternion.x,
           pose.quaternion.y,
