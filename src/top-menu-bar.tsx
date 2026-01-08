@@ -11,6 +11,52 @@ declare global {
   }
 }
 
+// Fullscreen hook with pointer lock
+function useFullscreen() {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPointerLocked, setIsPointerLocked] = useState(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const isFS = !!document.fullscreenElement;
+      setIsFullscreen(isFS);
+      
+      // When entering fullscreen, also lock the pointer
+      if (isFS) {
+        document.body.requestPointerLock();
+      }
+    };
+    
+    const onPointerLockChange = () => {
+      setIsPointerLocked(!!document.pointerLockElement);
+    };
+    
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('pointerlockchange', onPointerLockChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      // Exit pointer lock first, then fullscreen
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+      document.exitFullscreen();
+    }
+  };
+
+  return { isFullscreen, isPointerLocked, toggleFullscreen };
+}
+
 type MenuItemProps = {
   label: string;
   checked: boolean;
@@ -44,6 +90,7 @@ export function TopMenuBar() {
   const view = useViewSettings();
   const camera = useCameraSettings();
   const ui = useUiSettings();
+  const { isFullscreen, isPointerLocked, toggleFullscreen } = useFullscreen();
   const [openMenu, setOpenMenu] = useState<"view" | "camera" | null>(null);
   const [motionHeld, setMotionHeld] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -230,6 +277,28 @@ export function TopMenuBar() {
         title="Przytrzymaj żeby logować [NPCMotionDebugJSON] w konsoli (użyj podczas schodzenia ze schodów)"
       >
         Hold motion JSON
+      </button>
+
+      <button
+        type="button"
+        data-testid="top-menu-fullscreen"
+        onClick={toggleFullscreen}
+        style={{
+          height: TOP_MENU_HEIGHT - 4,
+          padding: "0 10px",
+          borderRadius: 2,
+          border: "1px solid rgba(0,0,0,0.25)",
+          background: isFullscreen ? "rgba(220,255,220,0.95)" : "rgba(255,255,255,0.65)",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+        title={
+          isFullscreen 
+            ? `Exit fullscreen (ESC)${isPointerLocked ? " - Mouse locked" : ""}` 
+            : "Enter fullscreen with mouse lock (F11)"
+        }
+      >
+        {isFullscreen ? "🔒 Exit Fullscreen" : "🎮 Fullscreen"}
       </button>
     </div>
   );

@@ -172,7 +172,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     };
 
     const handleMouseMove = (event: MouseEvent) => {
-      if (!isMouseDown || document.pointerLockElement !== gl.domElement) return;
+      // Allow mouse movement when:
+      // 1. Mouse is down AND pointer is locked to canvas (normal mode)
+      // 2. Pointer is locked to body (fullscreen mode with global pointer lock)
+      const canvasPointerLock = isMouseDown && document.pointerLockElement === gl.domElement;
+      const globalPointerLock = document.pointerLockElement === document.body;
+      
+      if (!canvasPointerLock && !globalPointerLock) return;
 
       const freeCamera = getCameraSettings().freeCamera;
       const deltaX = event.movementX || 0;
@@ -221,6 +227,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           if (moveDistance < 5) {
             isQuickClickRef.current = true;
             // Don't request pointer lock for quick clicks
+            // Only exit canvas pointer lock, not global (fullscreen) pointer lock
             if (document.pointerLockElement === gl.domElement) {
               document.exitPointerLock();
             }
@@ -238,6 +245,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         }
 
         isMouseDown = false;
+        // Only exit canvas pointer lock, not global (fullscreen) pointer lock
         if (document.pointerLockElement === gl.domElement) {
           document.exitPointerLock();
         }
@@ -246,7 +254,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
     const handlePointerLockChange = () => {
       // If user leaves pointer lock via ESC, stop player rotation
-      if (document.pointerLockElement !== gl.domElement) {
+      // But only if it's canvas pointer lock, not global (fullscreen) pointer lock
+      if (!document.pointerLockElement || document.pointerLockElement === document.body) {
         playerInput.consumeMouseYawDelta();
       }
     };
