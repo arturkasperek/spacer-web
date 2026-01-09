@@ -48,7 +48,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const isQuickClickRef = useRef(false);
   const pointerLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const didSnapToHeroRef = useRef(false);
-  
   // Follow camera mouse offsets
   const userYawOffsetDegRef = useRef(0);
   const userPitchOffsetDegRef = useRef(0);
@@ -344,6 +343,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Apply debug overrides if set
         const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
         const camDefBestElev = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
+        const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
         
         const bestRangeM = cameraDebug.state.bestRangeOverride ?? camDefBestRange;
         const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
@@ -404,7 +405,21 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         );
         
         camera.position.copy(cameraPos);
-        camera.lookAt(target);
+        // OpenGothic applies rot_offset to the view matrix (spin - rotOffset),
+        // so the camera does not look directly at the target.
+        // View yaw should be aligned with hero yaw (camera yaw - 180),
+        // otherwise the camera can face away from the player.
+        const viewYawDeg = heroYawDeg - camDefRotOffsetY;
+        const viewYawRad = (viewYawDeg * Math.PI) / 180;
+        const viewPitchRad = ((cameraElevDeg - camDefRotOffsetX) * Math.PI) / 180;
+        const lookDir = new THREE.Vector3(
+          Math.sin(viewYawRad) * Math.cos(viewPitchRad),
+          -Math.sin(viewPitchRad),
+          Math.cos(viewYawRad) * Math.cos(viewPitchRad)
+        );
+        const lookAtPos = cameraPos.clone().addScaledVector(lookDir, 100);
+        camera.lookAt(lookAtPos);
+
         return;
       }
     }

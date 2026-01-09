@@ -8,14 +8,21 @@ export type PlayerPose = {
 
 let playerPose: PlayerPose | null = null;
 
-let cachedRootBoneWorldY: number | null = null; // Store measured world Y position once
+let cachedRootBone: THREE.Bone | null = null;
+let cachedRootBoneOwnerId: string | null = null;
 
 function findRootBoneWorldY(obj: THREE.Object3D): number | null {
-  // Use cached position if already successfully measured
-  if (cachedRootBoneWorldY !== null) {
-    return cachedRootBoneWorldY;
+  if (cachedRootBoneOwnerId !== obj.uuid) {
+    cachedRootBoneOwnerId = obj.uuid;
+    cachedRootBone = null;
   }
-  
+
+  if (cachedRootBone && obj.getObjectById(cachedRootBone.id)) {
+    const worldPos = new THREE.Vector3();
+    cachedRootBone.getWorldPosition(worldPos);
+    return worldPos.y;
+  }
+
   // Search for root bone
   let skinnedMesh: THREE.SkinnedMesh | undefined;
   let rootBone: THREE.Bone | undefined;
@@ -31,25 +38,20 @@ function findRootBoneWorldY(obj: THREE.Object3D): number | null {
     }
   });
   
-  // Try SkinnedMesh first
-  if (skinnedMesh?.skeleton && skinnedMesh.skeleton.bones.length > 0) {
-    const bone = skinnedMesh.skeleton.bones[0];
-    
+  // Prefer explicit "BIP01" bone if found.
+  if (rootBone) {
+    cachedRootBone = rootBone;
     const worldPos = new THREE.Vector3();
-    bone.getWorldPosition(worldPos);
-    
-    // Cache the absolute world Y position only when found
-    cachedRootBoneWorldY = worldPos.y;
+    rootBone.getWorldPosition(worldPos);
     return worldPos.y;
   }
   
-  // Fallback to direct bone search
-  if (rootBone) {
+  // Fallback to first skeleton bone if nothing matches by name.
+  if (skinnedMesh?.skeleton && skinnedMesh.skeleton.bones.length > 0) {
+    const bone = skinnedMesh.skeleton.bones[0];
+    cachedRootBone = bone;
     const worldPos = new THREE.Vector3();
-    rootBone.getWorldPosition(worldPos);
-    
-    // Cache the absolute world Y position only when found
-    cachedRootBoneWorldY = worldPos.y;
+    bone.getWorldPosition(worldPos);
     return worldPos.y;
   }
 
@@ -82,4 +84,3 @@ export function getPlayerPose(): PlayerPose | null {
     rootBoneWorldY: pose.rootBoneWorldY,
   };
 }
-

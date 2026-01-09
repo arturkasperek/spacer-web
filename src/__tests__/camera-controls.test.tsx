@@ -45,6 +45,24 @@ jest.mock('@react-three/fiber', () => ({
   useFrame: jest.fn(),
 }));
 
+jest.mock('../player-input-context', () => ({
+  usePlayerInput: () => ({
+    addMouseYawDelta: jest.fn(),
+    consumeMouseYawDelta: jest.fn(),
+  }),
+}));
+
+jest.mock('../camera-debug-context', () => ({
+  useCameraDebug: () => ({
+    state: {
+      bestRangeOverride: null,
+      bestElevationOverride: null,
+    },
+    setBestRangeOverride: jest.fn(),
+    setBestElevationOverride: jest.fn(),
+  }),
+}));
+
 const mockCamera = {
   position: { set: jest.fn(), x: 0, y: 0, z: 0, add: jest.fn() },
   quaternion: { x: 0, y: 0, z: 0, w: 1, copy: jest.fn() },
