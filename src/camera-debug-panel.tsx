@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useCameraDebug } from './camera-debug-context';
 
 export function CameraDebugPanel() {
-  const { state, setBestRangeOverride, setBestElevationOverride } = useCameraDebug();
+  const { state, setBestRangeOverride, setBestElevationOverride, setRotOffsetXOverride } = useCameraDebug();
   
   const [rangeInput, setRangeInput] = useState('');
   const [elevationInput, setElevationInput] = useState('');
+  const [rotOffsetXInput, setRotOffsetXInput] = useState('');
   const [rangeEnabled, setRangeEnabled] = useState(false);
   const [elevationEnabled, setElevationEnabled] = useState(false);
+  const [rotOffsetXEnabled, setRotOffsetXEnabled] = useState(false);
 
   const handleRangeEnabledChange = (enabled: boolean) => {
     setRangeEnabled(enabled);
@@ -22,6 +24,14 @@ export function CameraDebugPanel() {
     if (!enabled) {
       setBestElevationOverride(null);
       setElevationInput('');
+    }
+  };
+
+  const handleRotOffsetXEnabledChange = (enabled: boolean) => {
+    setRotOffsetXEnabled(enabled);
+    if (!enabled) {
+      setRotOffsetXOverride(null);
+      setRotOffsetXInput('');
     }
   };
 
@@ -42,6 +52,16 @@ export function CameraDebugPanel() {
       setBestElevationOverride(num);
     } else {
       setBestElevationOverride(null);
+    }
+  };
+
+  const handleRotOffsetXChange = (value: string) => {
+    setRotOffsetXInput(value);
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setRotOffsetXOverride(num);
+    } else {
+      setRotOffsetXOverride(null);
     }
   };
 
@@ -113,7 +133,7 @@ export function CameraDebugPanel() {
       </div>
 
       {/* bestElevation */}
-      <div style={{ marginBottom: '10px' }}>
+      <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
           <input
             type="checkbox"
@@ -154,6 +174,48 @@ export function CameraDebugPanel() {
         )}
       </div>
 
+      {/* rotOffsetX */}
+      <div style={{ marginBottom: '10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <input
+            type="checkbox"
+            checked={rotOffsetXEnabled}
+            onChange={(e) => handleRotOffsetXEnabledChange(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ color: rotOffsetXEnabled ? '#4CAF50' : '#888' }}>
+            Override rotOffsetX
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="number"
+            value={rotOffsetXInput}
+            onChange={(e) => handleRotOffsetXChange(e.target.value)}
+            disabled={!rotOffsetXEnabled}
+            placeholder="23"
+            step="1"
+            min="-90"
+            max="90"
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              background: rotOffsetXEnabled ? '#222' : '#111',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ color: '#888', minWidth: '40px' }}>degrees</span>
+        </div>
+        {state.rotOffsetXOverride !== null && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#4CAF50' }}>
+            Active: {state.rotOffsetXOverride.toFixed(0)}°
+          </div>
+        )}
+      </div>
+
       {/* Info */}
       <div style={{
         marginTop: '15px',
@@ -164,6 +226,7 @@ export function CameraDebugPanel() {
       }}>
         <div>• Range: distance from player</div>
         <div>• Elevation: vertical angle</div>
+        <div>• rotOffsetX: pitch offset</div>
         <div style={{ marginTop: '5px', color: '#666' }}>
           Unchecked = use camera.dat values
         </div>
@@ -171,4 +234,3 @@ export function CameraDebugPanel() {
     </div>
   );
 }
-
