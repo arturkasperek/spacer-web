@@ -419,9 +419,9 @@ export function App() {
           }}
           camera={{
             position: [0, 0, 0],
-            fov: 75,
-            near: 1.0,
-            far: 100000
+            fov: 67.5,  // Match OpenGothic default FOV
+            near: 10.0,  // Match OpenGothic zNear (10cm)
+            far: 100000  // Match OpenGothic zFar
           }}
           style={{ background: '#222222' }}
         >
