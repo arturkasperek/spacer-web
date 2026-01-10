@@ -51,6 +51,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   // Follow camera mouse offsets
   const userYawOffsetDegRef = useRef(0);
   const userPitchOffsetDegRef = useRef(0);
+  const userRange01Ref = useRef<number | null>(null);
+  const lastRange01Ref = useRef(0.5);
+  const bestRangeOverrideRef = useRef<number | null>(null);
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -265,6 +268,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       if (freeCamera) {
         moveSpeedRef.current += event.deltaY * 0.1;
         moveSpeedRef.current = Math.max(1, Math.min(500, moveSpeedRef.current));
+      } else {
+        const step = 0.02;
+        const delta = Math.sign(event.deltaY);
+        if (delta !== 0) {
+          const base = userRange01Ref.current ?? lastRange01Ref.current;
+          userRange01Ref.current = Math.max(0, Math.min(1, base + delta * step));
+        }
       }
       event.preventDefault();
     };
@@ -289,6 +299,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       playerInput.consumeMouseYawDelta(); // Cleanup
     };
   }, [gl, camera]);
+
+  useEffect(() => {
+    bestRangeOverrideRef.current = cameraDebug.state.bestRangeOverride;
+  }, [cameraDebug.state.bestRangeOverride]);
 
   // Movement update function (matching zen-viewer)
   const updateMovement = (_delta?: number) => {
@@ -342,15 +356,21 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Simple fixed camera behind player
         // Apply debug overrides if set
         const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
+        const camDefMinRange = Number.isFinite(camDef?.minRange) ? camDef!.minRange : 2;
+        const camDefMaxRange = Number.isFinite(camDef?.maxRange) ? camDef!.maxRange : 10;
         const camDefBestElev = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
         const camDefBestAzimuth = Number.isFinite(camDef?.bestAzimuth) ? camDef!.bestAzimuth : 0;
         const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
         
-        const bestRangeM = cameraDebug.state.bestRangeOverride ?? camDefBestRange;
+        const bestRangeOverride = bestRangeOverrideRef.current;
+        const bestRangeM = bestRangeOverride ?? camDefBestRange;
         const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
         const bestAzimuthDeg = cameraDebug.state.bestAzimuthOverride ?? camDefBestAzimuth;
         const rotOffsetXDeg = cameraDebug.state.rotOffsetXOverride ?? camDefRotOffsetX;
+        const minRangeM = Math.max(0.01, camDefMinRange);
+        const maxRangeM = Math.max(minRangeM, camDefMaxRange);
+        const rangeSpan = Math.max(0.0001, maxRangeM - minRangeM);
         
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
         
@@ -362,6 +382,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           didSnapToHeroRef.current = true;
           userYawOffsetDegRef.current = 0;
           userPitchOffsetDegRef.current = 0;
+          const bestRangeClamped = Math.max(minRangeM, Math.min(maxRangeM, bestRangeM));
+          userRange01Ref.current = (bestRangeClamped - minRangeM) / rangeSpan;
         }
         const playerQuat = new THREE.Quaternion(
           pose.quaternion.x,
@@ -393,12 +415,23 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
         
-        // Convert bestRange from meters to cm
-        const bestRangeCm = bestRangeM * 100;
+        let rangeM: number;
+        if (bestRangeOverride !== null) {
+          const clamped = Math.max(minRangeM, Math.min(maxRangeM, bestRangeOverride));
+          const range01 = (clamped - minRangeM) / rangeSpan;
+          userRange01Ref.current = range01;
+          lastRange01Ref.current = range01;
+          rangeM = clamped;
+        } else {
+          const range01 = userRange01Ref.current ?? lastRange01Ref.current;
+          lastRange01Ref.current = range01;
+          rangeM = minRangeM + range01 * (maxRangeM - minRangeM);
+        }
+        const rangeCm = rangeM * 100;
         
         // Calculate horizontal distance (on XZ plane) based on elevation - in cm
-        const horizontalDist = bestRangeCm * Math.cos(elevationRad);
-        const verticalDist = bestRangeCm * Math.sin(elevationRad);
+        const horizontalDist = rangeCm * Math.cos(elevationRad);
+        const verticalDist = rangeCm * Math.sin(elevationRad);
         
         // Camera position
         const cameraPos = new THREE.Vector3(
