@@ -372,6 +372,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
         const bestAzimuthDeg = cameraDebug.state.bestAzimuthOverride ?? camDefBestAzimuth;
         const rotOffsetXDeg = cameraDebug.state.rotOffsetXOverride ?? camDefRotOffsetX;
+        const rotOffsetYDeg = cameraDebug.state.rotOffsetYOverride ?? camDefRotOffsetY;
         const minRangeM = Math.max(0.01, camDefMinRange);
         const maxRangeM = Math.max(minRangeM, camDefMaxRange);
         const rangeSpan = Math.max(0.0001, maxRangeM - minRangeM);
@@ -469,7 +470,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
         // otherwise the camera can face away from the player.
-        const viewYawDeg = heroYawDeg + clampedAzimuthDeg - camDefRotOffsetY;
+        const viewYawDeg = heroYawDeg + clampedAzimuthDeg - rotOffsetYDeg;
         const viewYawRad = (viewYawDeg * Math.PI) / 180;
         const viewPitchRad = ((cameraElevDeg - rotOffsetXDeg) * Math.PI) / 180;
         const lookDir = new THREE.Vector3(

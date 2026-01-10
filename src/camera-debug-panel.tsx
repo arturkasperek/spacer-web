@@ -8,17 +8,20 @@ export function CameraDebugPanel() {
     setBestRangeOverride,
     setBestElevationOverride,
     setBestAzimuthOverride,
-    setRotOffsetXOverride
+    setRotOffsetXOverride,
+    setRotOffsetYOverride
   } = useCameraDebug();
   
   const [rangeInput, setRangeInput] = useState('');
   const [elevationInput, setElevationInput] = useState('');
   const [azimuthInput, setAzimuthInput] = useState('');
   const [rotOffsetXInput, setRotOffsetXInput] = useState('');
+  const [rotOffsetYInput, setRotOffsetYInput] = useState('');
   const [rangeEnabled, setRangeEnabled] = useState(false);
   const [elevationEnabled, setElevationEnabled] = useState(false);
   const [azimuthEnabled, setAzimuthEnabled] = useState(false);
   const [rotOffsetXEnabled, setRotOffsetXEnabled] = useState(false);
+  const [rotOffsetYEnabled, setRotOffsetYEnabled] = useState(false);
 
   const activeModeName = "CAMMODNORMAL";
   const camDef = getCameraMode(activeModeName);
@@ -77,6 +80,14 @@ export function CameraDebugPanel() {
     }
   };
 
+  const handleRotOffsetYEnabledChange = (enabled: boolean) => {
+    setRotOffsetYEnabled(enabled);
+    if (!enabled) {
+      setRotOffsetYOverride(null);
+      setRotOffsetYInput('');
+    }
+  };
+
   const handleRangeChange = (value: string) => {
     setRangeInput(value);
     const num = parseFloat(value);
@@ -118,6 +129,16 @@ export function CameraDebugPanel() {
       setRotOffsetXOverride(num);
     } else {
       setRotOffsetXOverride(null);
+    }
+  };
+
+  const handleRotOffsetYChange = (value: string) => {
+    setRotOffsetYInput(value);
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setRotOffsetYOverride(num);
+    } else {
+      setRotOffsetYOverride(null);
     }
   };
 
@@ -284,7 +305,7 @@ export function CameraDebugPanel() {
       </div>
 
       {/* rotOffsetX */}
-      <div style={{ marginBottom: '10px' }}>
+      <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
           <input
             type="checkbox"
@@ -325,6 +346,48 @@ export function CameraDebugPanel() {
         )}
       </div>
 
+      {/* rotOffsetY */}
+      <div style={{ marginBottom: '10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <input
+            type="checkbox"
+            checked={rotOffsetYEnabled}
+            onChange={(e) => handleRotOffsetYEnabledChange(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ color: rotOffsetYEnabled ? '#4CAF50' : '#888' }}>
+            Override rotOffsetY
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="number"
+            value={rotOffsetYInput}
+            onChange={(e) => handleRotOffsetYChange(e.target.value)}
+            disabled={!rotOffsetYEnabled}
+            placeholder="0"
+            step="1"
+            min="-180"
+            max="180"
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              background: rotOffsetYEnabled ? '#222' : '#111',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ color: '#888', minWidth: '40px' }}>degrees</span>
+        </div>
+        {state.rotOffsetYOverride !== null && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#4CAF50' }}>
+            Active: {state.rotOffsetYOverride.toFixed(0)}°
+          </div>
+        )}
+      </div>
+
       {/* Info */}
       <div style={{
         marginTop: '15px',
@@ -346,6 +409,7 @@ export function CameraDebugPanel() {
         <div>• Elevation: vertical angle</div>
         <div>• Azimuth: yaw offset</div>
         <div>• rotOffsetX: pitch offset</div>
+        <div>• rotOffsetY: yaw offset</div>
         <div style={{ marginTop: '5px', color: '#666' }}>
           Unchecked = use camera.dat values
         </div>
