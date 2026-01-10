@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCameraDebug } from './camera-debug-context';
+import { getCameraMode } from './camera-daedalus';
 
 export function CameraDebugPanel() {
   const {
@@ -18,6 +19,31 @@ export function CameraDebugPanel() {
   const [elevationEnabled, setElevationEnabled] = useState(false);
   const [azimuthEnabled, setAzimuthEnabled] = useState(false);
   const [rotOffsetXEnabled, setRotOffsetXEnabled] = useState(false);
+
+  const activeModeName = "CAMMODNORMAL";
+  const camDef = getCameraMode(activeModeName);
+  const effectiveRange = useMemo(() => {
+    const minRange = Number.isFinite(camDef?.minRange) ? camDef!.minRange : 2;
+    const maxRange = Number.isFinite(camDef?.maxRange) ? camDef!.maxRange : 10;
+    return {
+      min: Math.min(minRange, maxRange),
+      max: Math.max(minRange, maxRange),
+      source: camDef ? "camera.dat" : "fallback"
+    };
+  }, [camDef]);
+  const effectiveElevation = useMemo(() => {
+    const minElevation = Number.isFinite(camDef?.minElevation) ? camDef!.minElevation : 0;
+    const maxElevation = Number.isFinite(camDef?.maxElevation) ? camDef!.maxElevation : 90;
+    return {
+      min: Math.min(minElevation, maxElevation),
+      max: Math.max(minElevation, maxElevation),
+      source: camDef ? "camera.dat" : "fallback"
+    };
+  }, [camDef]);
+
+  const clampElevation = (value: number) => {
+    return Math.max(effectiveElevation.min, Math.min(effectiveElevation.max, value));
+  };
 
   const handleRangeEnabledChange = (enabled: boolean) => {
     setRangeEnabled(enabled);
@@ -65,7 +91,11 @@ export function CameraDebugPanel() {
     setElevationInput(value);
     const num = parseFloat(value);
     if (!isNaN(num)) {
-      setBestElevationOverride(num);
+      const clamped = clampElevation(num);
+      setBestElevationOverride(clamped);
+      if (clamped !== num) {
+        setElevationInput(String(clamped));
+      }
     } else {
       setBestElevationOverride(null);
     }
@@ -90,6 +120,14 @@ export function CameraDebugPanel() {
       setRotOffsetXOverride(null);
     }
   };
+
+  useEffect(() => {
+    if (!elevationEnabled || state.bestElevationOverride === null) return;
+    const clamped = clampElevation(state.bestElevationOverride);
+    if (clamped === state.bestElevationOverride) return;
+    setBestElevationOverride(clamped);
+    setElevationInput(String(clamped));
+  }, [elevationEnabled, state.bestElevationOverride, setBestElevationOverride, effectiveElevation]);
 
   return (
     <div style={{
@@ -198,6 +236,9 @@ export function CameraDebugPanel() {
             Active: {state.bestElevationOverride.toFixed(0)}°
           </div>
         )}
+        <div style={{ marginTop: '4px', fontSize: '11px', color: '#888' }}>
+          Effective: {effectiveElevation.min.toFixed(0)}° - {effectiveElevation.max.toFixed(0)}°
+        </div>
       </div>
 
       {/* bestAzimuth */}
@@ -292,6 +333,15 @@ export function CameraDebugPanel() {
         fontSize: '11px',
         color: '#888'
       }}>
+        <div>
+          • Mode: {activeModeName} ({effectiveElevation.source})
+        </div>
+        <div>
+          • Range min/max: {effectiveRange.min.toFixed(1)} - {effectiveRange.max.toFixed(1)}m
+        </div>
+        <div>
+          • Elevation min/max: {effectiveElevation.min.toFixed(0)}° - {effectiveElevation.max.toFixed(0)}°
+        </div>
         <div>• Range: distance from player</div>
         <div>• Elevation: vertical angle</div>
         <div>• Azimuth: yaw offset</div>

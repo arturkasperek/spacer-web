@@ -359,6 +359,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefMinRange = Number.isFinite(camDef?.minRange) ? camDef!.minRange : 2;
         const camDefMaxRange = Number.isFinite(camDef?.maxRange) ? camDef!.maxRange : 10;
         const camDefBestElev = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        const camDefMinElev = Number.isFinite(camDef?.minElevation) ? camDef!.minElevation : 0;
+        const camDefMaxElev = Number.isFinite(camDef?.maxElevation) ? camDef!.maxElevation : 90;
         const camDefBestAzimuth = Number.isFinite(camDef?.bestAzimuth) ? camDef!.bestAzimuth : 0;
         const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
@@ -371,6 +373,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const minRangeM = Math.max(0.01, camDefMinRange);
         const maxRangeM = Math.max(minRangeM, camDefMaxRange);
         const rangeSpan = Math.max(0.0001, maxRangeM - minRangeM);
+        const minElevDeg = Math.min(camDefMinElev, camDefMaxElev);
+        const maxElevDeg = Math.max(camDefMinElev, camDefMaxElev);
         
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
         
@@ -411,7 +415,17 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Calculate camera position: behind and above player
         // Camera stays behind player (no yaw offset - player rotation handles it)
         const cameraYawDeg = heroYawDeg + 180 + bestAzimuthDeg;
-        const cameraElevDeg = bestElevDeg + userPitchOffsetDegRef.current;
+        const minPitchOffsetDeg = minElevDeg - bestElevDeg;
+        const maxPitchOffsetDeg = maxElevDeg - bestElevDeg;
+        const clampedPitchOffsetDeg = Math.max(
+          minPitchOffsetDeg,
+          Math.min(maxPitchOffsetDeg, userPitchOffsetDegRef.current)
+        );
+        userPitchOffsetDegRef.current = clampedPitchOffsetDeg;
+        const cameraElevDeg = Math.max(
+          minElevDeg,
+          Math.min(maxElevDeg, bestElevDeg + clampedPitchOffsetDeg)
+        );
         const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
         
