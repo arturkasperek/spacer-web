@@ -101,6 +101,12 @@ export function TopMenuBar() {
   }, [motionHeld]);
 
   useEffect(() => {
+    if (!isFullscreen) return;
+    if (openMenu) setOpenMenu(null);
+    if (motionHeld) setMotionHeld(false);
+  }, [isFullscreen, openMenu, motionHeld]);
+
+  useEffect(() => {
     return () => {
       // Best-effort: ensure it doesn't get stuck enabled if the component unmounts mid-hold.
       if (typeof window !== "undefined") window.__npcMotionDebug = false;
@@ -118,6 +124,10 @@ export function TopMenuBar() {
     document.addEventListener("mousedown", onDown, true);
     return () => document.removeEventListener("mousedown", onDown, true);
   }, [openMenu]);
+
+  if (isFullscreen) {
+    return null;
+  }
 
   return (
     <div
