@@ -57,10 +57,12 @@ jest.mock('../camera-debug-context', () => ({
     state: {
       bestRangeOverride: null,
       bestElevationOverride: null,
+      bestAzimuthOverride: null,
       rotOffsetXOverride: null,
     },
     setBestRangeOverride: jest.fn(),
     setBestElevationOverride: jest.fn(),
+    setBestAzimuthOverride: jest.fn(),
     setRotOffsetXOverride: jest.fn(),
   }),
 }));

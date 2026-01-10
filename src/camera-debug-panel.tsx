@@ -2,13 +2,21 @@ import { useState } from 'react';
 import { useCameraDebug } from './camera-debug-context';
 
 export function CameraDebugPanel() {
-  const { state, setBestRangeOverride, setBestElevationOverride, setRotOffsetXOverride } = useCameraDebug();
+  const {
+    state,
+    setBestRangeOverride,
+    setBestElevationOverride,
+    setBestAzimuthOverride,
+    setRotOffsetXOverride
+  } = useCameraDebug();
   
   const [rangeInput, setRangeInput] = useState('');
   const [elevationInput, setElevationInput] = useState('');
+  const [azimuthInput, setAzimuthInput] = useState('');
   const [rotOffsetXInput, setRotOffsetXInput] = useState('');
   const [rangeEnabled, setRangeEnabled] = useState(false);
   const [elevationEnabled, setElevationEnabled] = useState(false);
+  const [azimuthEnabled, setAzimuthEnabled] = useState(false);
   const [rotOffsetXEnabled, setRotOffsetXEnabled] = useState(false);
 
   const handleRangeEnabledChange = (enabled: boolean) => {
@@ -24,6 +32,14 @@ export function CameraDebugPanel() {
     if (!enabled) {
       setBestElevationOverride(null);
       setElevationInput('');
+    }
+  };
+
+  const handleAzimuthEnabledChange = (enabled: boolean) => {
+    setAzimuthEnabled(enabled);
+    if (!enabled) {
+      setBestAzimuthOverride(null);
+      setAzimuthInput('');
     }
   };
 
@@ -52,6 +68,16 @@ export function CameraDebugPanel() {
       setBestElevationOverride(num);
     } else {
       setBestElevationOverride(null);
+    }
+  };
+
+  const handleAzimuthChange = (value: string) => {
+    setAzimuthInput(value);
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setBestAzimuthOverride(num);
+    } else {
+      setBestAzimuthOverride(null);
     }
   };
 
@@ -174,6 +200,48 @@ export function CameraDebugPanel() {
         )}
       </div>
 
+      {/* bestAzimuth */}
+      <div style={{ marginBottom: '15px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <input
+            type="checkbox"
+            checked={azimuthEnabled}
+            onChange={(e) => handleAzimuthEnabledChange(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ color: azimuthEnabled ? '#4CAF50' : '#888' }}>
+            Override bestAzimuth
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="number"
+            value={azimuthInput}
+            onChange={(e) => handleAzimuthChange(e.target.value)}
+            disabled={!azimuthEnabled}
+            placeholder="0"
+            step="5"
+            min="-180"
+            max="180"
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              background: azimuthEnabled ? '#222' : '#111',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ color: '#888', minWidth: '40px' }}>degrees</span>
+        </div>
+        {state.bestAzimuthOverride !== null && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#4CAF50' }}>
+            Active: {state.bestAzimuthOverride.toFixed(0)}°
+          </div>
+        )}
+      </div>
+
       {/* rotOffsetX */}
       <div style={{ marginBottom: '10px' }}>
         <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
@@ -226,6 +294,7 @@ export function CameraDebugPanel() {
       }}>
         <div>• Range: distance from player</div>
         <div>• Elevation: vertical angle</div>
+        <div>• Azimuth: yaw offset</div>
         <div>• rotOffsetX: pitch offset</div>
         <div style={{ marginTop: '5px', color: '#666' }}>
           Unchecked = use camera.dat values

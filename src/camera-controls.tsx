@@ -343,11 +343,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // Apply debug overrides if set
         const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
         const camDefBestElev = Number.isFinite(camDef?.bestElevation) ? camDef!.bestElevation : 30;
+        const camDefBestAzimuth = Number.isFinite(camDef?.bestAzimuth) ? camDef!.bestAzimuth : 0;
         const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
         
         const bestRangeM = cameraDebug.state.bestRangeOverride ?? camDefBestRange;
         const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
+        const bestAzimuthDeg = cameraDebug.state.bestAzimuthOverride ?? camDefBestAzimuth;
         const rotOffsetXDeg = cameraDebug.state.rotOffsetXOverride ?? camDefRotOffsetX;
         
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
@@ -386,7 +388,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
         // Calculate camera position: behind and above player
         // Camera stays behind player (no yaw offset - player rotation handles it)
-        const cameraYawDeg = heroYawDeg + 180;
+        const cameraYawDeg = heroYawDeg + 180 + bestAzimuthDeg;
         const cameraElevDeg = bestElevDeg + userPitchOffsetDegRef.current;
         const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
@@ -410,7 +412,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
         // otherwise the camera can face away from the player.
-        const viewYawDeg = heroYawDeg - camDefRotOffsetY;
+        const viewYawDeg = heroYawDeg + bestAzimuthDeg - camDefRotOffsetY;
         const viewYawRad = (viewYawDeg * Math.PI) / 180;
         const viewPitchRad = ((cameraElevDeg - rotOffsetXDeg) * Math.PI) / 180;
         const lookDir = new THREE.Vector3(
