@@ -6,6 +6,7 @@ interface CameraDebugState {
   bestAzimuthOverride: number | null;
   rotOffsetXOverride: number | null;
   rotOffsetYOverride: number | null;
+  veloTransOverride: number | null;
 }
 
 interface CameraDebugContextValue {
@@ -15,6 +16,7 @@ interface CameraDebugContextValue {
   setBestAzimuthOverride: (value: number | null) => void;
   setRotOffsetXOverride: (value: number | null) => void;
   setRotOffsetYOverride: (value: number | null) => void;
+  setVeloTransOverride: (value: number | null) => void;
 }
 
 const CameraDebugContext = createContext<CameraDebugContextValue | null>(null);
@@ -26,6 +28,7 @@ export function CameraDebugProvider({ children }: { readonly children: ReactNode
     bestAzimuthOverride: null,
     rotOffsetXOverride: null,
     rotOffsetYOverride: null,
+    veloTransOverride: null,
   });
 
   const setBestRangeOverride = useCallback((value: number | null) => {
@@ -48,20 +51,26 @@ export function CameraDebugProvider({ children }: { readonly children: ReactNode
     setState(prev => ({ ...prev, rotOffsetYOverride: value }));
   }, []);
 
+  const setVeloTransOverride = useCallback((value: number | null) => {
+    setState(prev => ({ ...prev, veloTransOverride: value }));
+  }, []);
+
   const value = useMemo(() => ({
     state,
     setBestRangeOverride,
     setBestElevationOverride,
     setBestAzimuthOverride,
     setRotOffsetXOverride,
-    setRotOffsetYOverride
+    setRotOffsetYOverride,
+    setVeloTransOverride
   }), [
     state,
     setBestRangeOverride,
     setBestElevationOverride,
     setBestAzimuthOverride,
     setRotOffsetXOverride,
-    setRotOffsetYOverride
+    setRotOffsetYOverride,
+    setVeloTransOverride
   ]);
 
   return (

@@ -9,7 +9,8 @@ export function CameraDebugPanel() {
     setBestElevationOverride,
     setBestAzimuthOverride,
     setRotOffsetXOverride,
-    setRotOffsetYOverride
+    setRotOffsetYOverride,
+    setVeloTransOverride
   } = useCameraDebug();
   
   const [rangeInput, setRangeInput] = useState('');
@@ -17,11 +18,13 @@ export function CameraDebugPanel() {
   const [azimuthInput, setAzimuthInput] = useState('');
   const [rotOffsetXInput, setRotOffsetXInput] = useState('');
   const [rotOffsetYInput, setRotOffsetYInput] = useState('');
+  const [veloTransInput, setVeloTransInput] = useState('');
   const [rangeEnabled, setRangeEnabled] = useState(false);
   const [elevationEnabled, setElevationEnabled] = useState(false);
   const [azimuthEnabled, setAzimuthEnabled] = useState(false);
   const [rotOffsetXEnabled, setRotOffsetXEnabled] = useState(false);
   const [rotOffsetYEnabled, setRotOffsetYEnabled] = useState(false);
+  const [veloTransEnabled, setVeloTransEnabled] = useState(false);
 
   const activeModeName = "CAMMODNORMAL";
   const camDef = getCameraMode(activeModeName);
@@ -88,6 +91,14 @@ export function CameraDebugPanel() {
     }
   };
 
+  const handleVeloTransEnabledChange = (enabled: boolean) => {
+    setVeloTransEnabled(enabled);
+    if (!enabled) {
+      setVeloTransOverride(null);
+      setVeloTransInput('');
+    }
+  };
+
   const handleRangeChange = (value: string) => {
     setRangeInput(value);
     const num = parseFloat(value);
@@ -139,6 +150,16 @@ export function CameraDebugPanel() {
       setRotOffsetYOverride(num);
     } else {
       setRotOffsetYOverride(null);
+    }
+  };
+
+  const handleVeloTransChange = (value: string) => {
+    setVeloTransInput(value);
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setVeloTransOverride(num);
+    } else {
+      setVeloTransOverride(null);
     }
   };
 
@@ -347,7 +368,7 @@ export function CameraDebugPanel() {
       </div>
 
       {/* rotOffsetY */}
-      <div style={{ marginBottom: '10px' }}>
+      <div style={{ marginBottom: '15px' }}>
         <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
           <input
             type="checkbox"
@@ -388,6 +409,48 @@ export function CameraDebugPanel() {
         )}
       </div>
 
+      {/* veloTrans */}
+      <div style={{ marginBottom: '10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <input
+            type="checkbox"
+            checked={veloTransEnabled}
+            onChange={(e) => handleVeloTransEnabledChange(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ color: veloTransEnabled ? '#4CAF50' : '#888' }}>
+            Override veloTrans
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="number"
+            value={veloTransInput}
+            onChange={(e) => handleVeloTransChange(e.target.value)}
+            disabled={!veloTransEnabled}
+            placeholder="0"
+            step="0.1"
+            min="0"
+            max="100"
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              background: veloTransEnabled ? '#222' : '#111',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ color: '#888', minWidth: '40px' }}>units</span>
+        </div>
+        {state.veloTransOverride !== null && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#4CAF50' }}>
+            Active: {state.veloTransOverride.toFixed(1)}
+          </div>
+        )}
+      </div>
+
       {/* Info */}
       <div style={{
         marginTop: '15px',
@@ -410,6 +473,7 @@ export function CameraDebugPanel() {
         <div>• Azimuth: yaw offset</div>
         <div>• rotOffsetX: pitch offset</div>
         <div>• rotOffsetY: yaw offset</div>
+        <div>• veloTrans: target smoothing speed</div>
         <div style={{ marginTop: '5px', color: '#666' }}>
           Unchecked = use camera.dat values
         </div>

@@ -54,6 +54,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const userRange01Ref = useRef<number | null>(null);
   const lastRange01Ref = useRef(0.5);
   const bestRangeOverrideRef = useRef<number | null>(null);
+  const smoothedTargetRef = useRef(new THREE.Vector3());
+  const hasSmoothedTargetRef = useRef(false);
+  const tmpTargetRef = useRef(new THREE.Vector3());
+  const tmpTargetDeltaRef = useRef(new THREE.Vector3());
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -346,7 +350,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   useFrame((_state, delta) => {
     const freeCamera = cameraSettings.freeCamera;
     const followHero = !freeCamera;
-    if (!followHero) didSnapToHeroRef.current = false;
+    if (!followHero) {
+      didSnapToHeroRef.current = false;
+      hasSmoothedTargetRef.current = false;
+    }
 
     if (followHero) {
       const pose = getPlayerPose();
@@ -366,6 +373,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefMaxAzimuth = Number.isFinite(camDef?.maxAzimuth) ? camDef!.maxAzimuth : 90;
         const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
+        const camDefVeloTrans = Number.isFinite(camDef?.veloTrans) ? camDef!.veloTrans : 0;
+        const veloTrans = cameraDebug.state.veloTransOverride ?? camDefVeloTrans;
         
         const bestRangeOverride = bestRangeOverrideRef.current;
         const bestRangeM = bestRangeOverride ?? camDefBestRange;
@@ -411,11 +420,28 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const heroYawDeg = (Math.atan2(forward.x, forward.z) * 180) / Math.PI;
         
         // Camera target (look at point on player) - all positions in cm
-        const target = new THREE.Vector3(
+        const desiredTarget = tmpTargetRef.current.set(
           playerPos.x,
           lookAtY,  // Use absolute world Y position of root bone
           playerPos.z
         );
+        if (!hasSmoothedTargetRef.current) {
+          hasSmoothedTargetRef.current = true;
+          smoothedTargetRef.current.copy(desiredTarget);
+        } else {
+          const speed = Math.max(0, veloTrans) * 100; // cm/s
+          if (speed > 0 && delta > 0) {
+            const dp = tmpTargetDeltaRef.current.subVectors(desiredTarget, smoothedTargetRef.current);
+            const len = dp.length();
+            if (len > 0.0001) {
+              const step = Math.min(speed * delta, len);
+              smoothedTargetRef.current.addScaledVector(dp, step / len);
+            }
+          } else {
+            smoothedTargetRef.current.copy(desiredTarget);
+          }
+        }
+        const target = smoothedTargetRef.current;
 
         // Calculate camera position: behind and above player
         // Camera stays behind player (no yaw offset - player rotation handles it)
