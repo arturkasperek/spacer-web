@@ -58,6 +58,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const hasSmoothedTargetRef = useRef(false);
   const tmpTargetRef = useRef(new THREE.Vector3());
   const tmpTargetDeltaRef = useRef(new THREE.Vector3());
+  const smoothedYawDegRef = useRef(0);
+  const smoothedElevDegRef = useRef(0);
+  const hasSmoothedSpinRef = useRef(false);
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -353,6 +356,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     if (!followHero) {
       didSnapToHeroRef.current = false;
       hasSmoothedTargetRef.current = false;
+      hasSmoothedSpinRef.current = false;
     }
 
     if (followHero) {
@@ -374,6 +378,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefRotOffsetX = Number.isFinite(camDef?.rotOffsetX) ? camDef!.rotOffsetX : 0;
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
         const camDefVeloTrans = Number.isFinite(camDef?.veloTrans) ? camDef!.veloTrans : 0;
+        const camDefVeloRot = Number.isFinite(camDef?.veloRot) ? camDef!.veloRot : 0;
         const veloTrans = cameraDebug.state.veloTransOverride ?? camDefVeloTrans;
         
         const bestRangeOverride = bestRangeOverrideRef.current;
@@ -402,6 +407,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           userPitchOffsetDegRef.current = 0;
           const bestRangeClamped = Math.max(minRangeM, Math.min(maxRangeM, bestRangeM));
           userRange01Ref.current = (bestRangeClamped - minRangeM) / rangeSpan;
+          hasSmoothedSpinRef.current = false;
         }
         const playerQuat = new THREE.Quaternion(
           pose.quaternion.x,
@@ -451,7 +457,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           Math.min(maxAzimuthDeg, desiredAzimuthDeg)
         );
         userYawOffsetDegRef.current = clampedAzimuthDeg - bestAzimuthDeg;
-        const cameraYawDeg = heroYawDeg + 180 + clampedAzimuthDeg;
         const minPitchOffsetDeg = minElevDeg - bestElevDeg;
         const maxPitchOffsetDeg = maxElevDeg - bestElevDeg;
         const clampedPitchOffsetDeg = Math.max(
@@ -459,10 +464,42 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           Math.min(maxPitchOffsetDeg, userPitchOffsetDegRef.current)
         );
         userPitchOffsetDegRef.current = clampedPitchOffsetDeg;
-        const cameraElevDeg = Math.max(
+        const desiredElevDeg = Math.max(
           minElevDeg,
           Math.min(maxElevDeg, bestElevDeg + clampedPitchOffsetDeg)
         );
+        const desiredYawDeg = heroYawDeg + clampedAzimuthDeg;
+        let smoothedYawDeg = desiredYawDeg;
+        let smoothedElevDeg = desiredElevDeg;
+        if (camDefVeloRot > 0 && delta > 0) {
+          if (!hasSmoothedSpinRef.current) {
+            hasSmoothedSpinRef.current = true;
+            smoothedYawDegRef.current = desiredYawDeg;
+            smoothedElevDegRef.current = desiredElevDeg;
+          } else {
+            const angleMod = (deg: number) => {
+              let v = deg % 360;
+              if (v < -180) v += 360;
+              if (v > 180) v -= 360;
+              return v;
+            };
+            const yawDelta = angleMod(desiredYawDeg - smoothedYawDegRef.current);
+            const yawStep = Math.min(1, camDefVeloRot * delta);
+            smoothedYawDegRef.current = smoothedYawDegRef.current + yawDelta * yawStep;
+
+            const elevDelta = desiredElevDeg - smoothedElevDegRef.current;
+            const elevStep = Math.min(1, camDefVeloRot * delta);
+            smoothedElevDegRef.current = smoothedElevDegRef.current + elevDelta * elevStep;
+          }
+          smoothedYawDeg = smoothedYawDegRef.current;
+          smoothedElevDeg = smoothedElevDegRef.current;
+        } else {
+          hasSmoothedSpinRef.current = false;
+          smoothedYawDegRef.current = desiredYawDeg;
+          smoothedElevDegRef.current = desiredElevDeg;
+        }
+        const cameraYawDeg = smoothedYawDeg + 180;
+        const cameraElevDeg = smoothedElevDeg;
         const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
         
@@ -496,7 +533,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
         // otherwise the camera can face away from the player.
-        const viewYawDeg = heroYawDeg + clampedAzimuthDeg - rotOffsetYDeg;
+        const viewYawDeg = smoothedYawDeg - rotOffsetYDeg;
         const viewYawRad = (viewYawDeg * Math.PI) / 180;
         const viewPitchRad = ((cameraElevDeg - rotOffsetXDeg) * Math.PI) / 180;
         const lookDir = new THREE.Vector3(
