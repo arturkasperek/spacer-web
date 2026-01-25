@@ -43,6 +43,45 @@ export type CharacterInstance = {
   dispose: () => void;
 };
 
+export function __blendAnimWorld(
+  prevWorld: THREE.Matrix4[],
+  currWorld: THREE.Matrix4[],
+  t: number,
+  outWorld: THREE.Matrix4[] = [],
+  temps?: {
+    pos0: THREE.Vector3;
+    pos1: THREE.Vector3;
+    quat0: THREE.Quaternion;
+    quat1: THREE.Quaternion;
+    scale0: THREE.Vector3;
+    scale1: THREE.Vector3;
+  }
+): THREE.Matrix4[] {
+  const count = Math.min(prevWorld.length, currWorld.length);
+  if (count === 0) return outWorld;
+  const pos0 = temps?.pos0 ?? new THREE.Vector3();
+  const pos1 = temps?.pos1 ?? new THREE.Vector3();
+  const quat0 = temps?.quat0 ?? new THREE.Quaternion();
+  const quat1 = temps?.quat1 ?? new THREE.Quaternion();
+  const scale0 = temps?.scale0 ?? new THREE.Vector3(1, 1, 1);
+  const scale1 = temps?.scale1 ?? new THREE.Vector3(1, 1, 1);
+
+  for (let i = 0; i < count; i++) {
+    const prev = prevWorld[i];
+    const curr = currWorld[i];
+    if (!prev || !curr) continue;
+    prev.decompose(pos0, quat0, scale0);
+    curr.decompose(pos1, quat1, scale1);
+    const pos = pos0.lerp(pos1, t);
+    const quat = quat0.slerp(quat1, t);
+    const scale = scale0.lerp(scale1, t);
+    const world = outWorld[i] ?? (outWorld[i] = new THREE.Matrix4());
+    world.compose(pos, quat, scale);
+  }
+
+  return outWorld;
+}
+
 export async function createHumanoidCharacterInstance(params: {
   zenKit: ZenKit;
   caches: CharacterCaches;
@@ -270,22 +309,14 @@ export async function createHumanoidCharacterInstance(params: {
 
     const applyBlendToSkeleton = (t: number) => {
       if (!blendFromWorld || blendFromWorld.length === 0 || !skeleton.animWorld) return;
-      const count = Math.min(blendFromWorld.length, skeleton.animWorld.length);
-      if (count === 0) return;
-
-      for (let i = 0; i < count; i++) {
-        const prev = blendFromWorld[i];
-        const curr = skeleton.animWorld[i];
-        prev.decompose(tmpPos0, tmpQuat0, tmpScale0);
-        curr.decompose(tmpPos1, tmpQuat1, tmpScale1);
-        const pos = tmpPos0.lerp(tmpPos1, t);
-        const quat = tmpQuat0.slerp(tmpQuat1, t);
-        const scale = tmpScale0.lerp(tmpScale1, t);
-
-        const world = blendedAnimWorld[i] ?? (blendedAnimWorld[i] = new THREE.Matrix4());
-        world.compose(pos, quat, scale);
-      }
-
+      __blendAnimWorld(blendFromWorld, skeleton.animWorld, t, blendedAnimWorld, {
+        pos0: tmpPos0,
+        pos1: tmpPos1,
+        quat0: tmpQuat0,
+        quat1: tmpQuat1,
+        scale0: tmpScale0,
+        scale1: tmpScale1,
+      });
       skeleton.animWorld = blendedAnimWorld;
 
       if (skeleton.bones && skeleton.bones.length === skeleton.animWorld.length) {
