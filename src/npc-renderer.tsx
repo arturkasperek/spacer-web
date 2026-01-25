@@ -252,7 +252,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       const scripts = getNpcModelScriptsState(npcInstanceIndex);
       const fallbackModel = (scripts?.baseScript || "HUMANS").trim().toUpperCase() || "HUMANS";
       const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
-      return { animationName: (animationName || "").trim(), modelName };
+      const blendInMs = Number.isFinite(meta?.blendIn) ? Math.max(0, (meta!.blendIn as number) * 1000) : undefined;
+      const blendOutMs = Number.isFinite(meta?.blendOut) ? Math.max(0, (meta!.blendOut as number) * 1000) : undefined;
+      return { animationName: (animationName || "").trim(), modelName, blendInMs, blendOutMs };
     };
   }, [getAnimationMetaForNpc]);
 
@@ -695,10 +697,14 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
             (manualUd as any)._manualTurnAnim = name;
 
 	            if ((prev || "").toUpperCase() !== name.toUpperCase()) {
-	              instance.setAnimation(name, {
-	                loop: true,
-	                resetTime: true,
-	                fallbackNames: [
+                const ref = resolveNpcAnimationRef(npcData.instanceIndex, name);
+                instance.setAnimation(name, {
+                  modelName: ref.modelName,
+                  loop: true,
+                  resetTime: true,
+                  blendInMs: ref.blendInMs,
+                  blendOutMs: ref.blendOutMs,
+                  fallbackNames: [
 	                  rightTurn ? "t_WalkwTurnR" : "t_WalkwTurnL",
 	                  rightTurn ? "t_SneakTurnR" : "t_SneakTurnL",
 	                  "s_Run",
@@ -719,7 +725,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	                npcGroup.userData.locomotion = fresh;
 	                fresh.update(instance, manualLocomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
 	              } else if (moveNow === 0 && turnNow === 0) {
-	                instance.setAnimation("s_Run", { loop: true, resetTime: true, fallbackNames: ["s_Run"] });
+                  const ref = resolveNpcAnimationRef(npcData.instanceIndex, "s_Run");
+	                instance.setAnimation("s_Run", {
+                    modelName: ref.modelName,
+                    loop: true,
+                    resetTime: true,
+                    blendInMs: ref.blendInMs,
+                    blendOutMs: ref.blendOutMs,
+                    fallbackNames: ["s_Run"],
+                  });
 	              }
 	            }
 	          }
@@ -809,7 +823,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         if (!suppress) {
           if (scriptIdle && locomotionMode === "idle") {
             const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
-            instance.setAnimation(ref.animationName, { modelName: ref.modelName, loop: true, resetTime: false });
+            instance.setAnimation(ref.animationName, {
+              modelName: ref.modelName,
+              loop: true,
+              resetTime: false,
+              blendInMs: ref.blendInMs,
+              blendOutMs: ref.blendOutMs,
+            });
           } else {
             locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
           }

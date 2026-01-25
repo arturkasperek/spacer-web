@@ -12,7 +12,12 @@ export type CombatRuntime = {
     nowMs: number;
     dtSeconds: number;
     loadedNpcs: Iterable<THREE.Group>;
-    resolveAnim?: (npcInstanceIndex: number, animationName: string) => { animationName: string; modelName?: string };
+    resolveAnim?: (npcInstanceIndex: number, animationName: string) => {
+      animationName: string;
+      modelName?: string;
+      blendInMs?: number;
+      blendOutMs?: number;
+    };
   }) => void;
 };
 
@@ -122,7 +127,12 @@ export function createCombatRuntime(): CombatRuntime {
     nowMs: number;
     dtSeconds: number;
     loadedNpcs: Iterable<any>;
-    resolveAnim?: (npcInstanceIndex: number, animationName: string) => { animationName: string; modelName?: string };
+    resolveAnim?: (npcInstanceIndex: number, animationName: string) => {
+      animationName: string;
+      modelName?: string;
+      blendInMs?: number;
+      blendOutMs?: number;
+    };
   }) => {
     const snapshots: CombatantSnapshot[] = [];
     const groupsById = new Map<number, any>();
@@ -206,13 +216,24 @@ export function createCombatRuntime(): CombatRuntime {
       if (g && inst) {
         const ani = pickAttackAnimationName(st.weaponState, profile.kind);
         const ref = resolveAnim ? resolveAnim(s.id, ani.name) : { animationName: ani.name };
+        const nextRef = resolveAnim ? resolveAnim(s.id, "s_Run") : { animationName: "s_Run" };
         (g.userData as any)._emSuppressLocomotion = true;
         inst.setAnimation(ref.animationName, {
           modelName: ref.modelName,
           loop: false,
           resetTime: true,
+          blendInMs: ref.blendInMs,
+          blendOutMs: ref.blendOutMs,
           fallbackNames: ani.fallback,
-          next: { animationName: "s_Run", loop: true, resetTime: true, fallbackNames: ["s_Run"] },
+          next: {
+            animationName: nextRef.animationName,
+            modelName: nextRef.modelName,
+            loop: true,
+            resetTime: true,
+            fallbackNames: ["s_Run"],
+            blendInMs: nextRef.blendInMs,
+            blendOutMs: nextRef.blendOutMs,
+          },
         });
         (g.userData as any)._combatAnimEndAtMs = nowMs + profile.durationMs;
       }

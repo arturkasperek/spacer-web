@@ -27,7 +27,17 @@ export type CharacterInstance = {
       loop?: boolean;
       resetTime?: boolean;
       fallbackNames?: string[];
-      next?: { animationName: string; modelName?: string; loop?: boolean; resetTime?: boolean; fallbackNames?: string[] };
+      blendInMs?: number;
+      blendOutMs?: number;
+      next?: {
+        animationName: string;
+        modelName?: string;
+        loop?: boolean;
+        resetTime?: boolean;
+        fallbackNames?: string[];
+        blendInMs?: number;
+        blendOutMs?: number;
+      };
     }
   ) => void;
   dispose: () => void;
@@ -197,17 +207,112 @@ export async function createHumanoidCharacterInstance(params: {
     let currentModelName = "HUMANS";
     let currentLoop = loop;
     let currentTimeMs = 0;
+    let globalTimeMs = 0;
     const failedAnis = new Set<string>();
-    let pendingLoad: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
+    let pendingLoad:
+      | {
+          modelName: string;
+          name: string;
+          loop: boolean;
+          resetTime: boolean;
+          fallbackNames?: string[];
+          blendInMs?: number;
+          blendOutMs?: number;
+        }
+      | null = null;
     let loadingPromise: Promise<void> | null = null;
     let nextAfterNonLoop:
-      | { animationName: string; modelName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
+      | {
+          animationName: string;
+          modelName: string;
+          loop: boolean;
+          resetTime: boolean;
+          fallbackNames?: string[];
+          blendInMs?: number;
+          blendOutMs?: number;
+        }
       | null = null;
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
     const rootMotionDelta = new THREE.Vector3();
     let hasLastRootMotionPos = false;
     let lastPoseTimeMs = 0;
+    let blendFromWorld: THREE.Matrix4[] | null = null;
+    let blendStartMs = 0;
+    let blendDurationMs = 0;
+    const blendedAnimWorld: THREE.Matrix4[] = [];
+    const blendedAnimLocal: THREE.Matrix4[] = [];
+    const tmpPos0 = new THREE.Vector3();
+    const tmpPos1 = new THREE.Vector3();
+    const tmpQuat0 = new THREE.Quaternion();
+    const tmpQuat1 = new THREE.Quaternion();
+    const tmpScale0 = new THREE.Vector3();
+    const tmpScale1 = new THREE.Vector3();
+    const tmpMat = new THREE.Matrix4();
+
+    const startBlendFromCurrentPose = (blendMs: number, meta?: { name?: string; model?: string }) => {
+      const dur = Math.max(0, blendMs);
+      if (dur <= 0) {
+        blendFromWorld = null;
+        blendDurationMs = 0;
+        return;
+      }
+      if (!skeleton.animWorld || skeleton.animWorld.length === 0) {
+        blendFromWorld = null;
+        blendDurationMs = 0;
+        return;
+      }
+      blendFromWorld = skeleton.animWorld.map(m => m.clone());
+      blendStartMs = globalTimeMs;
+      blendDurationMs = dur;
+      void meta;
+    };
+
+    const applyBlendToSkeleton = (t: number) => {
+      if (!blendFromWorld || blendFromWorld.length === 0 || !skeleton.animWorld) return;
+      const count = Math.min(blendFromWorld.length, skeleton.animWorld.length);
+      if (count === 0) return;
+
+      for (let i = 0; i < count; i++) {
+        const prev = blendFromWorld[i];
+        const curr = skeleton.animWorld[i];
+        prev.decompose(tmpPos0, tmpQuat0, tmpScale0);
+        curr.decompose(tmpPos1, tmpQuat1, tmpScale1);
+        const pos = tmpPos0.lerp(tmpPos1, t);
+        const quat = tmpQuat0.slerp(tmpQuat1, t);
+        const scale = tmpScale0.lerp(tmpScale1, t);
+
+        const world = blendedAnimWorld[i] ?? (blendedAnimWorld[i] = new THREE.Matrix4());
+        world.compose(pos, quat, scale);
+      }
+
+      skeleton.animWorld = blendedAnimWorld;
+
+      if (skeleton.bones && skeleton.bones.length === skeleton.animWorld.length) {
+        for (let i = 0; i < skeleton.bones.length; i++) {
+          const bone = skeleton.bones[i];
+          const parentIdx = skeleton.nodes[i].parent;
+          const local = blendedAnimLocal[i] ?? (blendedAnimLocal[i] = new THREE.Matrix4());
+          if (parentIdx >= 0) {
+            const parentWorld = skeleton.animWorld[parentIdx];
+            tmpMat.copy(parentWorld).invert().multiply(skeleton.animWorld[i]);
+            local.copy(tmpMat);
+          } else {
+            local.copy(skeleton.animWorld[i]);
+          }
+          local.decompose(tmpPos0, tmpQuat0, tmpScale0);
+          bone.position.copy(tmpPos0);
+          bone.quaternion.copy(tmpQuat0);
+          bone.scale.copy(tmpScale0);
+        }
+
+        if (skeleton.rootNodes) {
+          for (const rootIdx of skeleton.rootNodes) {
+            skeleton.bones[rootIdx].updateMatrixWorld(true);
+          }
+        }
+      }
+    };
 
     const ensureLoaderRunning = () => {
       if (loadingPromise) return;
@@ -231,6 +336,11 @@ export async function createHumanoidCharacterInstance(params: {
           }
 
           if (loaded) {
+            const rawBlendMs = Math.max(0, Math.max(next.blendInMs ?? 0, next.blendOutMs ?? 0));
+            const blendMs = rawBlendMs;
+            if (blendMs > 0) {
+              startBlendFromCurrentPose(blendMs, { name: loaded.name, model: next.modelName });
+            }
             currentSequence = loaded.seq;
             currentAnimationName = loaded.name;
             currentModelName = next.modelName;
@@ -250,7 +360,15 @@ export async function createHumanoidCharacterInstance(params: {
       });
     };
 
-    const tryLoadAnimation = (req: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
+    const tryLoadAnimation = (req: {
+      modelName: string;
+      name: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+      blendInMs?: number;
+      blendOutMs?: number;
+    }) => {
       const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
       for (const n of names) failedAnis.delete(n.toUpperCase());
       pendingLoad = req;
@@ -278,16 +396,27 @@ export async function createHumanoidCharacterInstance(params: {
           loop: options.next.loop ?? true,
           resetTime: options.next.resetTime ?? true,
           fallbackNames: options.next.fallbackNames,
+          blendInMs: options.next.blendInMs,
+          blendOutMs: options.next.blendOutMs,
         };
       } else {
         nextAfterNonLoop = null;
       }
 
-      tryLoadAnimation({ modelName: nextModel, name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
+      tryLoadAnimation({
+        modelName: nextModel,
+        name,
+        loop: nextLoop,
+        resetTime,
+        fallbackNames: options?.fallbackNames,
+        blendInMs: options?.blendInMs,
+        blendOutMs: options?.blendOutMs,
+      });
     };
 
     const update = (deltaSeconds: number) => {
       if (!currentSequence) return;
+      globalTimeMs += deltaSeconds * 1000;
       currentTimeMs += deltaSeconds * 1000;
 
       const ok = evaluatePose(skeleton, currentSequence, currentTimeMs, currentLoop, {
@@ -304,6 +433,8 @@ export async function createHumanoidCharacterInstance(params: {
           loop: next.loop,
           resetTime: next.resetTime,
           fallbackNames: next.fallbackNames,
+          blendInMs: next.blendInMs,
+          blendOutMs: next.blendOutMs,
         });
       }
 
@@ -340,6 +471,17 @@ export async function createHumanoidCharacterInstance(params: {
         root.userData.__rootMotionDelta = { x: rootMotionDelta.x, y: rootMotionDelta.y, z: rootMotionDelta.z };
       } else {
         root.userData.__rootMotionDelta = { x: 0, y: 0, z: 0 };
+      }
+
+      if (blendFromWorld && blendDurationMs > 0) {
+        const elapsed = globalTimeMs - blendStartMs;
+        if (elapsed < blendDurationMs) {
+          const t = Math.max(0, Math.min(1, elapsed / blendDurationMs));
+          applyBlendToSkeleton(t);
+        } else {
+          blendFromWorld = null;
+          blendDurationMs = 0;
+        }
       }
 
       for (let i = 0; i < skinningDataList.length; i++) {

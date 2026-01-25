@@ -5,6 +5,8 @@ export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack" | "
 export type AnimationRef = {
   animationName: string;
   modelName?: string;
+  blendInMs?: number;
+  blendOutMs?: number;
 };
 
 export type AnimationResolver = (animationName: string) => AnimationRef | null;
@@ -61,6 +63,8 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
       loop: anim.loop,
       resetTime: true,
       fallbackNames: anim.fallbackNames,
+      blendInMs: ref.blendInMs,
+      blendOutMs: ref.blendOutMs,
       next: next
         ? {
             animationName: nextRef?.animationName ?? next.name,
@@ -68,6 +72,8 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
             loop: next.loop,
             resetTime: true,
             fallbackNames: next.fallbackNames,
+            blendInMs: nextRef?.blendInMs,
+            blendOutMs: nextRef?.blendOutMs,
           }
         : undefined,
     });

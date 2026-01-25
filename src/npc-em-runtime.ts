@@ -123,21 +123,34 @@ function startMessageAsJob(
       const meta = ctx.getAnimationMeta?.(npcInstanceIndex, name) ?? null;
       const fallbackModel = (ctx.getFallbackAnimationModelName?.(npcInstanceIndex) || "HUMANS").trim().toUpperCase() || "HUMANS";
       const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
+      const blendInMs = Number.isFinite(meta?.blendIn) ? Math.max(0, (meta!.blendIn as number) * 1000) : undefined;
+      const blendOutMs = Number.isFinite(meta?.blendOut) ? Math.max(0, (meta!.blendOut as number) * 1000) : undefined;
 
       // Heuristic: many Daedalus states use `AI_PlayAni(T_*...)` expecting the engine to settle into a looping
       // `S_*` pose (e.g. `T_STAND_2_LGUARD` -> `S_LGUARD`). The original engine resolves this via MDS `next`.
       // Our character controller needs an explicit `next`, so infer it for common patterns.
       let derivedNext:
-        | { animationName: string; modelName: string; loop?: boolean; fallbackNames?: string[] }
+        | {
+            animationName: string;
+            modelName: string;
+            loop?: boolean;
+            fallbackNames?: string[];
+            blendInMs?: number;
+            blendOutMs?: number;
+          }
         | undefined;
       if (!isLoop && !msg.next) {
         const mdsNext = (meta?.next || "").trim();
         if (mdsNext) {
           const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, mdsNext) ?? null;
+          const nextBlendInMs = Number.isFinite(nextMeta?.blendIn) ? Math.max(0, (nextMeta!.blendIn as number) * 1000) : undefined;
+          const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut) ? Math.max(0, (nextMeta!.blendOut as number) * 1000) : undefined;
           derivedNext = {
             animationName: mdsNext,
             modelName: (nextMeta?.model || modelName).trim().toUpperCase() || modelName,
             loop: true,
+            blendInMs: nextBlendInMs,
+            blendOutMs: nextBlendOutMs,
           };
         } else {
           const idx = upper.indexOf("_2_");
@@ -146,11 +159,15 @@ function startMessageAsJob(
             if (after) {
               const guess = `S_${after}`;
               const guessMeta = ctx.getAnimationMeta?.(npcInstanceIndex, guess) ?? null;
+              const guessBlendInMs = Number.isFinite(guessMeta?.blendIn) ? Math.max(0, (guessMeta!.blendIn as number) * 1000) : undefined;
+              const guessBlendOutMs = Number.isFinite(guessMeta?.blendOut) ? Math.max(0, (guessMeta!.blendOut as number) * 1000) : undefined;
               derivedNext = {
                 animationName: guess,
                 modelName: (guessMeta?.model || modelName).trim().toUpperCase() || modelName,
                 loop: true,
                 fallbackNames: guessMeta ? undefined : ["S_RUN"],
+                blendInMs: guessBlendInMs,
+                blendOutMs: guessBlendOutMs,
               };
             }
           } else {
@@ -159,10 +176,14 @@ function startMessageAsJob(
             const existingIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
             if (existingIdle) {
               const idleMeta = ctx.getAnimationMeta?.(npcInstanceIndex, existingIdle) ?? null;
+              const idleBlendInMs = Number.isFinite(idleMeta?.blendIn) ? Math.max(0, (idleMeta!.blendIn as number) * 1000) : undefined;
+              const idleBlendOutMs = Number.isFinite(idleMeta?.blendOut) ? Math.max(0, (idleMeta!.blendOut as number) * 1000) : undefined;
               derivedNext = {
                 animationName: existingIdle,
                 modelName: (idleMeta?.model || modelName).trim().toUpperCase() || modelName,
                 loop: true,
+                blendInMs: idleBlendInMs,
+                blendOutMs: idleBlendOutMs,
               };
             }
           }
@@ -186,12 +207,16 @@ function startMessageAsJob(
             if (!nm) return null;
             const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, nm) ?? null;
             const nextModel = (nextMeta?.model || modelName).trim().toUpperCase() || modelName;
+            const nextBlendInMs = Number.isFinite(nextMeta?.blendIn) ? Math.max(0, (nextMeta!.blendIn as number) * 1000) : undefined;
+            const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut) ? Math.max(0, (nextMeta!.blendOut as number) * 1000) : undefined;
             return {
               animationName: nm,
               modelName: nextModel,
               loop: msg.next.loop ?? true,
               resetTime: true,
               fallbackNames: msg.next.fallbackNames,
+              blendInMs: nextBlendInMs,
+              blendOutMs: nextBlendOutMs,
             };
           })()
         : null;
@@ -201,6 +226,8 @@ function startMessageAsJob(
         loop: isLoop,
         resetTime: true,
         fallbackNames: msg.fallbackNames,
+        blendInMs,
+        blendOutMs,
         next: explicitNext
           ? explicitNext
           : derivedNext
@@ -210,6 +237,8 @@ function startMessageAsJob(
                 loop: derivedNext.loop ?? true,
                 resetTime: true,
                 fallbackNames: derivedNext.fallbackNames,
+                blendInMs: derivedNext.blendInMs,
+                blendOutMs: derivedNext.blendOutMs,
               }
             : undefined,
       });
