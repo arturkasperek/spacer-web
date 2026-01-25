@@ -380,6 +380,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefVeloTrans = Number.isFinite(camDef?.veloTrans) ? camDef!.veloTrans : 0;
         const camDefVeloRot = Number.isFinite(camDef?.veloRot) ? camDef!.veloRot : 0;
         const veloTrans = cameraDebug.state.veloTransOverride ?? camDefVeloTrans;
+        const veloRot = cameraDebug.state.veloRotOverride ?? camDefVeloRot;
         
         const bestRangeOverride = bestRangeOverrideRef.current;
         const bestRangeM = bestRangeOverride ?? camDefBestRange;
@@ -471,7 +472,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const desiredYawDeg = heroYawDeg + clampedAzimuthDeg;
         let smoothedYawDeg = desiredYawDeg;
         let smoothedElevDeg = desiredElevDeg;
-        if (camDefVeloRot > 0 && delta > 0) {
+        if (veloRot > 0 && delta > 0) {
           if (!hasSmoothedSpinRef.current) {
             hasSmoothedSpinRef.current = true;
             smoothedYawDegRef.current = desiredYawDeg;
@@ -484,11 +485,11 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
               return v;
             };
             const yawDelta = angleMod(desiredYawDeg - smoothedYawDegRef.current);
-            const yawStep = Math.min(1, camDefVeloRot * delta);
+            const yawStep = Math.min(1, veloRot * delta);
             smoothedYawDegRef.current = smoothedYawDegRef.current + yawDelta * yawStep;
 
             const elevDelta = desiredElevDeg - smoothedElevDegRef.current;
-            const elevStep = Math.min(1, camDefVeloRot * delta);
+            const elevStep = Math.min(1, veloRot * delta);
             smoothedElevDegRef.current = smoothedElevDegRef.current + elevDelta * elevStep;
           }
           smoothedYawDeg = smoothedYawDegRef.current;
