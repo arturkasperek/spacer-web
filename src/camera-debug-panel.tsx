@@ -11,7 +11,8 @@ export function CameraDebugPanel() {
     setRotOffsetXOverride,
     setRotOffsetYOverride,
     setVeloTransOverride,
-    setVeloRotOverride
+    setVeloRotOverride,
+    setHeroTurnSpeedOverrideDeg
   } = useCameraDebug();
   
   const [rangeInput, setRangeInput] = useState('');
@@ -21,6 +22,7 @@ export function CameraDebugPanel() {
   const [rotOffsetYInput, setRotOffsetYInput] = useState('');
   const [veloTransInput, setVeloTransInput] = useState('');
   const [veloRotInput, setVeloRotInput] = useState('');
+  const [heroTurnSpeedInput, setHeroTurnSpeedInput] = useState('');
   const [rangeEnabled, setRangeEnabled] = useState(false);
   const [elevationEnabled, setElevationEnabled] = useState(false);
   const [azimuthEnabled, setAzimuthEnabled] = useState(false);
@@ -28,6 +30,7 @@ export function CameraDebugPanel() {
   const [rotOffsetYEnabled, setRotOffsetYEnabled] = useState(false);
   const [veloTransEnabled, setVeloTransEnabled] = useState(false);
   const [veloRotEnabled, setVeloRotEnabled] = useState(false);
+  const [heroTurnSpeedEnabled, setHeroTurnSpeedEnabled] = useState(false);
 
   const activeModeName = "CAMMODNORMAL";
   const camDef = getCameraMode(activeModeName);
@@ -110,6 +113,14 @@ export function CameraDebugPanel() {
     }
   };
 
+  const handleHeroTurnSpeedEnabledChange = (enabled: boolean) => {
+    setHeroTurnSpeedEnabled(enabled);
+    if (!enabled) {
+      setHeroTurnSpeedOverrideDeg(null);
+      setHeroTurnSpeedInput('');
+    }
+  };
+
   const handleRangeChange = (value: string) => {
     setRangeInput(value);
     const num = parseFloat(value);
@@ -181,6 +192,16 @@ export function CameraDebugPanel() {
       setVeloRotOverride(num);
     } else {
       setVeloRotOverride(null);
+    }
+  };
+
+  const handleHeroTurnSpeedChange = (value: string) => {
+    setHeroTurnSpeedInput(value);
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      setHeroTurnSpeedOverrideDeg(num);
+    } else {
+      setHeroTurnSpeedOverrideDeg(null);
     }
   };
 
@@ -514,6 +535,48 @@ export function CameraDebugPanel() {
         )}
       </div>
 
+      {/* heroTurnSpeed */}
+      <div style={{ marginBottom: '10px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
+          <input
+            type="checkbox"
+            checked={heroTurnSpeedEnabled}
+            onChange={(e) => handleHeroTurnSpeedEnabledChange(e.target.checked)}
+            style={{ marginRight: '8px' }}
+          />
+          <span style={{ color: heroTurnSpeedEnabled ? '#4CAF50' : '#888' }}>
+            Override hero turn speed
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="number"
+            value={heroTurnSpeedInput}
+            onChange={(e) => handleHeroTurnSpeedChange(e.target.value)}
+            disabled={!heroTurnSpeedEnabled}
+            placeholder="90"
+            step="1"
+            min="1"
+            max="720"
+            style={{
+              flex: 1,
+              padding: '6px 8px',
+              background: heroTurnSpeedEnabled ? '#222' : '#111',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '4px',
+              color: 'white',
+              fontSize: '12px',
+            }}
+          />
+          <span style={{ color: '#888', minWidth: '40px' }}>deg/s</span>
+        </div>
+        {state.heroTurnSpeedOverrideDeg !== null && (
+          <div style={{ marginTop: '4px', fontSize: '11px', color: '#4CAF50' }}>
+            Active: {state.heroTurnSpeedOverrideDeg.toFixed(0)}°/s
+          </div>
+        )}
+      </div>
+
       {/* Info */}
       <div style={{
         marginTop: '15px',
@@ -538,6 +601,7 @@ export function CameraDebugPanel() {
         <div>• rotOffsetY: yaw offset</div>
         <div>• veloTrans: target smoothing speed</div>
         <div>• veloRot: rotation smoothing speed</div>
+        <div>• hero turn speed: manual rotation speed</div>
         <div style={{ marginTop: '5px', color: '#666' }}>
           Unchecked = use camera.dat values
         </div>

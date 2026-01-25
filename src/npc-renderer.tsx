@@ -29,6 +29,7 @@ import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
 import { useCameraSettings } from "./camera-settings";
+import { useCameraDebug } from "./camera-debug-context";
 
 interface NpcRendererProps {
   world: World | null;
@@ -63,6 +64,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
   const cameraSettings = useCameraSettings();
+  const cameraDebug = useCameraDebug();
   const playerInput = usePlayerInput();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpEmRootMotionWorld = useMemo(() => new THREE.Vector3(), []);
@@ -607,9 +609,10 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           else tmpManualForward.normalize();
 
           const currentYaw = Math.atan2(tmpManualForward.x, tmpManualForward.z);
-          // Roughly match "full rotation ~5s" like Gothic/OpenGothic.
-          // 2π / 5s ≈ 1.257 rad/s, run slightly faster.
-          const turnSpeed = manualRunToggleRef.current ? 1.65 : 1.30; // rad/sec
+          // OpenGothic-like manual turn speed: 90 deg/s, with optional debug override.
+          const baseTurnSpeedDeg = 90;
+          const turnSpeedDeg = cameraDebug.state.heroTurnSpeedOverrideDeg ?? baseTurnSpeedDeg;
+          const turnSpeed = (turnSpeedDeg * Math.PI) / 180; // rad/sec
           const desiredYaw = currentYaw + turn * turnSpeed * dt + mouseYawThisStep;
           tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, desiredYaw);
           // Apply rotation directly (no extra smoothing), so turning speed matches intended rate.

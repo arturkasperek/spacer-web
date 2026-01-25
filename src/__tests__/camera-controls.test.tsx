@@ -62,6 +62,7 @@ jest.mock('../camera-debug-context', () => ({
       rotOffsetYOverride: null,
       veloTransOverride: null,
       veloRotOverride: null,
+      heroTurnSpeedOverrideDeg: null,
     },
     setBestRangeOverride: jest.fn(),
     setBestElevationOverride: jest.fn(),
@@ -70,6 +71,7 @@ jest.mock('../camera-debug-context', () => ({
     setRotOffsetYOverride: jest.fn(),
     setVeloTransOverride: jest.fn(),
     setVeloRotOverride: jest.fn(),
+    setHeroTurnSpeedOverrideDeg: jest.fn(),
   }),
 }));
 
