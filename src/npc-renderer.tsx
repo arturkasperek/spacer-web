@@ -28,7 +28,6 @@ import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
-import { useCameraSettings } from "./camera-settings";
 import { useCameraDebug } from "./camera-debug-context";
 
 interface NpcRendererProps {
@@ -63,7 +62,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
-  const cameraSettings = useCameraSettings();
   const cameraDebug = useCameraDebug();
   const playerInput = usePlayerInput();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
@@ -100,7 +98,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  const manualControlHeroEnabled = !cameraSettings.freeCamera;
+  // Keep arrow-key hero control available even in free camera mode.
+  const manualControlHeroEnabled = true;
 
   const motionDebugLastRef = useRef<
     | {
