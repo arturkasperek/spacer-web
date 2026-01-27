@@ -6,6 +6,7 @@ import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
 import { usePlayerInput } from "./player-input-context";
 import { useCameraDebug } from "./camera-debug-context";
+import { useRapier } from "@react-three/rapier";
 
 declare global {
   interface Window {
@@ -21,6 +22,7 @@ export interface CameraControlsRef {
 
 export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { camera, gl } = useThree();
+  const { world: rapierWorld, rapier } = useRapier();
   const cameraSettings = useCameraSettings();
   const playerInput = usePlayerInput();
   const cameraDebug = useCameraDebug();
@@ -61,6 +63,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const smoothedYawDegRef = useRef(0);
   const smoothedElevDegRef = useRef(0);
   const hasSmoothedSpinRef = useRef(false);
+  const collisionCamRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const tmpCollisionDirRef = useRef(new THREE.Vector3());
+  const tmpCollisionOutRef = useRef(new THREE.Vector3());
+  const tmpCollisionNdcRef = useRef(new THREE.Vector3());
+  const tmpCollisionPointRef = useRef(new THREE.Vector3());
+  const tmpCollisionHitRef = useRef(new THREE.Vector3());
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -93,6 +101,70 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     const quaternion = new THREE.Quaternion();
     quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
     camera.quaternion.copy(quaternion);
+  };
+
+  const calcCameraCollision = (target: THREE.Vector3, origin: THREE.Vector3): THREE.Vector3 => {
+    const out = tmpCollisionOutRef.current;
+    out.copy(origin);
+    if (!rapierWorld || !rapier) return out;
+    if (!(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return out;
+    const dist = origin.distanceTo(target);
+    if (!Number.isFinite(dist) || dist <= 1e-4) return out;
+
+    const tempCam = collisionCamRef.current ?? (collisionCamRef.current = new THREE.PerspectiveCamera());
+    const srcCam = camera as THREE.PerspectiveCamera;
+    tempCam.fov = srcCam.fov;
+    tempCam.near = srcCam.near;
+    tempCam.far = srcCam.far;
+    tempCam.aspect = srcCam.aspect;
+    tempCam.position.copy(origin);
+    tempCam.lookAt(target);
+    tempCam.updateProjectionMatrix();
+    tempCam.updateMatrixWorld();
+
+    const WORLD_MEMBERSHIP = 0x0001;
+    const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+    const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+
+    const dview = tmpCollisionDirRef.current.copy(origin).sub(target);
+    const dirLen = dview.length();
+    if (dirLen <= 1e-6) return out;
+
+    const padding = 50;
+    const maxToi = dist + padding;
+    let distM = dist;
+    const n = 1;
+    const nn = 1;
+
+    for (let i = -n; i <= n; i++) {
+      for (let r = -n; r <= n; r++) {
+        const u = i / nn;
+        const v = r / nn;
+        const r1 = tmpCollisionPointRef.current.set(u, v, -1).unproject(tempCam);
+        const dr = tmpCollisionNdcRef.current.copy(r1).sub(target);
+        const drLen = dr.length();
+        if (drLen <= 1e-6) continue;
+        dr.multiplyScalar(maxToi / drLen);
+
+        const ray = new rapier.Ray(
+          { x: target.x, y: target.y, z: target.z },
+          { x: dr.x, y: dr.y, z: dr.z }
+        );
+        const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups);
+        if (!hit) continue;
+
+        const p = ray.pointAt(hit.timeOfImpact);
+        const tr = tmpCollisionHitRef.current.set(p.x, p.y, p.z).sub(target);
+        let dist1 = dview.dot(tr) / dist;
+        dist1 = Math.max(dist1 - padding, 0);
+        if (dist1 < distM) distM = dist1;
+      }
+    }
+
+    if (distM < dist) {
+      out.copy(dview).normalize().multiplyScalar(distM).add(target);
+    }
+    return out;
   };
 
 
@@ -528,8 +600,10 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           target.y + verticalDist,
           target.z + horizontalDist * Math.cos(cameraYawRad)
         );
-        
-        camera.position.copy(cameraPos);
+        const cameraPosResolved =
+          camDef?.collision ? calcCameraCollision(target, cameraPos) : cameraPos;
+
+        camera.position.copy(cameraPosResolved);
         // OpenGothic applies rot_offset to the view matrix (spin - rotOffset),
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
@@ -542,7 +616,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           -Math.sin(viewPitchRad),
           Math.cos(viewYawRad) * Math.cos(viewPitchRad)
         );
-        const lookAtPos = cameraPos.clone().addScaledVector(lookDir, 100);
+        const lookAtPos = cameraPosResolved.clone().addScaledVector(lookDir, 100);
         camera.lookAt(lookAtPos);
 
         return;
