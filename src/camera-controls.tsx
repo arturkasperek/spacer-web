@@ -69,6 +69,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const tmpCollisionNdcRef = useRef(new THREE.Vector3());
   const tmpCollisionPointRef = useRef(new THREE.Vector3());
   const tmpCollisionHitRef = useRef(new THREE.Vector3());
+  const lastCameraCollidedRef = useRef(false);
 
   // Expose updateMouseState function to parent component
   useImperativeHandle(ref, () => ({
@@ -131,6 +132,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     if (dirLen <= 1e-6) return out;
 
     const padding = 50;
+    const minDist = 35;
     const maxToi = dist + padding;
     let distM = dist;
     const n = 1;
@@ -161,8 +163,11 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
     }
 
-    if (distM < dist) {
-      out.copy(dview).normalize().multiplyScalar(distM).add(target);
+    const didCollide = distM < dist;
+    lastCameraCollidedRef.current = didCollide;
+    if (didCollide) {
+      const distClamped = Math.max(minDist, distM);
+      out.copy(dview).normalize().multiplyScalar(distClamped).add(target);
     }
     return out;
   };
@@ -600,10 +605,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           target.y + verticalDist,
           target.z + horizontalDist * Math.cos(cameraYawRad)
         );
-        const cameraPosResolved =
+        let cameraPosResolved =
           camDef?.collision ? calcCameraCollision(target, cameraPos) : cameraPos;
-
-        camera.position.copy(cameraPosResolved);
         // OpenGothic applies rot_offset to the view matrix (spin - rotOffset),
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
@@ -616,7 +619,26 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           -Math.sin(viewPitchRad),
           Math.cos(viewYawRad) * Math.cos(viewPitchRad)
         );
-        const lookAtPos = cameraPosResolved.clone().addScaledVector(lookDir, 100);
+        let lookAtPos = cameraPosResolved.clone().addScaledVector(lookDir, 100);
+        if (camDef?.collision && lastCameraCollidedRef.current) {
+          const frontSwitchDist = 40;
+          const frontOffset = 50;
+          const distToTarget = cameraPosResolved.distanceTo(target);
+          if (distToTarget < frontSwitchDist) {
+            const originalY = cameraPosResolved.y;
+            const heroYawRad = (heroYawDeg * Math.PI) / 180;
+            const heroForward = tmpTargetDeltaRef.current.set(
+              Math.sin(heroYawRad),
+              0,
+              Math.cos(heroYawRad)
+            );
+            cameraPosResolved = cameraPosResolved.clone().copy(target).addScaledVector(heroForward, frontOffset);
+            cameraPosResolved.y = originalY;
+            lookAtPos = cameraPosResolved.clone().addScaledVector(heroForward, 100);
+          }
+        }
+
+        camera.position.copy(cameraPosResolved);
         camera.lookAt(lookAtPos);
 
         return;
