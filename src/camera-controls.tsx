@@ -60,6 +60,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const hasSmoothedTargetRef = useRef(false);
   const tmpTargetRef = useRef(new THREE.Vector3());
   const tmpTargetDeltaRef = useRef(new THREE.Vector3());
+  const targetVeloRef = useRef(0);
   const smoothedYawDegRef = useRef(0);
   const smoothedElevDegRef = useRef(0);
   const hasSmoothedSpinRef = useRef(false);
@@ -434,6 +435,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       didSnapToHeroRef.current = false;
       hasSmoothedTargetRef.current = false;
       hasSmoothedSpinRef.current = false;
+      targetVeloRef.current = 0;
     }
 
     if (followHero) {
@@ -512,12 +514,19 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         if (!hasSmoothedTargetRef.current) {
           hasSmoothedTargetRef.current = true;
           smoothedTargetRef.current.copy(desiredTarget);
+          targetVeloRef.current = 0;
         } else {
-          const speed = Math.max(0, veloTrans) * 100; // cm/s
-          if (speed > 0 && delta > 0) {
+          const inertiaTarget = true;
+          const mul = 3.5;
+          const mul2 = 10;
+          const baseSpeed = Math.max(0, veloTrans) * 100;
+          if (baseSpeed > 0 && delta > 0) {
             const dp = tmpTargetDeltaRef.current.subVectors(desiredTarget, smoothedTargetRef.current);
             const len = dp.length();
             if (len > 0.0001) {
+              targetVeloRef.current =
+                targetVeloRef.current + (len - targetVeloRef.current) * Math.min(1, delta * mul2);
+              const speed = inertiaTarget ? Math.min(baseSpeed, targetVeloRef.current * mul) : baseSpeed;
               const step = Math.min(speed * delta, len);
               smoothedTargetRef.current.addScaledVector(dp, step / len);
             }
