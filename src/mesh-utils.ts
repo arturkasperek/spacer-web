@@ -208,13 +208,15 @@ const colorNameToHex: { [key: string]: number } = {
  * Handles both texture-based materials and helper visual color materials
  */
 export async function createMeshMaterial(
-  materialData: { texture: string; name?: string },
+  materialData: { texture: string; name?: string; disableCollision?: boolean },
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
   materialCache: Map<string, THREE.Material>
 ): Promise<THREE.MeshBasicMaterial> {
   const textureName = materialData.texture || '';
   const materialName = materialData.name || '';
+  const disableCollision = Boolean((materialData as any).disableCollision);
+  const noCollDet = disableCollision;
 
   // For helper visuals: check if material name is a color name (no texture)
   // Helper visuals have no texture but have a material name (like "ORANGE", "RED", etc.)
@@ -237,6 +239,7 @@ export async function createMeshMaterial(
       transparent: false,
       alphaTest: 0.5
     });
+    material.userData.noCollDet = noCollDet;
 
     // Cache and return
     materialCache.set(cacheKey, material);
@@ -257,6 +260,7 @@ export async function createMeshMaterial(
     transparent: false,  // Disable transparency for alpha-tested materials
     alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
   });
+  material.userData.noCollDet = noCollDet;
 
   // Load texture if available
   if (textureName && textureName.length) {

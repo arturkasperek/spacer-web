@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
+import { useRapier } from "@react-three/rapier";
 import * as THREE from "three";
 import { getMeshPath, getModelPath, getMorphMeshPath, getVobType, getVobTypeName, shouldUseHelperVisual } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
@@ -28,6 +29,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   showLights?: boolean;
 }>) {
   const { scene } = useThree();
+  const { world: rapierWorld, rapier } = useRapier();
   const hasLoadedRef = useRef(false);
 
   // VOB management state
@@ -50,6 +52,128 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
   const vobLoadQueueRef = useRef<VobData[]>([]);
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
+  const vobColliderHandlesRef = useRef(new Map<string, number>());
+
+  const shouldCreateVobCollider = (vob: Vob) => {
+    const vobType = getVobType(vob);
+    // Skip helper visuals (lights, spots, cameras, etc.).
+    if (shouldUseHelperVisual(vobType)) return false;
+    // If dynamic collision is disabled for this VOB, treat it as non-collidable.
+    if ((vob as any).cdDynamic === false) return false;
+    return true;
+  };
+
+  const removeVobCollider = (vobId: string) => {
+    if (!rapierWorld) return;
+    const handle = vobColliderHandlesRef.current.get(vobId);
+    if (typeof handle !== "number") return;
+    const collider = rapierWorld.getCollider(handle);
+    if (collider) {
+      try {
+        rapierWorld.removeCollider(collider, true);
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
+    vobColliderHandlesRef.current.delete(vobId);
+  };
+
+  const buildTrimeshFromObject = (obj: THREE.Object3D): { vertices: Float32Array; indices: Uint32Array } | null => {
+    const vertices: number[] = [];
+    const indices: number[] = [];
+    let vertBase = 0;
+
+    const shouldKeepMaterial = (mat: THREE.Material | undefined | null): boolean => {
+      if (!mat) return true;
+      const ud: any = (mat as any).userData;
+      return !Boolean(ud?.noCollDet);
+    };
+
+    obj.updateMatrixWorld(true);
+    obj.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const geom = mesh.geometry as THREE.BufferGeometry | undefined;
+      if (!geom) return;
+      const posAttr = geom.getAttribute("position");
+      if (!posAttr) return;
+
+      const mat = mesh.matrixWorld;
+      const vx = new THREE.Vector3();
+      for (let i = 0; i < posAttr.count; i++) {
+        vx.fromBufferAttribute(posAttr, i).applyMatrix4(mat);
+        vertices.push(vx.x, vx.y, vx.z);
+      }
+
+      const index = geom.getIndex();
+      const groups = geom.groups ?? [];
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      if (groups.length > 0) {
+        for (const g of groups) {
+          const matIndex = typeof g.materialIndex === "number" ? g.materialIndex : 0;
+          const matForGroup = materials[matIndex] as THREE.Material | undefined;
+          if (!shouldKeepMaterial(matForGroup)) continue;
+          if (index) {
+            const start = g.start;
+            const end = g.start + g.count;
+            for (let i = start; i < end; i += 3) {
+              indices.push(vertBase + index.getX(i + 0));
+              indices.push(vertBase + index.getX(i + 1));
+              indices.push(vertBase + index.getX(i + 2));
+            }
+          } else {
+            const start = g.start;
+            const end = g.start + g.count;
+            for (let i = start; i < end; i += 3) {
+              indices.push(vertBase + i + 0);
+              indices.push(vertBase + i + 1);
+              indices.push(vertBase + i + 2);
+            }
+          }
+        }
+      } else {
+        const matForMesh = materials[0] as THREE.Material | undefined;
+        if (shouldKeepMaterial(matForMesh)) {
+          if (index) {
+            for (let i = 0; i < index.count; i++) {
+              indices.push(vertBase + index.getX(i));
+            }
+          } else {
+            for (let i = 0; i < posAttr.count; i++) {
+              indices.push(vertBase + i);
+            }
+          }
+        }
+      }
+
+      vertBase += posAttr.count;
+    });
+
+    if (vertices.length === 0 || indices.length === 0) return null;
+    return {
+      vertices: new Float32Array(vertices),
+      indices: new Uint32Array(indices),
+    };
+  };
+
+  const createVobCollider = (vobId: string, obj: THREE.Object3D, vob: Vob) => {
+    if (!rapierWorld || !rapier) return;
+    if (!shouldCreateVobCollider(vob)) return;
+    if (vobColliderHandlesRef.current.has(vobId)) return;
+
+    const meshData = buildTrimeshFromObject(obj);
+    if (!meshData) return;
+
+    const desc = rapier.ColliderDesc.trimesh(meshData.vertices, meshData.indices);
+    // Collision groups:
+    // - WORLD: membership=1, filter=all (so NPCs can collide/query with it)
+    const WORLD_MEMBERSHIP = 0x0001;
+    const WORLD_FILTER = 0xffff;
+    desc.setCollisionGroups((WORLD_MEMBERSHIP << 16) | WORLD_FILTER);
+
+    const collider = rapierWorld.createCollider(desc);
+    vobColliderHandlesRef.current.set(vobId, collider.handle);
+  };
 
   const applyViewVisibility = (obj: THREE.Object3D, vob: Vob) => {
     const vobType = getVobType(vob);
@@ -203,6 +327,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
           scene.remove(mesh);
           disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
+          removeVobCollider(id);
         }
       }
 
@@ -259,6 +384,23 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       updateVOBStreaming();
     }
   });
+
+  useEffect(() => {
+    return () => {
+      if (!rapierWorld) return;
+      for (const handle of vobColliderHandlesRef.current.values()) {
+        const collider = rapierWorld.getCollider(handle);
+        if (collider) {
+          try {
+            rapierWorld.removeCollider(collider, true);
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+      }
+      vobColliderHandlesRef.current.clear();
+    };
+  }, [rapierWorld]);
 
   // Main VOB rendering dispatcher
   const renderVOB = async (vob: Vob, vobId: string | null = null, vobData?: VobData): Promise<boolean> => {
@@ -363,6 +505,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
         scene.add(vobMeshObj);
+        createVobCollider(vobId, vobMeshObj, vob);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(vobMeshObj)) {
@@ -471,6 +614,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
         
         if (vobId) {
           loadedVOBsRef.current.set(vobId, modelGroup);
+          createVobCollider(vobId, modelGroup, vob);
         }
         
         return true;
@@ -568,6 +712,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
         scene.add(modelGroup);
+        createVobCollider(vobId, modelGroup, vob);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(modelGroup)) {
@@ -630,6 +775,7 @@ function VOBRenderer({ world, zenKit, cameraPosition, onLoadingStatus, onVobStat
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
         scene.add(morphMesh);
+        createVobCollider(vobId, morphMesh, vob);
         
         // Verify it's actually in the scene
         if (!scene.children.includes(morphMesh)) {
