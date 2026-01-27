@@ -548,7 +548,18 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
       trySnapNpcToGroundWithRapier(npcGroup);
 
 	      const isManualHero = manualControlHeroEnabled && playerGroupRef.current === npcGroup;
-	      if (isManualHero) {
+	      const isFallingNow = Boolean(npcGroup.userData.isFalling);
+	      if (isManualHero && isFallingNow) {
+	        const manualUd: any = npcGroup.userData ?? (npcGroup.userData = {});
+	        const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+	        delete (manualUd as any)._manualSuppressLocomotion;
+	        delete (manualUd as any)._manualTurnAnim;
+	        delete (manualUd as any)._manualWasTurningInPlace;
+	        if (instance?.object) {
+	          instance.object.rotation.z = 0;
+	          manualUd._manualLeanRoll = 0;
+	        }
+	      } else if (isManualHero) {
         let pendingMouseYawRad = 0;
         const dDeg = playerInput.consumeMouseYawDelta();
         if (Number.isFinite(dDeg) && dDeg !== 0) {
@@ -783,6 +794,8 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 		        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
 		        const wasFalling = Boolean(ud._wasFalling);
 		        ud._wasFalling = true;
+		        const fallFor = (ud._kccFallFor as number | undefined) ?? 0;
+		        const fallDelay = kccConfig.fallAnimDelaySeconds ?? 0;
 		        // Distance-based fallDown like ZenGin: switch after a vertical drop threshold.
 		        const yNow = npcGroup.position.y;
 		        let startY = (ud._fallDownStartY as number | undefined);
@@ -795,16 +808,21 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 		        ud._fallDownMinY = minY;
 		        ud._fallDownDistY = distY;
 		        ud._fallAnimT = 0;
-		        locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
+		        if (fallDelay <= 0 || fallFor >= fallDelay - 1e-6) {
+		          locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
+		        }
 		      }
 	      // Sliding has priority over walk/run/idle (but not over falling).
 	      else if (Boolean(npcGroup.userData.isSliding)) {
+	        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+	        const slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
+	        const slideDelay = kccConfig.slideAnimDelaySeconds ?? 0;
 	        (npcGroup.userData as any)._wasFalling = false;
 	        (npcGroup.userData as any)._fallAnimT = 0;
 	        (npcGroup.userData as any)._fallDownStartY = undefined;
 	        (npcGroup.userData as any)._fallDownMinY = undefined;
 	        (npcGroup.userData as any)._fallDownDistY = 0;
-	        locomotionMode = "slide";
+	        if (slideDelay <= 0 || slideFor >= slideDelay - 1e-6) locomotionMode = "slide";
 	      } else {
 	        (npcGroup.userData as any)._wasFalling = false;
 	        (npcGroup.userData as any)._fallAnimT = 0;

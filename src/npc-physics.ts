@@ -40,11 +40,13 @@ export const NPC_RENDER_TUNING = {
   slideAccel: 2200,
   slideMaxSpeed: 900,
   slideInitialSpeed: 150,
+  slideAnimDelaySeconds: 0.25,
 
   // Falling->wall push
   fallSlidePushSpeed: 10000,
   fallSlidePushMaxPerFrame: 35,
   fallWallPushDurationSeconds: 0.4,
+  fallAnimDelaySeconds: 0.25,
 
   // Fall animation phase split (ZenGin-like distance-based)
   fallDownHeight: 500,
@@ -106,7 +108,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
   	    const getSlideMaxSpeed = () => NPC_RENDER_TUNING.slideMaxSpeed;
 
-  	    const getSlideInitialSpeed = () => NPC_RENDER_TUNING.slideInitialSpeed;
+    const getSlideInitialSpeed = () => NPC_RENDER_TUNING.slideInitialSpeed;
+    const getSlideAnimDelaySeconds = () => NPC_RENDER_TUNING.slideAnimDelaySeconds;
 
   	    const getSlideToFallDeg = () => NPC_RENDER_TUNING.slideToFallDeg;
 
@@ -114,9 +117,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
   			    const getFallSlidePushMaxPerFrame = () => NPC_RENDER_TUNING.fallSlidePushMaxPerFrame;
 
-  		    const getFallWallPushDurationSeconds = () => NPC_RENDER_TUNING.fallWallPushDurationSeconds;
+    const getFallWallPushDurationSeconds = () => NPC_RENDER_TUNING.fallWallPushDurationSeconds;
 
-  		    const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
+    const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
+    const getFallAnimDelaySeconds = () => NPC_RENDER_TUNING.fallAnimDelaySeconds;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
@@ -171,14 +175,16 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       slideBlockUphillEnabled: getSlideBlockUphillEnabled(),
       // Sliding tuning.
       slideAccel: getSlideAccel(),
-  	      slideMaxSpeed: getSlideMaxSpeed(),
-  	      slideInitialSpeed: getSlideInitialSpeed(),
-  	      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
-  				      fallSlidePushSpeed: getFallSlidePushSpeed(),
-  				      fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
-  				      fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
-  					      // Falling animation blending (ZenGin-like: fallDown before fall).
-  					      fallDownHeight: getFallDownHeight(),
+      slideMaxSpeed: getSlideMaxSpeed(),
+      slideInitialSpeed: getSlideInitialSpeed(),
+      slideAnimDelaySeconds: getSlideAnimDelaySeconds(),
+      slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
+      fallSlidePushSpeed: getFallSlidePushSpeed(),
+      fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
+      fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
+      fallAnimDelaySeconds: getFallAnimDelaySeconds(),
+      // Falling animation blending (ZenGin-like: fallDown before fall).
+      fallDownHeight: getFallDownHeight(),
 
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -564,10 +570,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   			    let dz = desiredZ - fromZ;
   			    let desiredDistXZ = Math.hypot(dx, dz);
 
-  	    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-  	    const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-  	    const wasSliding = Boolean(ud.isSliding);
-  	    const wasFalling = Boolean(ud.isFalling);
+    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+    const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+    const wasSliding = Boolean(ud.isSliding);
+    const wasFalling = Boolean(ud.isFalling);
 
   	    // While in the initial fallDown phase, ignore steering/movement input (ZenGin-like: no air-control during "crouch").
   	    // We still allow physics reactions like wall pushback and gravity.
@@ -676,7 +682,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
     // While sliding, add an explicit downhill movement that scales with slope steepness.
     // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
     // slope-based motion, the character may drift down very steep slopes too slowly.
-  	    if (wasSliding) {
+    if (wasSliding) {
   	      const n = ud._kccGroundNormal as { x: number; y: number; z: number } | undefined;
   	      const ny = n?.y ?? 0;
   	      if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.02 && ny < 0.999) {
@@ -717,9 +723,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
             desiredDistXZ = Math.hypot(dx, dz);
             slideSpeedApplied = slideSpeed;
           }
-        } else {
-          ud._kccSlideSpeed = 0;
-        }
+    } else {
+      ud._kccSlideSpeed = 0;
+    }
       } else {
         ud._kccSlideSpeed = 0;
       }
@@ -787,25 +793,25 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	      const WORLD_MEMBERSHIP = 0x0001;
   	      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
-  	      const computeBestGroundNormal = () => {
-  	        let best: { x: number; y: number; z: number } | null = null;
-  	        // Ignore near-vertical contacts (walls) when classifying "ground".
-  	        // KCC can momentarily lose the floor contact when sliding along a wall edge; in that case we'd otherwise
-  	        // treat a wall normal (ny≈0) as ground and incorrectly flip into falling/sliding states.
-  	        const MIN_GROUND_NY = 0.06;
-  	        const n = controller.numComputedCollisions?.() ?? 0;
-  	        for (let i = 0; i < n; i++) {
-  	          const c = controller.computedCollision?.(i);
-  	          const normal = c?.normal1;
-  	          const nx = normal?.x;
-  	          const ny = normal?.y;
-  	          const nz = normal?.z;
-  	          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
-  	          if (!(ny > MIN_GROUND_NY)) continue;
-  	          if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
-  	        }
-  	        return best;
-  	      };
+      const computeBestGroundNormal = () => {
+        let best: { x: number; y: number; z: number } | null = null;
+        // Ignore near-vertical contacts (walls) when classifying "ground".
+        // KCC can momentarily lose the floor contact when sliding along a wall edge; in that case we'd otherwise
+        // treat a wall normal (ny≈0) as ground and incorrectly flip into falling/sliding states.
+        const MIN_GROUND_NY = 0.06;
+        const n = controller.numComputedCollisions?.() ?? 0;
+        for (let i = 0; i < n; i++) {
+          const c = controller.computedCollision?.(i);
+          const normal = c?.normal1;
+          const nx = normal?.x;
+          const ny = normal?.y;
+          const nz = normal?.z;
+          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) continue;
+          if (!(ny > MIN_GROUND_NY)) continue;
+          if (!best || ny > best.y) best = { x: nx, y: ny, z: nz };
+        }
+        return best;
+      };
 
       const computeBestSteepNormalXZ = (minNyExclusive: number) => {
         let best: { x: number; z: number; len: number } | null = null;
@@ -915,13 +921,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   		            filterGroups
   		          );
   		          move = controller.computedMovement();
-  		          try {
-  		            bestGroundNormal = computeBestGroundNormal();
-  		            bestGroundNy = bestGroundNormal?.y ?? null;
-  			          } catch {
-  			            // ignore
-  			          }
-  			          fallSlidePush = { x: pushX, z: pushZ };
+              try {
+                bestGroundNormal = computeBestGroundNormal();
+                bestGroundNy = bestGroundNormal?.y ?? null;
+              } catch {
+                // ignore
+              }
+              fallSlidePush = { x: pushX, z: pushZ };
   				          fallWallPushDbg = {
   				            phase: "start",
   				            duration: FALL_WALL_PUSH_DURATION_S,
@@ -1310,7 +1316,11 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         }
       }
 
-  	      ud.isFalling = !stableGrounded;
+      ud.isFalling = !stableGrounded;
+      let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
+      if (!stableGrounded) fallFor += dtClamped;
+      else fallFor = 0;
+      ud._kccFallFor = fallFor;
 
   	      // Reduce slide<->walk jitter near the maxSlopeClimbAngle threshold:
   	      // when we were sliding and the slope briefly drops just below the threshold, keep sliding for a moment.
@@ -1321,11 +1331,11 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	      ud._kccSlideExitFor = slideExitFor;
   	      const slideExitGraceActiveNow = wasSliding && !wantsSlideAngleNow && slideExitFor < SLIDE_EXIT_GRACE_S;
 
-  	      let isSliding = false;
-  	      if (stableGrounded) {
-  	        // If KCC didn't give us any collision normals this frame (`groundNy=null`), keep the previous slide state
-  	        // briefly; otherwise we can get a 1-frame slide->run->slide flicker even on a continuous slope.
-  	        if (slopeAngleNow == null) {
+      let isSliding = false;
+      if (stableGrounded) {
+        // If KCC didn't give us any collision normals this frame (`groundNy=null`), keep the previous slide state
+        // briefly; otherwise we can get a 1-frame slide->run->slide flicker even on a continuous slope.
+        if (slopeAngleNow == null) {
   	          isSliding = wasSliding && slideExitGraceActiveNow;
   	        } else {
   	          isSliding =
@@ -1335,6 +1345,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	        }
   	      }
   	      ud.isSliding = isSliding;
+      let slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
+      if (isSliding) slideFor += dtClamped;
+      else slideFor = 0;
+      ud._kccSlideFor = slideFor;
 
       updateNpcVisualSmoothing(npcGroup, dtClamped);
 
