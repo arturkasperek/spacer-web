@@ -660,6 +660,19 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	      }
   	    }
 
+    // If grounded and moving, project the desired move onto the ground plane.
+    // This preserves the intended XZ heading and avoids lateral drift on slopes.
+    if (wasStableGrounded && !wasSliding && desiredDistXZ > 1e-6) {
+      const n =
+        (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
+        ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
+      const ny = n?.y ?? 0;
+      if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.2) {
+        const slopeDy = -(n.x * dx + n.z * dz) / ny;
+        if (Number.isFinite(slopeDy)) dy = slopeDy;
+      }
+    }
+
     // While sliding, add an explicit downhill movement that scales with slope steepness.
     // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
     // slope-based motion, the character may drift down very steep slopes too slowly.
