@@ -28,7 +28,6 @@ import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
-import { useCameraDebug } from "./camera-debug-context";
 
 interface NpcRendererProps {
   world: World | null;
@@ -62,7 +61,6 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
-  const cameraDebug = useCameraDebug();
   const playerInput = usePlayerInput();
   const tmpManualForward = useMemo(() => new THREE.Vector3(), []);
   const tmpEmRootMotionWorld = useMemo(() => new THREE.Vector3(), []);
@@ -623,7 +621,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const currentYaw = Math.atan2(tmpManualForward.x, tmpManualForward.z);
           // OpenGothic-like manual turn speed: 90 deg/s, with optional debug override.
           const baseTurnSpeedDeg = 90;
-          const turnSpeedDeg = cameraDebug.state.heroTurnSpeedOverrideDeg ?? baseTurnSpeedDeg;
+          const turnSpeedDeg = baseTurnSpeedDeg;
           const turnSpeed = (turnSpeedDeg * Math.PI) / 180; // rad/sec
           const desiredYaw = currentYaw + turn * turnSpeed * dt + mouseYawThisStep;
           tmpManualDesiredQuat.setFromAxisAngle(tmpManualUp, desiredYaw);

@@ -5,7 +5,6 @@ import { getPlayerPose } from "./player-runtime";
 import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
 import { usePlayerInput } from "./player-input-context";
-import { useCameraDebug } from "./camera-debug-context";
 import { useRapier } from "@react-three/rapier";
 
 declare global {
@@ -25,7 +24,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const { world: rapierWorld, rapier } = useRapier();
   const cameraSettings = useCameraSettings();
   const playerInput = usePlayerInput();
-  const cameraDebug = useCameraDebug();
   const [keys, setKeys] = useState({
     KeyW: false,
     KeyS: false,
@@ -55,7 +53,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const userPitchOffsetDegRef = useRef(0);
   const userRange01Ref = useRef<number | null>(null);
   const lastRange01Ref = useRef(0.5);
-  const bestRangeOverrideRef = useRef<number | null>(null);
   const smoothedTargetRef = useRef(new THREE.Vector3());
   const hasSmoothedTargetRef = useRef(false);
   const tmpTargetRef = useRef(new THREE.Vector3());
@@ -385,9 +382,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     };
   }, [gl, camera]);
 
-  useEffect(() => {
-    bestRangeOverrideRef.current = cameraDebug.state.bestRangeOverride;
-  }, [cameraDebug.state.bestRangeOverride]);
 
   // Movement update function (matching zen-viewer)
   const updateMovement = (_delta?: number) => {
@@ -458,15 +452,14 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefRotOffsetY = Number.isFinite(camDef?.rotOffsetY) ? camDef!.rotOffsetY : 0;
         const camDefVeloTrans = Number.isFinite(camDef?.veloTrans) ? camDef!.veloTrans : 0;
         const camDefVeloRot = Number.isFinite(camDef?.veloRot) ? camDef!.veloRot : 0;
-        const veloTrans = cameraDebug.state.veloTransOverride ?? camDefVeloTrans;
-        const veloRot = cameraDebug.state.veloRotOverride ?? camDefVeloRot;
+        const veloTrans = camDefVeloTrans;
+        const veloRot = camDefVeloRot;
         
-        const bestRangeOverride = bestRangeOverrideRef.current;
-        const bestRangeM = bestRangeOverride ?? camDefBestRange;
-        const bestElevDeg = cameraDebug.state.bestElevationOverride ?? camDefBestElev;
-        const bestAzimuthDeg = cameraDebug.state.bestAzimuthOverride ?? camDefBestAzimuth;
-        const rotOffsetXDeg = cameraDebug.state.rotOffsetXOverride ?? camDefRotOffsetX;
-        const rotOffsetYDeg = cameraDebug.state.rotOffsetYOverride ?? camDefRotOffsetY;
+        const bestRangeM = camDefBestRange;
+        const bestElevDeg = camDefBestElev;
+        const bestAzimuthDeg = camDefBestAzimuth;
+        const rotOffsetXDeg = camDefRotOffsetX;
+        const rotOffsetYDeg = camDefRotOffsetY;
         const minRangeM = Math.max(0.01, camDefMinRange);
         const maxRangeM = Math.max(minRangeM, camDefMaxRange);
         const rangeSpan = Math.max(0.0001, maxRangeM - minRangeM);
@@ -591,17 +584,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
         
         let rangeM: number;
-        if (bestRangeOverride !== null) {
-          const clamped = Math.max(minRangeM, Math.min(maxRangeM, bestRangeOverride));
-          const range01 = (clamped - minRangeM) / rangeSpan;
-          userRange01Ref.current = range01;
-          lastRange01Ref.current = range01;
-          rangeM = clamped;
-        } else {
-          const range01 = userRange01Ref.current ?? lastRange01Ref.current;
-          lastRange01Ref.current = range01;
-          rangeM = minRangeM + range01 * (maxRangeM - minRangeM);
-        }
+        const range01 = userRange01Ref.current ?? lastRange01Ref.current;
+        lastRange01Ref.current = range01;
+        rangeM = minRangeM + range01 * (maxRangeM - minRangeM);
         const rangeCm = rangeM * 100;
         
         // Calculate horizontal distance (on XZ plane) based on elevation - in cm

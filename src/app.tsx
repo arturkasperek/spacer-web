@@ -24,8 +24,6 @@ import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
 import { PlayerInputProvider } from "./player-input-context.js";
-import { CameraDebugProvider } from "./camera-debug-context.js";
-import { CameraDebugPanel } from "./camera-debug-panel.js";
 import { FpsOverlay } from "./fps-overlay";
 
 // Create a ref to hold the main camera
@@ -406,8 +404,7 @@ export function App() {
         </div>
       )}
 
-      <CameraDebugProvider>
-        <Canvas
+      <Canvas
           gl={{
             alpha: false,
             antialias: true,
@@ -452,8 +449,6 @@ export function App() {
             </Physics>
           </PlayerInputProvider>
         </Canvas>
-        <CameraDebugPanel />
-      </CameraDebugProvider>
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>
   );

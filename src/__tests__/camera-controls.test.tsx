@@ -52,29 +52,6 @@ jest.mock('../player-input-context', () => ({
   }),
 }));
 
-jest.mock('../camera-debug-context', () => ({
-  useCameraDebug: () => ({
-    state: {
-      bestRangeOverride: null,
-      bestElevationOverride: null,
-      bestAzimuthOverride: null,
-      rotOffsetXOverride: null,
-      rotOffsetYOverride: null,
-      veloTransOverride: null,
-      veloRotOverride: null,
-      heroTurnSpeedOverrideDeg: null,
-    },
-    setBestRangeOverride: jest.fn(),
-    setBestElevationOverride: jest.fn(),
-    setBestAzimuthOverride: jest.fn(),
-    setRotOffsetXOverride: jest.fn(),
-    setRotOffsetYOverride: jest.fn(),
-    setVeloTransOverride: jest.fn(),
-    setVeloRotOverride: jest.fn(),
-    setHeroTurnSpeedOverrideDeg: jest.fn(),
-  }),
-}));
-
 const mockCamera = {
   position: { set: jest.fn(), x: 0, y: 0, z: 0, add: jest.fn() },
   quaternion: { x: 0, y: 0, z: 0, w: 1, copy: jest.fn() },
