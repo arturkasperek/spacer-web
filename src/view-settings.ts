@@ -4,12 +4,14 @@ export type ViewSettingsState = {
   showVobSpots: boolean;
   showWaypoints: boolean;
   showLights: boolean;
+  showFpsMeter: boolean;
 };
 
 const defaultState: ViewSettingsState = {
   showVobSpots: true,
   showWaypoints: true,
   showLights: true,
+  showFpsMeter: false,
 };
 
 let snapshot: ViewSettingsState = defaultState;
@@ -19,7 +21,8 @@ function setSnapshot(next: ViewSettingsState) {
   if (
     snapshot.showVobSpots === next.showVobSpots &&
     snapshot.showWaypoints === next.showWaypoints &&
-    snapshot.showLights === next.showLights
+    snapshot.showLights === next.showLights &&
+    snapshot.showFpsMeter === next.showFpsMeter
   ) {
     return;
   }
@@ -36,6 +39,7 @@ export function setViewSettings(partial: Partial<ViewSettingsState>): void {
     showVobSpots: partial.showVobSpots ?? snapshot.showVobSpots,
     showWaypoints: partial.showWaypoints ?? snapshot.showWaypoints,
     showLights: partial.showLights ?? snapshot.showLights,
+    showFpsMeter: partial.showFpsMeter ?? snapshot.showFpsMeter,
   });
 }
 
@@ -55,4 +59,3 @@ export function useViewSettings(): ViewSettingsState {
 export function __resetViewSettingsForTests(): void {
   setSnapshot(defaultState);
 }
-

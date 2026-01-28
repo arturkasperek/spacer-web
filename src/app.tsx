@@ -26,6 +26,7 @@ import { setFreepointsWorld } from "./npc-freepoints.js";
 import { PlayerInputProvider } from "./player-input-context.js";
 import { CameraDebugProvider } from "./camera-debug-context.js";
 import { CameraDebugPanel } from "./camera-debug-panel.js";
+import { FpsOverlay } from "./fps-overlay";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -70,7 +71,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onNpcClickFromScene?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
   npcs: Map<number, NpcData>;
   onNpcSpawn: NpcSpawnCallback;
-  viewSettings: { showWaypoints: boolean; showVobSpots: boolean; showLights: boolean };
+  viewSettings: { showWaypoints: boolean; showVobSpots: boolean; showLights: boolean; showFpsMeter: boolean };
 }>) {
   const { camera } = useThree();
   const didInitCameraRef = useRef(false);
@@ -447,6 +448,7 @@ export function App() {
                 onNpcSpawn={handleNpcSpawn}
                 viewSettings={viewSettings}
               />
+              <FpsOverlay enabled={viewSettings.showFpsMeter} />
             </Physics>
           </PlayerInputProvider>
         </Canvas>
