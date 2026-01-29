@@ -626,6 +626,15 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
     const wasSliding = Boolean(ud.isSliding);
     const wasFalling = Boolean(ud.isFalling);
 
+    // While sliding, ignore movement input entirely (no air/ground steering).
+    if (wasSliding && desiredDistXZ > 1e-6) {
+      desiredX = fromX;
+      desiredZ = fromZ;
+      dx = 0;
+      dz = 0;
+      desiredDistXZ = 0;
+    }
+
   	    // While in the initial fallDown phase, ignore steering/movement input (ZenGin-like: no air-control during "crouch").
   	    // We still allow physics reactions like wall pushback and gravity.
   	    if (wasFalling) {
@@ -1434,9 +1443,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
             // ignore
           }
 
-          if (deltaUp != null && deltaUp > kccConfig.slideEntryNoSlideUpstepEps) {
-            noSlideOnUpstep = true;
-          }
+          const noSlideDeltaOk = deltaUp != null && deltaUp > kccConfig.slideEntryNoSlideUpstepEps;
+          const NO_SLIDE_UPSTEP_GRACE_S = 1.0;
+          let noSlideUpstepFor = (ud._kccNoSlideUpstepFor as number | undefined) ?? 0;
+          if (noSlideDeltaOk) noSlideUpstepFor += dtClamped;
+          else noSlideUpstepFor = 0;
+          ud._kccNoSlideUpstepFor = noSlideUpstepFor;
+          noSlideOnUpstep = noSlideDeltaOk && noSlideUpstepFor < NO_SLIDE_UPSTEP_GRACE_S;
         } catch {
           // ignore
         }
@@ -1556,10 +1569,25 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           const slideDeltaMin = kccConfig.slideEntrySlideDownDeltaMin ?? 0;
           const probeDelta = (ud._kccProbeDelta as number | null | undefined) ?? null;
           const slideDeltaOk = probeDelta != null && probeDelta <= -Math.max(0, slideDeltaMin);
-          isSliding =
+          const wantsSlideBySlope =
             slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 &&
-            (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow) &&
-            slideDeltaOk;
+            (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow);
+
+          // Grace: allow sliding for a short time even if probe delta doesn't indicate downhill.
+          const SLIDE_DELTA_GRACE_S = 1.0;
+          let slideDeltaGraceFor = (ud._kccSlideDeltaGraceFor as number | undefined) ?? 0;
+          let slideDeltaGraceActive = false;
+          if (wantsSlideBySlope && !slideDeltaOk) {
+            slideDeltaGraceFor += dtClamped;
+            slideDeltaGraceActive = slideDeltaGraceFor < SLIDE_DELTA_GRACE_S;
+          } else {
+            slideDeltaGraceFor = 0;
+          }
+          ud._kccSlideDeltaGraceFor = slideDeltaGraceFor;
+
+          // After the grace period, ignore probe delta entirely while we remain on a slide-worthy slope.
+          const slideDeltaOverride = slideDeltaGraceFor >= SLIDE_DELTA_GRACE_S;
+          isSliding = wantsSlideBySlope && (slideDeltaOk || slideDeltaGraceActive || slideDeltaOverride);
           if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
         }
       }

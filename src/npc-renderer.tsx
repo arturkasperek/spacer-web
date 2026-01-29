@@ -604,10 +604,15 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           remaining -= dt;
 
           const keys = manualKeysRef.current;
-          const mouseYawThisStep = mouseYawRate * dt;
+          let mouseYawThisStep = mouseYawRate * dt;
           // In Gothic: ArrowRight turns right (clockwise when looking from above).
-          const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
-          const move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+          let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          if (npcGroup.userData?.isSliding) {
+            turn = 0;
+            move = 0;
+            mouseYawThisStep = 0;
+          }
           if (turn === 0 && move === 0 && Math.abs(mouseYawThisStep) < 1e-6) break;
 
           // Gothic-like manual controls:
@@ -659,8 +664,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	        // Note: this is purely visual (model tilt), not physics.
         if (wantLean && instance?.object) {
           const keys = manualKeysRef.current;
-          const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
-          const move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+          let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+          if (npcGroup.userData?.isSliding) {
+            turn = 0;
+            move = 0;
+          }
           const maxLeanRad = manualRunToggleRef.current ? 0.17 : 0.12; // ~10deg / ~7deg
           const targetRoll = move !== 0 ? -turn * maxLeanRad : 0;
 
@@ -674,9 +683,13 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	          instance.object.rotation.z = roll;
 	        }
 
-	        const keysNow = manualKeysRef.current;
-	        const turnNow = (keysNow.left ? 1 : 0) - (keysNow.right ? 1 : 0);
-	        const moveNow = (keysNow.up ? 1 : 0) - (keysNow.down ? 1 : 0);
+        const keysNow = manualKeysRef.current;
+        let turnNow = (keysNow.left ? 1 : 0) - (keysNow.right ? 1 : 0);
+        let moveNow = (keysNow.up ? 1 : 0) - (keysNow.down ? 1 : 0);
+        if (npcGroup.userData?.isSliding) {
+          turnNow = 0;
+          moveNow = 0;
+        }
 	        const manualLocomotionMode: LocomotionMode = moveNow !== 0 ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
 
 	        // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
