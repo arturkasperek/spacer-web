@@ -15,7 +15,7 @@ export const NPC_RENDER_TUNING = {
   stepHeight: 60,
 
   // Slopes
-  maxSlopeDeg: 50, // walkable slope (slide starts above this)
+  maxSlopeDeg: 48, // walkable slope (slide starts above this)
   slideToFallDeg: 67, // slide->fall threshold
 
   // Physics
@@ -40,13 +40,13 @@ export const NPC_RENDER_TUNING = {
   slideAccel: 2200,
   slideMaxSpeed: 900,
   slideInitialSpeed: 150,
-  slideAnimDelaySeconds: 0.25,
+  slideAnimDelaySeconds: 0,
 
   // Falling->wall push
   fallSlidePushSpeed: 10000,
   fallSlidePushMaxPerFrame: 35,
   fallWallPushDurationSeconds: 0.4,
-  fallAnimDelaySeconds: 0.25,
+  fallAnimDelaySeconds: 0,
 
   // Fall animation phase split (ZenGin-like distance-based)
   fallDownHeight: 500,
@@ -58,6 +58,12 @@ export const NPC_RENDER_TUNING = {
   // Optional: block stepping onto very steep surfaces
   slideEntryBlockEnabled: true,
   slideEntryBlockDeg: 75,
+  // Optional: allow stepping onto steep surfaces but prevent slide if we are stepping "up" onto them.
+  slideEntryNoSlideUpstepEps: 1,
+  slideEntryNoSlideForwardProbeFactor: 0.6,
+  slideEntryNoSlideForwardProbeMin: 8,
+  slideEntryNoSlideForwardProbeMax: 25,
+  slideEntrySlideDownDeltaMin: 3,
 
   // Visual smoothing (Y-only offset on a child group)
   visualSmoothEnabled: true,
@@ -126,9 +132,15 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
   			    const getSlideExitGraceSeconds = () => NPC_RENDER_TUNING.slideExitGraceSeconds;
 
-  			    const getSlideEntryBlockEnabled = () => NPC_RENDER_TUNING.slideEntryBlockEnabled;
+    const getSlideEntryBlockEnabled = () => NPC_RENDER_TUNING.slideEntryBlockEnabled;
 
-  			    const getSlideEntryBlockDeg = () => NPC_RENDER_TUNING.slideEntryBlockDeg;
+    const getSlideEntryBlockDeg = () => NPC_RENDER_TUNING.slideEntryBlockDeg;
+
+    const getSlideEntryNoSlideUpstepEps = () => NPC_RENDER_TUNING.slideEntryNoSlideUpstepEps;
+    const getSlideEntryNoSlideForwardProbeFactor = () => NPC_RENDER_TUNING.slideEntryNoSlideForwardProbeFactor;
+    const getSlideEntryNoSlideForwardProbeMin = () => NPC_RENDER_TUNING.slideEntryNoSlideForwardProbeMin;
+    const getSlideEntryNoSlideForwardProbeMax = () => NPC_RENDER_TUNING.slideEntryNoSlideForwardProbeMax;
+    const getSlideEntrySlideDownDeltaMin = () => NPC_RENDER_TUNING.slideEntrySlideDownDeltaMin;
 
   			    const getVisualSmoothEnabled = () => NPC_RENDER_TUNING.visualSmoothEnabled;
 
@@ -189,8 +201,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
   		      slideExitGraceSeconds: getSlideExitGraceSeconds(),
-  		      slideEntryBlockEnabled: getSlideEntryBlockEnabled(),
-  		      slideEntryBlockAngle: THREE.MathUtils.degToRad(getSlideEntryBlockDeg()),
+      slideEntryBlockEnabled: getSlideEntryBlockEnabled(),
+      slideEntryBlockAngle: THREE.MathUtils.degToRad(getSlideEntryBlockDeg()),
+      slideEntryNoSlideUpstepEps: getSlideEntryNoSlideUpstepEps(),
+      slideEntryNoSlideForwardProbeFactor: getSlideEntryNoSlideForwardProbeFactor(),
+      slideEntryNoSlideForwardProbeMin: getSlideEntryNoSlideForwardProbeMin(),
+      slideEntryNoSlideForwardProbeMax: getSlideEntryNoSlideForwardProbeMax(),
+      slideEntrySlideDownDeltaMin: getSlideEntrySlideDownDeltaMin(),
 
   		      // Visual-only smoothing (applied to a child group so physics stays exact).
   		      visualSmoothEnabled: getVisualSmoothEnabled(),
@@ -244,6 +261,40 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
     ud._visSmoothY = smoothY;
     visualRoot.position.y = smoothY - targetY;
+  };
+
+  const updateNpcProbeDebugLine = (
+    npcGroup: THREE.Group,
+    key: "_kccProbeLine" | "_kccProbeLineFar",
+    color: number,
+    startWorld: THREE.Vector3,
+    endWorld: THREE.Vector3,
+    visible: boolean
+  ) => {
+    if (npcGroup.userData == null) npcGroup.userData = {};
+    let line = npcGroup.userData[key] as THREE.Line | undefined;
+    if (!line) {
+      const geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array(6);
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      const material = new THREE.LineBasicMaterial({ color, depthTest: false });
+      line = new THREE.Line(geometry, material);
+      line.frustumCulled = false;
+      line.visible = false;
+      line.renderOrder = 9999;
+      npcGroup.add(line);
+      npcGroup.userData[key] = line;
+    }
+    line.visible = visible;
+    if (!visible) return;
+    const start = ((npcGroup.userData._kccProbeStart as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccProbeStart = new THREE.Vector3())).copy(startWorld);
+    const end = ((npcGroup.userData._kccProbeEnd as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccProbeEnd = new THREE.Vector3())).copy(endWorld);
+    npcGroup.worldToLocal(start);
+    npcGroup.worldToLocal(end);
+    const attr = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+    attr.setXYZ(0, start.x, start.y, start.z);
+    attr.setXYZ(1, end.x, end.y, end.z);
+    attr.needsUpdate = true;
   };
 
   	  useEffect(() => {
@@ -1127,12 +1178,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   			        ud._kccFallWallPushDir = undefined;
   			      }
 
-  		      // Optional: block stepping onto very steep surfaces (treat as a wall).
-  		      if (
-  		        kccConfig.slideEntryBlockEnabled &&
-  		        wasStableGrounded &&
-  		        !wasSliding &&
-  		        !wasFalling &&
+      // Optional: block stepping onto very steep surfaces (treat as a wall).
+      if (
+        kccConfig.slideEntryBlockEnabled &&
+        wasStableGrounded &&
+        !wasSliding &&
+        !wasFalling &&
   		        desiredDistXZ > 1e-6 &&
   		        rawGroundedNow &&
   		        slopeAngleNow != null &&
@@ -1227,6 +1278,170 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         ungroundedFor += dtClamped;
         if (stableGrounded && ungroundedFor >= FALL_GRACE_S && vy <= FALL_VY_THRESHOLD) stableGrounded = false;
       }
+
+      // Optional: allow stepping onto steep surfaces but suppress slide when stepping "up" onto them.
+      let noSlideOnUpstep = false;
+      if (kccConfig.slideEntryNoSlideUpstepEps > 0) {
+        try {
+          const WORLD_MEMBERSHIP = 0x0001;
+          const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const startAbove = kccConfig.groundRecoverRayStartAbove;
+          const maxToi = (startAbove + kccConfig.groundRecoverDistance) * 2;
+          const castFloorHit = (x: number, yFeet: number, z: number): { y: number; toi: number } | null => {
+            const ray = new rapier.Ray({ x, y: yFeet + startAbove, z }, { x: 0, y: -1, z: 0 });
+            const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+            if (!hit) return null;
+            const ny = hit.normal?.y ?? 0;
+            if (!Number.isFinite(ny) || ny <= 0) return null;
+            const p = ray.pointAt(hit.timeOfImpact);
+            return { y: p.y, toi: hit.timeOfImpact };
+          };
+
+          const prevFeetY = prevTranslation.y - capsuleHeight / 2;
+          const curFeetY = npcGroup.position.y;
+          const prevFloorHit = castFloorHit(prevTranslation.x, prevFeetY, prevTranslation.z);
+          const curFloorHit = castFloorHit(npcGroup.position.x, curFeetY, npcGroup.position.z);
+          const prevFloorY = prevFloorHit?.y ?? null;
+          const curFloorY = curFloorHit?.y ?? null;
+          let forwardFloorY: number | null = null;
+          let forwardFloorYFar: number | null = null;
+          let forwardHitToi: number | null = null;
+          let forwardHitFarToi: number | null = null;
+          let forwardHitFarHit = false;
+          let forwardProbeStart: THREE.Vector3 | null = null;
+          let forwardProbeEnd: THREE.Vector3 | null = null;
+          let forwardProbeStartFar: THREE.Vector3 | null = null;
+          let forwardProbeEndFar: THREE.Vector3 | null = null;
+          {
+            let dirX = 0;
+            let dirZ = 0;
+            if (desiredDistXZ > 1e-6) {
+              dirX = dx / desiredDistXZ;
+              dirZ = dz / desiredDistXZ;
+              const lastDir =
+                (npcGroup.userData._kccLastMoveDir as THREE.Vector2 | undefined) ?? (npcGroup.userData._kccLastMoveDir = new THREE.Vector2());
+              lastDir.set(dirX, dirZ);
+            } else {
+              const forward =
+                (npcGroup.userData._kccForwardDir as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccForwardDir = new THREE.Vector3());
+              npcGroup.getWorldDirection(forward);
+              dirX = forward.x;
+              dirZ = forward.z;
+              const len = Math.hypot(dirX, dirZ);
+              if (len > 1e-6) {
+                dirX /= len;
+                dirZ /= len;
+              } else {
+                const lastDir = npcGroup.userData._kccLastMoveDir as THREE.Vector2 | undefined;
+                if (lastDir && Number.isFinite(lastDir.x) && Number.isFinite(lastDir.y)) {
+                  const lastLen = Math.hypot(lastDir.x, lastDir.y);
+                  if (lastLen > 1e-6) {
+                    dirX = lastDir.x / lastLen;
+                    dirZ = lastDir.y / lastLen;
+                  } else {
+                    dirX = 0;
+                    dirZ = 0;
+                  }
+                } else {
+                  dirX = 0;
+                  dirZ = 0;
+                }
+              }
+            }
+
+            if (Math.hypot(dirX, dirZ) > 1e-6) {
+            const baseProbe = kccConfig.radius * kccConfig.slideEntryNoSlideForwardProbeFactor;
+            const probeDist = Math.min(
+              Math.max(desiredDistXZ, kccConfig.slideEntryNoSlideForwardProbeMin),
+              Math.max(kccConfig.slideEntryNoSlideForwardProbeMin, Math.min(baseProbe, kccConfig.slideEntryNoSlideForwardProbeMax))
+            );
+            if (probeDist > 1e-6) {
+              const fx = npcGroup.position.x + dirX * probeDist;
+              const fz = npcGroup.position.z + dirZ * probeDist;
+              const forwardHit = castFloorHit(fx, curFeetY, fz);
+              forwardFloorY = forwardHit?.y ?? null;
+              forwardHitToi = forwardHit?.toi ?? null;
+              forwardProbeStart = new THREE.Vector3(fx, curFeetY + startAbove, fz);
+              const endY = curFeetY + startAbove - (forwardHit?.toi ?? maxToi);
+              forwardProbeEnd = new THREE.Vector3(fx, endY, fz);
+
+              const farDist = probeDist + 30;
+              const fxFar = npcGroup.position.x + dirX * farDist;
+              const fzFar = npcGroup.position.z + dirZ * farDist;
+              const forwardHitFar = castFloorHit(fxFar, curFeetY, fzFar);
+              const fallbackFarToi = 100;
+              forwardHitFarHit = forwardHitFar != null;
+              forwardHitFarToi = forwardHitFar?.toi ?? fallbackFarToi;
+              forwardFloorYFar = forwardHitFar?.y ?? (curFeetY + startAbove - fallbackFarToi);
+              forwardProbeStartFar = new THREE.Vector3(fxFar, curFeetY + startAbove, fzFar);
+              const endYFar = curFeetY + startAbove - forwardHitFarToi;
+              forwardProbeEndFar = new THREE.Vector3(fxFar, endYFar, fzFar);
+            }
+          }
+          }
+          let deltaUp: number | null = null;
+          if (forwardFloorY != null && forwardFloorYFar != null) deltaUp = forwardFloorYFar - forwardFloorY;
+          else if (forwardFloorY == null || forwardFloorYFar == null) deltaUp = -100;
+          ud._kccProbeDelta = deltaUp;
+
+          if (playerGroupRef.current === npcGroup) {
+            let drawStart = forwardProbeStart;
+            let drawEnd = forwardProbeEnd;
+            if (!drawStart || !drawEnd) {
+              drawStart = new THREE.Vector3(npcGroup.position.x, curFeetY + startAbove, npcGroup.position.z);
+              const endY =
+                curFloorHit != null ? curFeetY + startAbove - curFloorHit.toi : curFeetY + startAbove - maxToi;
+              drawEnd = new THREE.Vector3(npcGroup.position.x, endY, npcGroup.position.z);
+            }
+            updateNpcProbeDebugLine(npcGroup, "_kccProbeLine", 0xff5500, drawStart, drawEnd, true);
+
+            if (forwardProbeStartFar && forwardProbeEndFar) {
+              updateNpcProbeDebugLine(npcGroup, "_kccProbeLineFar", 0x2a6bff, forwardProbeStartFar, forwardProbeEndFar, true);
+            } else {
+              updateNpcProbeDebugLine(npcGroup, "_kccProbeLineFar", 0x2a6bff, drawStart, drawEnd, true);
+            }
+          }
+
+          try {
+            if (playerGroupRef.current === npcGroup) {
+              const nowMs = Date.now();
+              const lastAt = (ud as any)._kccNoSlideLogAtMs as number | undefined;
+              if (typeof lastAt !== "number" || nowMs - lastAt > 1000) {
+                (ud as any)._kccNoSlideLogAtMs = nowMs;
+                const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+                console.log(
+                  "[NPCNoSlideOnUpstep]" +
+                    JSON.stringify({
+                      t: nowMs,
+                      npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+                      prevFloorY,
+                      curFloorY,
+                      forwardFloorY,
+                      forwardFloorYFar,
+                      forwardHitToi,
+                      forwardHitFarToi,
+                      forwardHitFarHit,
+                      deltaUp,
+                    eps: kccConfig.slideEntryNoSlideUpstepEps,
+                    rawGroundedNow,
+                    slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
+                    })
+                );
+              }
+            }
+          } catch {
+            // ignore
+          }
+
+          if (deltaUp != null && deltaUp > kccConfig.slideEntryNoSlideUpstepEps) {
+            noSlideOnUpstep = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+      ud._kccNoSlideOnUpstep = noSlideOnUpstep;
 
   	      if (tooSteepToStandEffective) {
   	        // Very steep surfaces (near-walls) should behave like falling, not like "slow sliding".
@@ -1336,15 +1551,26 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         // If KCC didn't give us any collision normals this frame (`groundNy=null`), keep the previous slide state
         // briefly; otherwise we can get a 1-frame slide->run->slide flicker even on a continuous slope.
         if (slopeAngleNow == null) {
-  	          isSliding = wasSliding && slideExitGraceActiveNow;
-  	        } else {
-  	          isSliding =
-  	            slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 &&
-  	            (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow);
-  	          if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
-  	        }
-  	      }
-  	      ud.isSliding = isSliding;
+          isSliding = wasSliding && slideExitGraceActiveNow;
+        } else {
+          const slideDeltaMin = kccConfig.slideEntrySlideDownDeltaMin ?? 0;
+          const probeDelta = (ud._kccProbeDelta as number | null | undefined) ?? null;
+          const slideDeltaOk = probeDelta != null && probeDelta <= -Math.max(0, slideDeltaMin);
+          isSliding =
+            slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 &&
+            (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow) &&
+            slideDeltaOk;
+          if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
+        }
+      }
+      if (noSlideOnUpstep) {
+        isSliding = false;
+        ud._kccSlideSpeed = 0;
+        ud._kccSlideFor = 0;
+        ud._kccSlideExitFor = 0;
+        ud._kccSlideToFallFor = 0;
+      }
+      ud.isSliding = isSliding;
       let slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
       if (isSliding) slideFor += dtClamped;
       else slideFor = 0;
