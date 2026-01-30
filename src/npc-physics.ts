@@ -1393,6 +1393,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           if (forwardFloorY != null && forwardFloorYFar != null) deltaUp = forwardFloorYFar - forwardFloorY;
           else if (forwardFloorY == null || forwardFloorYFar == null) deltaUp = -100;
           ud._kccProbeDelta = deltaUp;
+          ud._kccForwardHitToi = forwardHitToi;
 
           if (playerGroupRef.current === npcGroup) {
             let drawStart = forwardProbeStart;
@@ -1542,6 +1543,16 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         } catch {
           // ignore
         }
+      }
+
+      const FALL_TOI_MIN = 90;
+      const forwardToi = (ud._kccForwardHitToi as number | null | undefined) ?? null;
+      if (!stableGrounded && forwardToi != null && forwardToi < FALL_TOI_MIN) {
+        stableGrounded = true;
+        groundedFor = Math.max(groundedFor, LAND_GRACE_S);
+        ungroundedFor = 0;
+        ud._kccStableGrounded = true;
+        ud._kccUngroundedFor = 0;
       }
 
       ud.isFalling = !stableGrounded;
