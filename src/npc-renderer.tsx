@@ -605,10 +605,12 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
           const keys = manualKeysRef.current;
           let mouseYawThisStep = mouseYawRate * dt;
+          const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+          const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
           // In Gothic: ArrowRight turns right (clockwise when looking from above).
           let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
           let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-          if (npcGroup.userData?.isSliding) {
+          if (npcGroup.userData?.isSliding || ignoreInput) {
             turn = 0;
             move = 0;
             mouseYawThisStep = 0;
@@ -666,7 +668,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
           const keys = manualKeysRef.current;
           let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
           let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-          if (npcGroup.userData?.isSliding) {
+          const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+          const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
+          if (npcGroup.userData?.isSliding || ignoreInput) {
             turn = 0;
             move = 0;
           }
@@ -686,7 +690,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
         const keysNow = manualKeysRef.current;
         let turnNow = (keysNow.left ? 1 : 0) - (keysNow.right ? 1 : 0);
         let moveNow = (keysNow.up ? 1 : 0) - (keysNow.down ? 1 : 0);
-        if (npcGroup.userData?.isSliding) {
+        const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+        const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
+        if (npcGroup.userData?.isSliding || ignoreInput) {
           turnNow = 0;
           moveNow = 0;
         }

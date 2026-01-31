@@ -1556,6 +1556,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       }
 
       ud.isFalling = !stableGrounded;
+      if (!wasFalling && ud.isFalling) {
+        (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+      }
       let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
       if (!stableGrounded) fallFor += dtClamped;
       else fallFor = 0;
@@ -1610,6 +1613,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         ud._kccSlideToFallFor = 0;
       }
       ud.isSliding = isSliding;
+      if (wasSliding && !isSliding && stableGrounded) {
+        (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+      }
       let slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
       if (isSliding) slideFor += dtClamped;
       else slideFor = 0;
