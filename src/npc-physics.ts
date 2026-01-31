@@ -1332,6 +1332,17 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
                 (npcGroup.userData._kccLastMoveDir as THREE.Vector2 | undefined) ?? (npcGroup.userData._kccLastMoveDir = new THREE.Vector2());
               lastDir.set(dirX, dirZ);
             } else {
+              const lastActual = npcGroup.userData._kccLastMoveDirActual as THREE.Vector2 | undefined;
+              if (lastActual && Number.isFinite(lastActual.x) && Number.isFinite(lastActual.y)) {
+                const lastLen = Math.hypot(lastActual.x, lastActual.y);
+                if (lastLen > 1e-6) {
+                  dirX = lastActual.x / lastLen;
+                  dirZ = lastActual.y / lastLen;
+                }
+              }
+              if (Math.hypot(dirX, dirZ) > 1e-6) {
+                // Use last actual movement direction (physics-driven) when there's no input.
+              } else {
               const forward =
                 (npcGroup.userData._kccForwardDir as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccForwardDir = new THREE.Vector3());
               npcGroup.getWorldDirection(forward);
@@ -1356,6 +1367,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
                   dirX = 0;
                   dirZ = 0;
                 }
+              }
               }
             }
 
@@ -1711,6 +1723,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       }
 
       const movedDistXZ = Math.hypot(npcGroup.position.x - fromX, npcGroup.position.z - fromZ);
+      if (movedDistXZ > 1e-6) {
+        const lastActual =
+          (npcGroup.userData._kccLastMoveDirActual as THREE.Vector2 | undefined) ??
+          (npcGroup.userData._kccLastMoveDirActual = new THREE.Vector2());
+        lastActual.set((npcGroup.position.x - fromX) / movedDistXZ, (npcGroup.position.z - fromZ) / movedDistXZ);
+      }
       const blocked = desiredDistXZ > 1e-6 && movedDistXZ < desiredDistXZ - 1e-3;
       ud._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(ud._npcNpcBlocked) || blocked, moved: movedDistXZ > 1e-6 };
