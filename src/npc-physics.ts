@@ -40,7 +40,7 @@ export const NPC_RENDER_TUNING = {
   slideAccel: 2200,
   slideMaxSpeed: 900,
   slideInitialSpeed: 150,
-  slideAnimDelaySeconds: 0,
+  slideEntryDelaySeconds: 0.1,
 
   // Falling->wall push
   fallSlidePushSpeed: 10000,
@@ -115,7 +115,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	    const getSlideMaxSpeed = () => NPC_RENDER_TUNING.slideMaxSpeed;
 
     const getSlideInitialSpeed = () => NPC_RENDER_TUNING.slideInitialSpeed;
-    const getSlideAnimDelaySeconds = () => NPC_RENDER_TUNING.slideAnimDelaySeconds;
+    const getSlideEntryDelaySeconds = () => NPC_RENDER_TUNING.slideEntryDelaySeconds;
 
   	    const getSlideToFallDeg = () => NPC_RENDER_TUNING.slideToFallDeg;
 
@@ -189,7 +189,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       slideAccel: getSlideAccel(),
       slideMaxSpeed: getSlideMaxSpeed(),
       slideInitialSpeed: getSlideInitialSpeed(),
-      slideAnimDelaySeconds: getSlideAnimDelaySeconds(),
+      slideEntryDelaySeconds: getSlideEntryDelaySeconds(),
       slideToFallAngle: THREE.MathUtils.degToRad(getSlideToFallDeg()),
       fallSlidePushSpeed: getFallSlidePushSpeed(),
       fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
@@ -1604,6 +1604,24 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           isSliding = wantsSlideBySlope && (slideDeltaOk || slideDeltaGraceActive || slideDeltaOverride);
           if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
         }
+      }
+      // Delay slide state entry (not just animation), but skip delay when we just transitioned into slide
+      // from non-grounded states (e.g., fall->slide) to avoid fall/slide flicker.
+      if (isSliding && !wasSliding) {
+        const delayS = kccConfig.slideEntryDelaySeconds ?? 0;
+        let entryFor = (ud._kccSlideEntryFor as number | undefined) ?? 0;
+        const applyDelay = stableGrounded && !wasFalling;
+        if (applyDelay) {
+          entryFor += dtClamped;
+          ud._kccSlideEntryFor = entryFor;
+          if (delayS > 0 && entryFor < delayS) {
+            isSliding = false;
+          }
+        } else {
+          ud._kccSlideEntryFor = delayS;
+        }
+      } else {
+        ud._kccSlideEntryFor = 0;
       }
       if (noSlideOnUpstep) {
         isSliding = false;

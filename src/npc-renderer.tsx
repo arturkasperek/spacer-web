@@ -833,7 +833,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 	      else if (Boolean(npcGroup.userData.isSliding)) {
 	        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
 	        const slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
-	        const slideDelay = kccConfig.slideAnimDelaySeconds ?? 0;
+        const slideDelay = kccConfig.slideEntryDelaySeconds ?? 0;
 	        (npcGroup.userData as any)._wasFalling = false;
 	        (npcGroup.userData as any)._fallAnimT = 0;
 	        (npcGroup.userData as any)._fallDownStartY = undefined;
