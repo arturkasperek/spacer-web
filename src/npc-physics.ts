@@ -641,12 +641,47 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	        desiredDistXZ = 0;
   	      }
   	    }
-    let vy = (ud._kccVy as number | undefined) ?? 0;
+  let vy = (ud._kccVy as number | undefined) ?? 0;
 
-  	    let slideSpeedApplied: number | null = null;
-  	    let slideTooSteep = false;
-  	    let fallSlidePush: { x: number; z: number } | null = null;
-  	    let fallWallPushDbg: any = null;
+  let slideSpeedApplied: number | null = null;
+  let slideTooSteep = false;
+  let fallSlidePush: { x: number; z: number } | null = null;
+  let fallWallPushDbg: any = null;
+
+    // Stuck resolver for sliding/falling: if we haven't moved ~10 units in 5s, push up and sideways.
+    if ((wasSliding || wasFalling) && dtClamped > 0) {
+      const pos = npcGroup.position;
+      const ref =
+        (ud._kccStuckRef as THREE.Vector3 | undefined) ?? (ud._kccStuckRef = new THREE.Vector3(pos.x, pos.y, pos.z));
+      let stuckFor = (ud._kccStuckFor as number | undefined) ?? 0;
+      const dist = Math.hypot(pos.x - ref.x, pos.y - ref.y, pos.z - ref.z);
+      if (dist > 10) {
+        ref.set(pos.x, pos.y, pos.z);
+        stuckFor = 0;
+      } else {
+        stuckFor += dtClamped;
+      }
+
+      if (stuckFor >= 3) {
+        const nowMs = Date.now();
+        const lastAt = (ud._kccStuckPushAtMs as number | undefined) ?? 0;
+        if (nowMs - lastAt > 500) {
+          (ud as any)._kccStuckPushAtMs = nowMs;
+          const angle = Math.random() * Math.PI * 2;
+          const pushSpeed = 500;
+          const pushUp = 700;
+          dx += Math.cos(angle) * pushSpeed * dtClamped;
+          dz += Math.sin(angle) * pushSpeed * dtClamped;
+          desiredX = fromX + dx;
+          desiredZ = fromZ + dz;
+          desiredDistXZ = Math.hypot(dx, dz);
+          vy = Math.max(vy, pushUp);
+          ref.set(pos.x, pos.y, pos.z);
+          stuckFor = 0;
+        }
+      }
+      ud._kccStuckFor = stuckFor;
+    }
 
     // If we were sliding last frame, prevent any input from pushing along the slope direction.
     // This keeps slide speed stable and avoids slide→fall jitter from trying to "fight" the slope.
