@@ -1513,9 +1513,29 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
           const drop = fallStartY - nowY;
           console.log("[NPCFallDrop] " + drop);
-          if (drop >= 0.8) {
-            (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+          // Track repeated short falls: if >=4 landings within 1s, force 500ms lock.
+          const nowMs = Date.now();
+          const recentFalls =
+            ((ud as any)._kccRecentFallsMs as number[] | undefined) ??
+            ((ud as any)._kccRecentFallsMs = []);
+          const cutoff = nowMs - 1000;
+          let writeIdx = 0;
+          for (let i = 0; i < recentFalls.length; i++) {
+            const t = recentFalls[i];
+            if (t >= cutoff) recentFalls[writeIdx++] = t;
           }
+          recentFalls.length = writeIdx;
+          recentFalls.push(nowMs);
+
+          let lockMs = 0;
+          if (recentFalls.length >= 4) {
+            lockMs = 500;
+          } else if (drop < 1) lockMs = 50;
+          else if (drop < 5) lockMs = 100;
+          else if (drop < 10) lockMs = 200;
+          else if (drop < 100) lockMs = 300;
+          else lockMs = 500;
+          if (lockMs > 0) (ud as any)._kccIgnoreInputUntilMs = Date.now() + lockMs;
         }
         (ud as any)._kccFallStartY = undefined;
       }
@@ -1565,9 +1585,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         ud._kccSlideEntryFor = 0;
       }
       ud.isSliding = isSliding;
-      if (wasSliding && !isSliding && stableGrounded) {
-        (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
-      }
       if (wasSliding && !isSliding && playerGroupRef.current === npcGroup) {
         try {
           const nowMs = Date.now();
