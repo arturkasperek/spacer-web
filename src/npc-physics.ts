@@ -49,7 +49,7 @@ export const NPC_RENDER_TUNING = {
   fallSlidePushSpeed: 10000,
   fallSlidePushMaxPerFrame: 35,
   fallWallPushDurationSeconds: 0.4,
-  fallAnimDelaySeconds: 0.05,
+  fallEntryDelaySeconds: 0.05,
 
   // Fall animation phase split (ZenGin-like distance-based)
   fallDownHeight: 500,
@@ -123,7 +123,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
     const getFallWallPushDurationSeconds = () => NPC_RENDER_TUNING.fallWallPushDurationSeconds;
 
     const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
-    const getFallAnimDelaySeconds = () => NPC_RENDER_TUNING.fallAnimDelaySeconds;
+    const getFallEntryDelaySeconds = () => NPC_RENDER_TUNING.fallEntryDelaySeconds;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
@@ -186,7 +186,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       fallSlidePushSpeed: getFallSlidePushSpeed(),
       fallSlidePushMaxPerFrame: getFallSlidePushMaxPerFrame(),
       fallWallPushDurationSeconds: getFallWallPushDurationSeconds(),
-      fallAnimDelaySeconds: getFallAnimDelaySeconds(),
+      fallEntryDelaySeconds: getFallEntryDelaySeconds(),
       // Falling animation blending (ZenGin-like: fallDown before fall).
       fallDownHeight: getFallDownHeight(),
 
@@ -1393,6 +1393,18 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         stableGrounded = false;
       }
 
+      // Hard reset: if KCC says we're grounded on a walkable slope, force stable grounded.
+      if (
+        rawGroundedNow &&
+        slopeAngleNow != null &&
+        slopeAngleNow <= kccConfig.maxSlopeClimbAngle + 1e-3 &&
+        vy > -5
+      ) {
+        stableGrounded = true;
+        groundedFor = Math.max(groundedFor, LAND_GRACE_S);
+        ungroundedFor = 0;
+      }
+
       ud._kccGroundedFor = groundedFor;
       ud._kccUngroundedFor = ungroundedFor;
       ud._kccStableGrounded = stableGrounded;
@@ -1473,7 +1485,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
       // Delay fall state/mechanics (not just animation), unless the forward probe sees a large drop.
       if (!stableGrounded) {
-        const delayS = kccConfig.fallAnimDelaySeconds ?? 0;
+        const delayS = kccConfig.fallEntryDelaySeconds ?? 0;
         let entryFor = (ud._kccFallEntryFor as number | undefined) ?? 0;
         entryFor += dtClamped;
         ud._kccFallEntryFor = entryFor;
@@ -1493,7 +1505,19 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
 
       ud.isFalling = !stableGrounded;
       if (!wasFalling && ud.isFalling) {
-        (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+        (ud as any)._kccFallStartY = npcGroup.position.y;
+      }
+      if (wasFalling && !ud.isFalling) {
+        const fallStartY = (ud as any)._kccFallStartY as number | undefined;
+        const nowY = npcGroup.position.y;
+        if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
+          const drop = fallStartY - nowY;
+          console.log("[NPCFallDrop] " + drop);
+          if (drop >= 0.1) {
+            (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+          }
+        }
+        (ud as any)._kccFallStartY = undefined;
       }
       let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
       if (!stableGrounded) fallFor += dtClamped;

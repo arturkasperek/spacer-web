@@ -812,7 +812,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 		        const wasFalling = Boolean(ud._wasFalling);
 		        ud._wasFalling = true;
 		        const fallFor = (ud._kccFallFor as number | undefined) ?? 0;
-		        const fallDelay = kccConfig.fallAnimDelaySeconds ?? 0;
+		        const fallDelay = (kccConfig as any).fallEntryDelaySeconds ?? 0;
 		        // Distance-based fallDown like ZenGin: switch after a vertical drop threshold.
 		        const yNow = npcGroup.position.y;
 		        let startY = (ud._fallDownStartY as number | undefined);
