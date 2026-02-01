@@ -56,7 +56,7 @@ export const NPC_RENDER_TUNING = {
 
   // State hysteresis
   slideToFallGraceSeconds: 0.1,
-  slideExitGraceSeconds: 0.2,
+  slideExitGraceSeconds: 0.04,
 
   // Optional: block stepping onto very steep surfaces
   slideEntryBlockEnabled: true,
@@ -1529,7 +1529,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         stableGrounded && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
       if (wantsSlideBySlope) {
         let entryFor = (ud._kccSlideEntryFor as number | undefined) ?? 0;
-        const applyDelay = stableGrounded && !wasFalling;
+        const applyDelay = stableGrounded && !wasFalling && !wasSliding;
         if (applyDelay && delayS > 0) {
           entryFor += dtClamped;
           ud._kccSlideEntryFor = entryFor;
@@ -1543,6 +1543,31 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       ud.isSliding = isSliding;
       if (wasSliding && !isSliding && stableGrounded) {
         (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
+      }
+      if (wasSliding && !isSliding && playerGroupRef.current === npcGroup) {
+        try {
+          const nowMs = Date.now();
+          const lastAt = (ud as any)._kccSlideExitLogAtMs as number | undefined;
+          if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+            (ud as any)._kccSlideExitLogAtMs = nowMs;
+            console.log(
+              "[NPCSlideExitJSON]" +
+                JSON.stringify({
+                  t: nowMs,
+                  pos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+                  stableGrounded,
+                  groundedRaw: rawGroundedNow,
+                  groundNy: bestGroundNy,
+                  groundNyEffective: (ud as any)._kccGroundNyEffective ?? null,
+                  slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
+                  slideExitFor,
+                  slideExitGraceActive: slideExitGraceActiveNow,
+                })
+            );
+          }
+        } catch {
+          // ignore
+        }
       }
       let slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
       if (isSliding) slideFor += dtClamped;
@@ -1588,6 +1613,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         dbg.stickDown = stickDown;
         dbg.groundedRaw = rawGroundedNow;
         dbg.groundedStable = stableGrounded;
+        dbg.slideExitFor = slideExitFor;
+        dbg.slideExitGraceActive = slideExitGraceActiveNow;
         dbg.vy = vy;
   	        dbg.groundedFor = groundedFor;
   	        dbg.ungroundedFor = ungroundedFor;
