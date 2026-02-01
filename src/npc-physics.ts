@@ -1645,6 +1645,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           // ignore
         }
       }
+      if (wasSliding && !isSliding && stableGrounded) {
+        (ud as any)._kccIgnoreInputUntilMs = Date.now() + 300;
+      }
       let slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
       if (isSliding) slideFor += dtClamped;
       else slideFor = 0;
