@@ -15,7 +15,7 @@ export const NPC_RENDER_TUNING = {
   // KCC shape
   radius: 35,
   capsuleHeight: 170,
-  stepHeight: 60,
+  stepHeight: 15,
 
   // Slopes
   maxSlopeDeg: 48, // walkable slope (slide starts above this)
@@ -1513,7 +1513,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
           const drop = fallStartY - nowY;
           console.log("[NPCFallDrop] " + drop);
-          if (drop >= 0.1) {
+          if (drop >= 0.8) {
             (ud as any)._kccIgnoreInputUntilMs = Date.now() + 500;
           }
         }
