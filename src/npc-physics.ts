@@ -1122,13 +1122,47 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   				        }
   				      }
 
-  				      const effectiveGroundNy = floorProbeNy ?? bestGroundNy;
-  				      (ud as any)._kccGroundNyEffective = effectiveGroundNy;
-  				      if (effectiveGroundNy != null) {
-  				        const ny = Math.max(-1, Math.min(1, effectiveGroundNy));
-  				        slopeAngleNow = Math.acos(ny);
-  				        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
-  				      }
+      let effectiveGroundNy = floorProbeNy ?? bestGroundNy;
+      (ud as any)._kccGroundNyEffective = effectiveGroundNy;
+      if (effectiveGroundNy == null) {
+        const probeNy = (ud as any)._kccGroundProbeNy as number | null | undefined;
+        if (typeof probeNy === "number" && Number.isFinite(probeNy)) {
+          effectiveGroundNy = probeNy;
+          (ud as any)._kccGroundNyEffective = probeNy;
+          (ud as any)._kccGroundNyFallback = probeNy;
+        }
+      }
+      if (effectiveGroundNy == null && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
+        // Fallback: raycast down to recover a ground normal when KCC provides none.
+        try {
+          const WORLD_MEMBERSHIP = 0x0001;
+          const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const feetY = npcGroup.position.y;
+          const startAbove = kccConfig.groundRecoverRayStartAbove;
+          const maxToi = startAbove + kccConfig.groundRecoverDistance;
+          const ray = new rapier.Ray(
+            { x: npcGroup.position.x, y: feetY + startAbove, z: npcGroup.position.z },
+            { x: 0, y: -1, z: 0 }
+          );
+          const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+          if (hit) {
+            const ny = hit.normal?.y ?? null;
+            if (typeof ny === "number" && Number.isFinite(ny)) {
+              effectiveGroundNy = ny;
+              (ud as any)._kccGroundNyEffective = ny;
+              (ud as any)._kccGroundNyFallback = ny;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (effectiveGroundNy != null) {
+        const ny = Math.max(-1, Math.min(1, effectiveGroundNy));
+        slopeAngleNow = Math.acos(ny);
+        tooSteepToStandNow = slopeAngleNow > kccConfig.slideToFallAngle + 1e-3;
+      }
       (ud as any)._kccFloorProbeNy = floorProbeNy;
       (ud as any)._kccFloorProbeSrc = floorProbeSrc;
       (ud as any)._kccFloorProbeNormal = floorProbeNormal;
@@ -1143,7 +1177,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
           else forward.normalize();
 
-          const forwardOff = Math.max(4, kccConfig.radius * 0.6);
+          const forwardOff = 0;
           const startAbove = kccConfig.groundRecoverRayStartAbove;
           const maxToi = (startAbove + kccConfig.groundRecoverDistance) * 2;
           const ox = npcGroup.position.x + forward.x * forwardOff;
@@ -1155,8 +1189,19 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
           const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
           const hitPoint = hit ? ray.pointAt(hit.timeOfImpact) : null;
+          const hitNy = hit?.normal?.y ?? null;
+          const hitNx = hit?.normal?.x ?? null;
+          const hitNz = hit?.normal?.z ?? null;
           const distDown = hitPoint ? npcGroup.position.y - hitPoint.y : null;
           (ud as any)._kccGroundProbeDistDown = distDown;
+          if (typeof hitNy === "number" && Number.isFinite(hitNy)) {
+            (ud as any)._kccGroundProbeNy = hitNy;
+            if (typeof hitNx === "number" && typeof hitNz === "number") {
+              (ud as any)._kccGroundProbeNormal = { x: hitNx, y: hitNy, z: hitNz };
+            }
+          } else {
+            (ud as any)._kccGroundProbeNy = null;
+          }
 
           const isHero = playerGroupRef.current === npcGroup;
           if (isHero) {
@@ -1478,18 +1523,17 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
         }
       }
-      // Delay slide state entry (not just animation), but skip delay when we just transitioned into slide
-      // from non-grounded states (e.g., fall->slide) to avoid fall/slide flicker.
-      if (isSliding && !wasSliding) {
-        const delayS = kccConfig.slideEntryDelaySeconds ?? 0;
+      // Delay slide state entry (not just animation). Count time spent in "slide candidate" state.
+      const delayS = kccConfig.slideEntryDelaySeconds ?? 0;
+      const wantsSlideBySlope =
+        stableGrounded && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
+      if (wantsSlideBySlope) {
         let entryFor = (ud._kccSlideEntryFor as number | undefined) ?? 0;
         const applyDelay = stableGrounded && !wasFalling;
-        if (applyDelay) {
+        if (applyDelay && delayS > 0) {
           entryFor += dtClamped;
           ud._kccSlideEntryFor = entryFor;
-          if (delayS > 0 && entryFor < delayS) {
-            isSliding = false;
-          }
+          if (entryFor < delayS) isSliding = false;
         } else {
           ud._kccSlideEntryFor = delayS;
         }
@@ -1558,12 +1602,25 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   	            : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
+        const wantsSlideBySlope =
+          stableGrounded &&
+          slopeAngleNow != null &&
+          slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 &&
+          (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow);
+        dbg.slideCandidate = {
+          wantsSlideBySlope,
+          entryDelayS: kccConfig.slideEntryDelaySeconds ?? 0,
+          entryFor: (ud._kccSlideEntryFor as number | undefined) ?? 0,
+        };
         dbg.slide =
           wasSliding || isSliding || slideSpeedApplied != null || slideTooSteep
             ? {
                 speed: slideSpeedApplied,
                 tooSteep: slideTooSteep,
                 toFallDeg: Math.round(THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle) * 100) / 100,
+                entryDelayS: kccConfig.slideEntryDelaySeconds ?? 0,
+                entryFor: (ud._kccSlideEntryFor as number | undefined) ?? 0,
+                wantsSlideBySlope,
               }
             : null;
         dbg.fallSlide =
