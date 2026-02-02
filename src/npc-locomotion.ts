@@ -43,6 +43,19 @@ export type LocomotionController = {
 export function createLocomotionController(spec: LocomotionSpec): LocomotionController {
   let initialized = false;
   let lastMode: LocomotionMode = "idle";
+  let lastAnimName = "";
+  const FORCE_BLEND_MS = 200;
+  const isFallAnim = (name: string) => {
+    const n = (name || "").trim().toUpperCase();
+    return (
+      n === "S_FALLDN" ||
+      n === "S_FALL" ||
+      n === "S_FALLB" ||
+      n === "T_RUNL_2_RUN" ||
+      n === "T_WALKL_2_WALK"
+    );
+  };
+  const shouldForceBlend = (name: string, prevName: string) => isFallAnim(name) || isFallAnim(prevName);
 
   const play = (
     instance: CharacterInstance,
@@ -52,6 +65,9 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
   ) => {
     const ref = resolve?.(anim.name) ?? { animationName: anim.name };
     const nextRef = next ? (resolve?.(next.name) ?? { animationName: next.name }) : null;
+    const useForcedBlend = shouldForceBlend(anim.name, lastAnimName);
+    const blendInMs = useForcedBlend ? FORCE_BLEND_MS : ref.blendInMs;
+    const blendOutMs = useForcedBlend ? FORCE_BLEND_MS : ref.blendOutMs;
     (instance as any).__debugLocomotionRequested = {
       name: anim.name,
       loop: anim.loop,
@@ -63,8 +79,8 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
       loop: anim.loop,
       resetTime: true,
       fallbackNames: anim.fallbackNames,
-      blendInMs: ref.blendInMs,
-      blendOutMs: ref.blendOutMs,
+      blendInMs,
+      blendOutMs,
       next: next
         ? {
             animationName: nextRef?.animationName ?? next.name,
@@ -72,11 +88,12 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
             loop: next.loop,
             resetTime: true,
             fallbackNames: next.fallbackNames,
-            blendInMs: nextRef?.blendInMs,
-            blendOutMs: nextRef?.blendOutMs,
+            blendInMs: useForcedBlend ? FORCE_BLEND_MS : nextRef?.blendInMs,
+            blendOutMs: useForcedBlend ? FORCE_BLEND_MS : nextRef?.blendOutMs,
           }
         : undefined,
     });
+    lastAnimName = anim.name;
   };
 
   return {

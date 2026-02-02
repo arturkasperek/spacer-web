@@ -1606,6 +1606,15 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
           const drop = fallStartY - nowY;
           console.log("[NPCFallDrop] " + drop);
+          const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
+          console.log(
+            "[NPCFallDropJSON]" +
+              JSON.stringify({
+                t: Date.now(),
+                drop,
+                probeDistDown: typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null,
+              })
+          );
           // Track repeated short falls: if >=4 landings within 1s, force 500ms lock.
           const nowMs = Date.now();
           const recentFalls =
