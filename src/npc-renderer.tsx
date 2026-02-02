@@ -36,6 +36,7 @@ export interface NpcRendererProps {
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
   showKccCapsule?: boolean;
+  hideHero?: boolean;
 }
 
 /**
@@ -58,7 +59,15 @@ export interface NpcRendererProps {
  * 2. VOB by name (searches entire VOB tree)
  * 3. If neither found, shows warning
  */
-export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true, showKccCapsule = false }: NpcRendererProps) {
+export function NpcRenderer({
+  world,
+  zenKit,
+  npcs,
+  cameraPosition,
+  enabled = true,
+  showKccCapsule = false,
+  hideHero = false,
+}: NpcRendererProps) {
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
@@ -489,6 +498,9 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
 
     for (const npcGroup of loadedNpcsRef.current.values()) {
       const visualRoot = getNpcVisualRoot(npcGroup);
+      if (playerGroupRef.current === npcGroup) {
+        visualRoot.visible = !hideHero;
+      }
       const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
         sprite.lookAt(cameraPos);
