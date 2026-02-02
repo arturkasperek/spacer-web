@@ -648,8 +648,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
   let fallSlidePush: { x: number; z: number } | null = null;
   let fallWallPushDbg: any = null;
 
-    // Stuck resolver for sliding/falling: if we haven't moved ~10 units in 5s, push up and sideways.
-    if ((wasSliding || wasFalling) && dtClamped > 0) {
+    // Stuck resolver for sliding/falling: if we haven't moved ~10 units in 3s, push up and sideways.
+    const isSlidingNow = Boolean(ud.isSliding);
+    const isFallingNow = Boolean(ud.isFalling);
+    if ((wasSliding || wasFalling || isSlidingNow || isFallingNow) && dtClamped > 0) {
       const pos = npcGroup.position;
       const ref =
         (ud._kccStuckRef as THREE.Vector3 | undefined) ?? (ud._kccStuckRef = new THREE.Vector3(pos.x, pos.y, pos.z));
@@ -678,6 +680,18 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           vy = Math.max(vy, pushUp);
           ref.set(pos.x, pos.y, pos.z);
           stuckFor = 0;
+          if (playerGroupRef.current === npcGroup) {
+            console.log(
+              "[NPCStuckResolverJSON]" +
+                JSON.stringify({
+                  t: nowMs,
+                  mode: isSlidingNow ? "slide" : isFallingNow ? "fall" : "unknown",
+                  dist,
+                  pushSpeed,
+                  pushUp,
+                })
+            );
+          }
         }
       }
       ud._kccStuckFor = stuckFor;
@@ -1565,9 +1579,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
           let lockMs = 0;
           if (recentFalls.length >= 4) {
             lockMs = 500;
-          } else if (drop < 1) lockMs = 50;
-          else if (drop < 5) lockMs = 100;
-          else if (drop < 10) lockMs = 200;
+          } else if (drop < 10) lockMs = 0;
+          else if (drop < 20) lockMs = 100;
+          else if (drop < 50) lockMs = 200;
           else if (drop < 100) lockMs = 300;
           else lockMs = 500;
           if (lockMs > 0) (ud as any)._kccIgnoreInputUntilMs = Date.now() + lockMs;
