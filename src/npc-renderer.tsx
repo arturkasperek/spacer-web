@@ -606,8 +606,14 @@ export function NpcRenderer({
           manualJumpSeqAppliedRef.current = manualJumpSeqRef.current;
           const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
           const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-          if (grounded) {
+          const jumpUntilMs = ud._kccJumpUntilMs as number | undefined;
+          const jumpBlockUntilMs = ud._kccJumpBlockUntilMs as number | undefined;
+          const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
+          const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
+          if (grounded && !jumpActive && !jumpBlocked) {
             ud._kccJumpRequest = { atMs: nowMs };
+          } else {
+            ud._kccJumpRequest = undefined;
           }
         }
 
@@ -726,12 +732,14 @@ export function NpcRenderer({
 	        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
 	        if (instance) {
 	          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
+	          const jumpUntilMs = (npcGroup.userData as any)._kccJumpUntilMs as number | undefined;
+	          const jumpActive = typeof jumpUntilMs === "number" && Date.now() < jumpUntilMs;
 	          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
             const lastTurnAtMs = Number((manualUd as any)._manualLastTurnAtMs);
             const graceMs = 300;
             const withinGrace =
               moveNow === 0 && Number.isFinite(lastTurnAtMs) && (nowMs - lastTurnAtMs) >= 0 && (nowMs - lastTurnAtMs) < graceMs;
-            const shouldTurnAnim = moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
+            const shouldTurnAnim = !jumpActive && moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
             (manualUd as any)._manualWasTurningInPlace = shouldTurnAnim;
 
 	          if (shouldTurnAnim && !suppressByCombatOrScript) {
@@ -909,6 +917,11 @@ export function NpcRenderer({
             if (ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = false;
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMP_2_STAND");
+              const durMs =
+                estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
+                estimateAnimationDurationMs("HUMANS", ref.animationName) ??
+                400;
+              (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
                 loop: false,

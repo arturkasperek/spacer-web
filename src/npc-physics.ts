@@ -706,8 +706,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   let didJumpThisFrame = false;
   let jumpUpInitial = 0;
   const nowMs = Date.now();
+  const jumpUntilMs = (ud as any)._kccJumpUntilMs as number | undefined;
+  const jumpAtMs = (ud as any)._kccJumpAtMs as number | undefined;
+  const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
+  const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
+  const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
   const jumpReq = (ud as any)._kccJumpRequest as { atMs: number } | undefined;
-  if (jumpReq && wasStableGrounded) {
+  if (jumpReq && wasStableGrounded && !jumpActive && !jumpBlocked) {
     const split = Math.max(0, Math.min(1, kccConfig.jumpInitialFraction ?? 0.4));
     jumpUpInitial = kccConfig.jumpSpeed * split;
     vy = Math.max(vy, jumpUpInitial);
@@ -724,9 +729,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     (ud as any)._kccJumpUpRemainder = Math.max(0, kccConfig.jumpSpeed - jumpUpInitial);
     didJumpThisFrame = true;
   }
-  const jumpUntilMs = (ud as any)._kccJumpUntilMs as number | undefined;
-  const jumpAtMs = (ud as any)._kccJumpAtMs as number | undefined;
-  const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
   let jumpForwardScale = 1;
   if (jumpActive && typeof jumpAtMs === "number" && Number.isFinite(jumpAtMs)) {
     const durMs = Math.max(1, Math.max(0, kccConfig.jumpHoldSeconds) * 1000);
@@ -736,6 +738,37 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     const minScale = Math.max(0, Math.min(1, kccConfig.jumpForwardMinScale ?? 0));
     jumpForwardScale = minScale + (1 - minScale) * Math.pow(t, p);
   }
+  // During jump: allow only sideways input (no forward/back steering).
+  if (jumpActive) {
+    const forward =
+      (ud._kccJumpForwardDir as THREE.Vector3 | undefined) ?? (ud._kccJumpForwardDir = new THREE.Vector3());
+    npcGroup.getWorldDirection(forward);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+    else forward.normalize();
+
+    // Always follow current facing direction while jumping.
+    const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
+    if (jumpDir) {
+      jumpDir.x = forward.x;
+      jumpDir.z = forward.z;
+    } else {
+      (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
+    }
+
+    if (desiredDistXZ > 1e-6) {
+      const rightX = forward.z;
+      const rightZ = -forward.x;
+      const inputRight = dx * rightX + dz * rightZ;
+      dx = rightX * inputRight;
+      dz = rightZ * inputRight;
+      desiredX = fromX + dx;
+      desiredZ = fromZ + dz;
+      desiredDistXZ = Math.hypot(dx, dz);
+    }
+  }
+
+  // no-op
 
   let slideSpeedApplied: number | null = null;
   let slideTooSteep = false;
