@@ -885,6 +885,7 @@ export function NpcRenderer({
             if (!ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = true;
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_STAND_2_JUMP");
+              const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMP");
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
                 loop: false,
@@ -893,9 +894,12 @@ export function NpcRenderer({
                 blendOutMs: ref.blendOutMs,
                 fallbackNames: ["S_JUMP", "S_RUN"],
                 next: {
-                  animationName: "S_JUMP",
+                  animationName: nextRef.animationName,
+                  modelName: nextRef.modelName,
                   loop: true,
                   resetTime: true,
+                  blendInMs: nextRef.blendInMs,
+                  blendOutMs: nextRef.blendOutMs,
                   fallbackNames: ["S_RUN"],
                 },
               });
