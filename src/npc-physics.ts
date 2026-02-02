@@ -13,8 +13,8 @@ type MoveConstraintResult = { blocked: boolean; moved: boolean };
 // Keep this as the single place to tweak feel/thresholds.
 export const NPC_RENDER_TUNING = {
   // KCC shape
-  radius: 35,
-  capsuleHeight: 170,
+  radius: 20,
+  capsuleHeight: 180,
   stepHeight: 15,
 
   // Slopes
@@ -286,6 +286,42 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
     npcGroup.worldToLocal(end);
     (line.geometry as LineGeometry).setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
     line.computeLineDistances();
+  };
+
+  const updateNpcDebugCapsuleWire = (
+    npcGroup: THREE.Group,
+    radius: number,
+    height: number,
+    color: number,
+    visible: boolean
+  ) => {
+    if (npcGroup.userData == null) npcGroup.userData = {};
+    let wire = npcGroup.userData._kccCapsuleWire as THREE.LineSegments | undefined;
+    const cached = npcGroup.userData._kccCapsuleWireDims as { r: number; h: number } | undefined;
+    if (!wire || !cached || cached.r !== radius || cached.h !== height) {
+      if (wire) {
+        try {
+          wire.geometry.dispose();
+          (wire.material as THREE.Material).dispose();
+        } catch {
+          // ignore
+        }
+        npcGroup.remove(wire);
+      }
+      const length = Math.max(0.001, height - radius * 2);
+      const geom = new THREE.CapsuleGeometry(radius, length, 6, 12);
+      const wireGeom = new THREE.WireframeGeometry(geom);
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 });
+      wire = new THREE.LineSegments(wireGeom, mat);
+      wire.frustumCulled = false;
+      wire.renderOrder = 9998;
+      npcGroup.add(wire);
+      npcGroup.userData._kccCapsuleWire = wire;
+      npcGroup.userData._kccCapsuleWireDims = { r: radius, h: height };
+    }
+    wire.visible = visible;
+    if (!visible) return;
+    wire.position.set(0, height / 2, 0);
   };
 
 
@@ -1280,6 +1316,14 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         } catch {
           // ignore
         }
+      }
+
+      // Debug: render KCC capsule wireframe for hero.
+      if (playerGroupRef.current === npcGroup) {
+        const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
+        updateNpcDebugCapsuleWire(npcGroup, kccConfig.radius, capsuleHeight, 0xffd400, true);
+      } else {
+        updateNpcDebugCapsuleWire(npcGroup, kccConfig.radius, kccConfig.capsuleHeight, 0xffd400, false);
       }
 
   			      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
