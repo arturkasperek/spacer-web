@@ -734,12 +734,13 @@ export function NpcRenderer({
 	          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
 	          const jumpUntilMs = (npcGroup.userData as any)._kccJumpUntilMs as number | undefined;
 	          const jumpActive = typeof jumpUntilMs === "number" && Date.now() < jumpUntilMs;
+	          const jumpAnimActive = Boolean((npcGroup.userData as any)?._kccJumpAnimActive);
 	          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
             const lastTurnAtMs = Number((manualUd as any)._manualLastTurnAtMs);
             const graceMs = 300;
             const withinGrace =
               moveNow === 0 && Number.isFinite(lastTurnAtMs) && (nowMs - lastTurnAtMs) >= 0 && (nowMs - lastTurnAtMs) < graceMs;
-            const shouldTurnAnim = !jumpActive && moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
+            const shouldTurnAnim = !jumpActive && !jumpAnimActive && moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
             (manualUd as any)._manualWasTurningInPlace = shouldTurnAnim;
 
 	          if (shouldTurnAnim && !suppressByCombatOrScript) {
