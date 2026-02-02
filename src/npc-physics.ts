@@ -700,20 +700,45 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
         stuckFor += dtClamped;
       }
 
-      if (stuckFor >= 3) {
-        const nowMs = Date.now();
-        const lastAt = (ud._kccStuckPushAtMs as number | undefined) ?? 0;
-        if (nowMs - lastAt > 500) {
-          (ud as any)._kccStuckPushAtMs = nowMs;
+      const nowMs = Date.now();
+      const burstUntil = (ud as any)._kccStuckBurstUntilMs as number | undefined;
+      const burstRemaining = (ud as any)._kccStuckBurstRemaining as number | undefined;
+      const burstNextAt = (ud as any)._kccStuckBurstNextAtMs as number | undefined;
+
+      if (stuckFor >= 3 && (burstUntil == null || nowMs > burstUntil)) {
+        const durationMs = 3000;
+        const count = 40;
+        (ud as any)._kccStuckBurstUntilMs = nowMs + durationMs;
+        (ud as any)._kccStuckBurstRemaining = count;
+        (ud as any)._kccStuckBurstNextAtMs = nowMs;
+        (ud as any)._kccStuckBurstIntervalMs = durationMs / count;
+        (ud as any)._kccStuckBurstStartY = pos.y;
+      }
+
+      const intervalMs = (ud as any)._kccStuckBurstIntervalMs as number | undefined;
+      if (burstUntil != null && burstRemaining && intervalMs && burstNextAt != null && nowMs <= burstUntil) {
+        if (nowMs >= burstNextAt) {
+          (ud as any)._kccStuckBurstNextAtMs = burstNextAt + intervalMs;
+          (ud as any)._kccStuckBurstRemaining = burstRemaining - 1;
+
           const angle = Math.random() * Math.PI * 2;
-          const pushSpeed = 500;
-          const pushUp = 700;
+          const pushSpeed = 650;
+          const pushUp = 500;
+          // First, push up to unstick from edges/steps.
+          const burstStartY = (ud as any)._kccStuckBurstStartY as number | undefined;
+          const maxRise = 300;
+          const capY =
+            typeof burstStartY === "number" && Number.isFinite(burstStartY) ? burstStartY + maxRise : pos.y + maxRise;
+          const maxVy = dtClamped > 0 ? (capY - pos.y) / dtClamped : 0;
+          if (maxVy > 0) {
+            vy = Math.max(vy, Math.min(pushUp, maxVy));
+          }
+          // Then add a sideways nudge.
           dx += Math.cos(angle) * pushSpeed * dtClamped;
           dz += Math.sin(angle) * pushSpeed * dtClamped;
           desiredX = fromX + dx;
           desiredZ = fromZ + dz;
           desiredDistXZ = Math.hypot(dx, dz);
-          vy = Math.max(vy, pushUp);
           ref.set(pos.x, pos.y, pos.z);
           stuckFor = 0;
           if (playerGroupRef.current === npcGroup) {
@@ -725,6 +750,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
                   dist,
                   pushSpeed,
                   pushUp,
+                  burstRemaining: burstRemaining - 1,
                 })
             );
           }
