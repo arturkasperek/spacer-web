@@ -55,7 +55,7 @@ export const NPC_RENDER_TUNING = {
   fallDownHeight: 500,
 
   // Jumping
-  jumpSpeed: 600,
+  jumpSpeed: 500,
   jumpForwardSpeed: 400,
   jumpHoldSeconds: 1,
   jumpInitialFraction: 0.4,
