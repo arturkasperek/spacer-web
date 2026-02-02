@@ -15,7 +15,7 @@ export const NPC_RENDER_TUNING = {
   // KCC shape
   radius: 20,
   capsuleHeight: 180,
-  stepHeight: 15,
+  stepHeight: 30,
 
   // Slopes
   maxSlopeDeg: 48, // walkable slope (slide starts above this)
@@ -83,7 +83,7 @@ export type UseNpcPhysicsArgs = {
   playerGroupRef: MutableRefObject<THREE.Group | null>;
 };
 
-export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }: UseNpcPhysicsArgs) {
+export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule = false }: UseNpcPhysicsArgs & { showKccCapsule?: boolean }) {
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
@@ -1345,7 +1345,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef }
       }
 
       // Debug: render KCC capsule wireframe for hero.
-      if (playerGroupRef.current === npcGroup) {
+      if (showKccCapsule && playerGroupRef.current === npcGroup) {
         const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
         updateNpcDebugCapsuleWire(npcGroup, kccConfig.radius, capsuleHeight, 0xffd400, true);
       } else {

@@ -69,7 +69,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onNpcClickFromScene?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
   npcs: Map<number, NpcData>;
   onNpcSpawn: NpcSpawnCallback;
-  viewSettings: { showWaypoints: boolean; showVobSpots: boolean; showLights: boolean; showFpsMeter: boolean };
+  viewSettings: { showWaypoints: boolean; showVobSpots: boolean; showLights: boolean; showFpsMeter: boolean; showKccCapsule: boolean };
 }>) {
   const { camera } = useThree();
   const didInitCameraRef = useRef(false);
@@ -214,7 +214,16 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       )}
 
       {/* NPC Renderer */}
-      {world && zenKit && <NpcRenderer world={world} zenKit={zenKit} npcs={npcs} cameraPosition={cameraPosition} enabled={true} />}
+      {world && zenKit && (
+        <NpcRenderer
+          world={world}
+          zenKit={zenKit}
+          npcs={npcs}
+          cameraPosition={cameraPosition}
+          enabled={true}
+          showKccCapsule={viewSettings.showKccCapsule}
+        />
+      )}
     </>
   );
 }

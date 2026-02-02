@@ -29,12 +29,13 @@ import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
 
-interface NpcRendererProps {
+export interface NpcRendererProps {
   world: World | null;
   zenKit: ZenKit | null;
   npcs: Map<number, NpcData>;
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
+  showKccCapsule?: boolean;
 }
 
 /**
@@ -57,7 +58,7 @@ interface NpcRendererProps {
  * 2. VOB by name (searches entire VOB tree)
  * 3. If neither found, shows warning
  */
-export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true }: NpcRendererProps) {
+export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = true, showKccCapsule = false }: NpcRendererProps) {
   const { scene, camera } = useThree();
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
@@ -83,7 +84,7 @@ export function NpcRenderer({ world, zenKit, npcs, cameraPosition, enabled = tru
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const { kccConfig, getNpcVisualRoot, applyMoveConstraint, trySnapNpcToGroundWithRapier, removeNpcKccCollider } =
-    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef });
+    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule });
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());

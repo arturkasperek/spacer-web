@@ -5,6 +5,7 @@ export type ViewSettingsState = {
   showWaypoints: boolean;
   showLights: boolean;
   showFpsMeter: boolean;
+  showKccCapsule: boolean;
 };
 
 const defaultState: ViewSettingsState = {
@@ -12,6 +13,7 @@ const defaultState: ViewSettingsState = {
   showWaypoints: true,
   showLights: true,
   showFpsMeter: false,
+  showKccCapsule: false,
 };
 
 let snapshot: ViewSettingsState = defaultState;
@@ -22,7 +24,8 @@ function setSnapshot(next: ViewSettingsState) {
     snapshot.showVobSpots === next.showVobSpots &&
     snapshot.showWaypoints === next.showWaypoints &&
     snapshot.showLights === next.showLights &&
-    snapshot.showFpsMeter === next.showFpsMeter
+    snapshot.showFpsMeter === next.showFpsMeter &&
+    snapshot.showKccCapsule === next.showKccCapsule
   ) {
     return;
   }
@@ -40,6 +43,7 @@ export function setViewSettings(partial: Partial<ViewSettingsState>): void {
     showWaypoints: partial.showWaypoints ?? snapshot.showWaypoints,
     showLights: partial.showLights ?? snapshot.showLights,
     showFpsMeter: partial.showFpsMeter ?? snapshot.showFpsMeter,
+    showKccCapsule: partial.showKccCapsule ?? snapshot.showKccCapsule,
   });
 }
 
