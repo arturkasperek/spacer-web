@@ -923,6 +923,9 @@ export function NpcRenderer({
                 estimateAnimationDurationMs("HUMANS", ref.animationName) ??
                 400;
               (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
+              const nextName =
+                locomotionMode === "run" ? "s_RunL" : locomotionMode === "walk" ? "s_WalkL" : "s_Run";
+              const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
                 loop: false,
@@ -930,6 +933,15 @@ export function NpcRenderer({
                 blendInMs: ref.blendInMs,
                 blendOutMs: ref.blendOutMs,
                 fallbackNames: ["S_RUN"],
+                next: {
+                  animationName: nextRef.animationName,
+                  modelName: nextRef.modelName,
+                  loop: true,
+                  resetTime: true,
+                  blendInMs: nextRef.blendInMs,
+                  blendOutMs: nextRef.blendOutMs,
+                  fallbackNames: ["s_Run"],
+                },
               });
             }
             if (scriptIdle && locomotionMode === "idle") {
