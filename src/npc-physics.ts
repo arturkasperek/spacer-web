@@ -55,13 +55,12 @@ export const NPC_RENDER_TUNING = {
   fallDownHeight: 500,
 
   // Jumping
-  jumpSpeed: 500,
+  jumpSpeed: 200,
   jumpForwardSpeed: 400,
   jumpHoldSeconds: 1,
-  jumpInitialFraction: 0.4,
+  jumpGravityScale: 0.4,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
-  jumpUpEasePower: 1,
 
   // State hysteresis
   slideToFallGraceSeconds: 0.1,
@@ -136,10 +135,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
   const getJumpHoldSeconds = () => NPC_RENDER_TUNING.jumpHoldSeconds;
-  const getJumpInitialFraction = () => NPC_RENDER_TUNING.jumpInitialFraction;
+  const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
   const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
   const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
-  const getJumpUpEasePower = () => NPC_RENDER_TUNING.jumpUpEasePower;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
@@ -209,10 +207,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       jumpSpeed: getJumpSpeed(),
       jumpForwardSpeed: getJumpForwardSpeed(),
       jumpHoldSeconds: getJumpHoldSeconds(),
-      jumpInitialFraction: getJumpInitialFraction(),
+      jumpGravityScale: getJumpGravityScale(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
-      jumpUpEasePower: getJumpUpEasePower(),
 
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -713,8 +710,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
   const jumpReq = (ud as any)._kccJumpRequest as { atMs: number } | undefined;
   if (jumpReq && wasStableGrounded && !jumpActive && !jumpBlocked) {
-    const split = Math.max(0, Math.min(1, kccConfig.jumpInitialFraction ?? 0.4));
-    jumpUpInitial = kccConfig.jumpSpeed * split;
+    jumpUpInitial = kccConfig.jumpSpeed;
     vy = Math.max(vy, jumpUpInitial);
     (ud as any)._kccJumpRequest = undefined;
     (ud as any)._kccJumpAtMs = jumpReq.atMs;
@@ -726,7 +722,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
     else forward.normalize();
     (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
-    (ud as any)._kccJumpUpRemainder = Math.max(0, kccConfig.jumpSpeed - jumpUpInitial);
+    (ud as any)._kccJumpUpRemainder = 0;
     didJumpThisFrame = true;
   }
   let jumpForwardScale = 1;
@@ -935,15 +931,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
 
     // Apply jump forward impulse while the jump window is active.
     if (jumpActive) {
-      const jumpUpRemain = (ud as any)._kccJumpUpRemainder as number | undefined;
-      if (typeof jumpUpRemain === "number" && Number.isFinite(jumpUpRemain) && jumpUpRemain > 0) {
-        const durMs = Math.max(1, Math.max(0, kccConfig.jumpHoldSeconds) * 1000);
-        const t = Math.max(0, Math.min(1, (nowMs - (jumpAtMs ?? nowMs)) / durMs));
-        const p = Math.max(0.01, kccConfig.jumpUpEasePower ?? 0.5);
-        const upScale = Math.pow(t, p);
-        const boost = (jumpUpRemain * upScale * dtClamped) / Math.max(1e-3, kccConfig.jumpHoldSeconds);
-        vy = Math.max(vy, boost);
-      }
+      // Parabolic jump: no per-frame vertical boost.
       const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
       if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
         const fwd = kccConfig.jumpForwardSpeed * jumpForwardScale;
@@ -1577,10 +1565,11 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      // - If not grounded (or too steep to stand on / we are falling onto a slide surface): apply gravity.
   	      if (rawGroundedNow && !tooSteepToStandEffective && !fallHitSlideSurfaceNow && !jumpActive) {
   	        vy = 0;
-  	      } else {
-  	        vy -= kccConfig.gravity * dtClamped;
-  	        if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
-  	      }
+      } else {
+        const jumpGravityScale = jumpActive ? Math.max(0.01, kccConfig.jumpGravityScale ?? 1) : 1;
+        vy -= kccConfig.gravity * jumpGravityScale * dtClamped;
+        if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
+      }
 
       // Stable grounded/falling state with hysteresis to prevent 1-frame flicker in animations.
       const FALL_GRACE_S = 0.08;
