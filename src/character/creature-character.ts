@@ -230,9 +230,14 @@ export async function createCreatureCharacterInstance(params: {
       if (!currentSequence) return;
       currentTimeMs += deltaSeconds * 1000;
 
+      const stripRootMotionY =
+        currentAnimationName === "S_JUMP" ||
+        currentAnimationName === "T_STAND_2_JUMP" ||
+        currentAnimationName === "T_JUMP_2_STAND";
       const ok = evaluatePose(skeleton, currentSequence, currentTimeMs, currentLoop, {
         extractRootMotion: rootMotion,
         outRootMotionPos: rootMotionPos,
+        stripRootMotionY,
       });
       if (!ok) return;
 

@@ -23,6 +23,7 @@ export type EvaluatePoseOptions = {
   extractRootMotion?: boolean;
   rootNodeIndex?: number;
   outRootMotionPos?: THREE.Vector3;
+  stripRootMotionY?: boolean;
 };
 
 export async function preloadAnimationSequences(
@@ -122,6 +123,7 @@ export function evaluatePose(
   if (nodeCount === 0 || nodeIndexCount === 0 || sequence.totalTimeMs <= 0) return false;
 
   const extractRootMotion = Boolean(options?.extractRootMotion);
+  const stripRootMotionY = Boolean(options?.stripRootMotionY);
   const rootNodeIndex = options?.rootNodeIndex ?? skeleton.rootNodes?.[0] ?? 0;
   if (extractRootMotion && options?.outRootMotionPos) options.outRootMotionPos.set(0, 0, 0);
 
@@ -169,8 +171,9 @@ export function evaluatePose(
       // apply only the animated Y delta here (relative to the first frame baseline).
       const base = sequence.samples[i];
       const baseY = base ? base.position.y : 0;
+      const y = stripRootMotionY ? bindPos.y : bindPos.y + (pos.y - baseY);
       animLocal[nodeId] = new THREE.Matrix4().compose(
-        new THREE.Vector3(bindPos.x, bindPos.y + (pos.y - baseY), bindPos.z),
+        new THREE.Vector3(bindPos.x, y, bindPos.z),
         rot,
         new THREE.Vector3(1, 1, 1)
       );

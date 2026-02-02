@@ -54,6 +54,15 @@ export const NPC_RENDER_TUNING = {
   // Fall animation phase split (ZenGin-like distance-based)
   fallDownHeight: 500,
 
+  // Jumping
+  jumpSpeed: 600,
+  jumpForwardSpeed: 400,
+  jumpHoldSeconds: 1,
+  jumpInitialFraction: 0.4,
+  jumpForwardMinScale: 0.7,
+  jumpForwardEasePower: 0.7,
+  jumpUpEasePower: 1,
+
   // State hysteresis
   slideToFallGraceSeconds: 0.1,
   slideExitGraceSeconds: 0.04,
@@ -124,6 +133,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
 
     const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
     const getFallEntryDelaySeconds = () => NPC_RENDER_TUNING.fallEntryDelaySeconds;
+  const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
+  const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
+  const getJumpHoldSeconds = () => NPC_RENDER_TUNING.jumpHoldSeconds;
+  const getJumpInitialFraction = () => NPC_RENDER_TUNING.jumpInitialFraction;
+  const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
+  const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
+  const getJumpUpEasePower = () => NPC_RENDER_TUNING.jumpUpEasePower;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
@@ -189,6 +205,14 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       fallEntryDelaySeconds: getFallEntryDelaySeconds(),
       // Falling animation blending (ZenGin-like: fallDown before fall).
       fallDownHeight: getFallDownHeight(),
+      // Jumping
+      jumpSpeed: getJumpSpeed(),
+      jumpForwardSpeed: getJumpForwardSpeed(),
+      jumpHoldSeconds: getJumpHoldSeconds(),
+      jumpInitialFraction: getJumpInitialFraction(),
+      jumpForwardMinScale: getJumpForwardMinScale(),
+      jumpForwardEasePower: getJumpForwardEasePower(),
+      jumpUpEasePower: getJumpUpEasePower(),
 
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -248,6 +272,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
 
     ud._visSmoothY = smoothY;
     visualRoot.position.y = smoothY - targetY;
+    // no-op
   };
 
   const updateNpcDebugRayLine = (
@@ -678,6 +703,39 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      }
   	    }
   let vy = (ud._kccVy as number | undefined) ?? 0;
+  let didJumpThisFrame = false;
+  let jumpUpInitial = 0;
+  const nowMs = Date.now();
+  const jumpReq = (ud as any)._kccJumpRequest as { atMs: number } | undefined;
+  if (jumpReq && wasStableGrounded) {
+    const split = Math.max(0, Math.min(1, kccConfig.jumpInitialFraction ?? 0.4));
+    jumpUpInitial = kccConfig.jumpSpeed * split;
+    vy = Math.max(vy, jumpUpInitial);
+    (ud as any)._kccJumpRequest = undefined;
+    (ud as any)._kccJumpAtMs = jumpReq.atMs;
+    (ud as any)._kccJumpUntilMs = nowMs + Math.max(0, kccConfig.jumpHoldSeconds) * 1000;
+    const forward =
+      (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
+    npcGroup.getWorldDirection(forward);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+    else forward.normalize();
+    (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
+    (ud as any)._kccJumpUpRemainder = Math.max(0, kccConfig.jumpSpeed - jumpUpInitial);
+    didJumpThisFrame = true;
+  }
+  const jumpUntilMs = (ud as any)._kccJumpUntilMs as number | undefined;
+  const jumpAtMs = (ud as any)._kccJumpAtMs as number | undefined;
+  const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
+  let jumpForwardScale = 1;
+  if (jumpActive && typeof jumpAtMs === "number" && Number.isFinite(jumpAtMs)) {
+    const durMs = Math.max(1, Math.max(0, kccConfig.jumpHoldSeconds) * 1000);
+    const t = Math.max(0, Math.min(1, (nowMs - jumpAtMs) / durMs));
+    // Slow start, faster later (ease-in)
+    const p = Math.max(0.01, kccConfig.jumpForwardEasePower ?? 2);
+    const minScale = Math.max(0, Math.min(1, kccConfig.jumpForwardMinScale ?? 0));
+    jumpForwardScale = minScale + (1 - minScale) * Math.pow(t, p);
+  }
 
   let slideSpeedApplied: number | null = null;
   let slideTooSteep = false;
@@ -793,9 +851,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
   	    let dy = vy * dtClamped;
   	    let stickDown = 0;
-  	    if (wasStableGrounded) {
-  	      const snapDown = kccConfig.groundSnapDownEps;
-  	      if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
+    if (wasStableGrounded && !didJumpThisFrame && !jumpActive) {
+      const snapDown = kccConfig.groundSnapDownEps;
+      if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
 
   	      // Extra "stick" helps keep contact when going downhill on ramps/stairs.
   	      // Avoid applying it when moving uphill, because that can slow climbing or prevent autostep from triggering.
@@ -831,7 +889,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
 
     // If grounded and moving, project the desired move onto the ground plane.
     // This preserves the intended XZ heading and avoids lateral drift on slopes.
-    if (wasStableGrounded && !wasSliding && desiredDistXZ > 1e-6) {
+    if (wasStableGrounded && !wasSliding && !didJumpThisFrame && !jumpActive && desiredDistXZ > 1e-6) {
       const n =
         (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
         ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
@@ -839,6 +897,28 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.2) {
         const slopeDy = -(n.x * dx + n.z * dz) / ny;
         if (Number.isFinite(slopeDy)) dy = slopeDy;
+      }
+    }
+
+    // Apply jump forward impulse while the jump window is active.
+    if (jumpActive) {
+      const jumpUpRemain = (ud as any)._kccJumpUpRemainder as number | undefined;
+      if (typeof jumpUpRemain === "number" && Number.isFinite(jumpUpRemain) && jumpUpRemain > 0) {
+        const durMs = Math.max(1, Math.max(0, kccConfig.jumpHoldSeconds) * 1000);
+        const t = Math.max(0, Math.min(1, (nowMs - (jumpAtMs ?? nowMs)) / durMs));
+        const p = Math.max(0.01, kccConfig.jumpUpEasePower ?? 0.5);
+        const upScale = Math.pow(t, p);
+        const boost = (jumpUpRemain * upScale * dtClamped) / Math.max(1e-3, kccConfig.jumpHoldSeconds);
+        vy = Math.max(vy, boost);
+      }
+      const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
+      if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
+        const fwd = kccConfig.jumpForwardSpeed * jumpForwardScale;
+        dx += jumpDir.x * fwd * dtClamped;
+        dz += jumpDir.z * fwd * dtClamped;
+        desiredX = fromX + dx;
+        desiredZ = fromZ + dz;
+        desiredDistXZ = Math.hypot(dx, dz);
       }
     }
 
@@ -1325,16 +1405,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
             const lastAt = (ud as any)._kccGroundProbeLogAtMs as number | undefined;
             if (typeof lastAt !== "number" || nowMs - lastAt > 1000) {
               (ud as any)._kccGroundProbeLogAtMs = nowMs;
-              console.log(
-                "[NPCGroundProbeJSON]" +
-                  JSON.stringify({
-                    t: nowMs,
-                    pos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
-                    forwardOff,
-                    distDown,
-                    hitY: hitPoint ? hitPoint.y : null,
-                  })
-              );
             }
           } else {
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
@@ -1472,7 +1542,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      // Integrate gravity for the next frame (semi-implicit):
   	      // - If grounded on a walkable/slideable surface: reset vertical speed.
   	      // - If not grounded (or too steep to stand on / we are falling onto a slide surface): apply gravity.
-  	      if (rawGroundedNow && !tooSteepToStandEffective && !fallHitSlideSurfaceNow) {
+  	      if (rawGroundedNow && !tooSteepToStandEffective && !fallHitSlideSurfaceNow && !jumpActive) {
   	        vy = 0;
   	      } else {
   	        vy -= kccConfig.gravity * dtClamped;
@@ -1488,7 +1558,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      let ungroundedFor = (ud._kccUngroundedFor as number | undefined) ?? 0;
   	      let stableGrounded = Boolean(ud._kccStableGrounded ?? rawGroundedNow);
 
-  	      const canStandNow = rawGroundedNow && !tooSteepToStandEffective;
+  	      const canStandNow = rawGroundedNow && !tooSteepToStandEffective && !jumpActive;
   	      if (canStandNow) {
   	        groundedFor += dtClamped;
   	        ungroundedFor = 0;
@@ -1517,7 +1587,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
         rawGroundedNow &&
         slopeAngleNow != null &&
         slopeAngleNow <= kccConfig.maxSlopeClimbAngle + 1e-3 &&
-        vy > -5
+        vy > -5 &&
+        !jumpActive
       ) {
         stableGrounded = true;
         groundedFor = Math.max(groundedFor, LAND_GRACE_S);
@@ -1537,11 +1608,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      let groundRayNormalY: number | null = null;
   	      let groundRayColliderHandle: number | null = null;
   	      let groundRecoverDropApplied: number | null = null;
-  	      if (
-  	        !rawGroundedNow &&
-  	        !tooSteepToStandNow &&
-  	        !fallHitSlideSurfaceNow &&
-  	        (wasStableGrounded || stableGrounded) &&
+      if (
+        !rawGroundedNow &&
+        !tooSteepToStandNow &&
+        !fallHitSlideSurfaceNow &&
+        !jumpActive &&
+        (wasStableGrounded || stableGrounded) &&
         vy <= 0 &&
         kccConfig.groundRecoverDistance > 0
       ) {

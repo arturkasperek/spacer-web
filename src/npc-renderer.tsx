@@ -135,6 +135,8 @@ export function NpcRenderer({
   const teleportHeroSeqAppliedRef = useRef(0);
   const manualAttackSeqRef = useRef(0);
   const manualAttackSeqAppliedRef = useRef(0);
+  const manualJumpSeqRef = useRef(0);
+  const manualJumpSeqAppliedRef = useRef(0);
   const combatRuntimeRef = useRef(createCombatRuntime());
 
   useEffect(() => {
@@ -161,7 +163,7 @@ export function NpcRenderer({
           if (pressed && !e.repeat) manualRunToggleRef.current = !manualRunToggleRef.current;
           break;
         case "Space":
-          if (pressed && !e.repeat) manualAttackSeqRef.current += 1;
+          if (pressed && !e.repeat) manualJumpSeqRef.current += 1;
           break;
         default:
           handled = false;
@@ -501,6 +503,7 @@ export function NpcRenderer({
       if (playerGroupRef.current === npcGroup) {
         visualRoot.visible = !hideHero;
       }
+      // no-op
       const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
         sprite.lookAt(cameraPos);
@@ -597,6 +600,14 @@ export function NpcRenderer({
               loadedNpcs: [npcGroup],
               resolveAnim: resolveNpcAnimationRef,
             });
+          }
+        }
+        if (manualJumpSeqAppliedRef.current !== manualJumpSeqRef.current) {
+          manualJumpSeqAppliedRef.current = manualJumpSeqRef.current;
+          const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+          const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+          if (grounded) {
+            ud._kccJumpRequest = { atMs: nowMs };
           }
         }
 
@@ -865,20 +876,56 @@ export function NpcRenderer({
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion) || Boolean((npcGroup.userData as any)._manualSuppressLocomotion);
         const scriptIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
-
+        const jumpUntilMs = (npcGroup.userData as any)._kccJumpUntilMs as number | undefined;
+        const jumpActive = typeof jumpUntilMs === "number" && Date.now() < jumpUntilMs;
         // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
         if (!suppress) {
-          if (scriptIdle && locomotionMode === "idle") {
-            const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
-            instance.setAnimation(ref.animationName, {
-              modelName: ref.modelName,
-              loop: true,
-              resetTime: false,
-              blendInMs: ref.blendInMs,
-              blendOutMs: ref.blendOutMs,
-            });
+          if (jumpActive) {
+            const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+            if (!ud._kccJumpAnimActive) {
+              ud._kccJumpAnimActive = true;
+              const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_STAND_2_JUMP");
+              instance.setAnimation(ref.animationName, {
+                modelName: ref.modelName,
+                loop: false,
+                resetTime: true,
+                blendInMs: ref.blendInMs,
+                blendOutMs: ref.blendOutMs,
+                fallbackNames: ["S_JUMP", "S_RUN"],
+                next: {
+                  animationName: "S_JUMP",
+                  loop: true,
+                  resetTime: true,
+                  fallbackNames: ["S_RUN"],
+                },
+              });
+            }
           } else {
-            locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
+            const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+            if (ud._kccJumpAnimActive) {
+              ud._kccJumpAnimActive = false;
+              const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMP_2_STAND");
+              instance.setAnimation(ref.animationName, {
+                modelName: ref.modelName,
+                loop: false,
+                resetTime: true,
+                blendInMs: ref.blendInMs,
+                blendOutMs: ref.blendOutMs,
+                fallbackNames: ["S_RUN"],
+              });
+            }
+            if (scriptIdle && locomotionMode === "idle") {
+              const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
+              instance.setAnimation(ref.animationName, {
+                modelName: ref.modelName,
+                loop: true,
+                resetTime: false,
+                blendInMs: ref.blendInMs,
+                blendOutMs: ref.blendOutMs,
+              });
+            } else {
+              locomotion?.update(instance, locomotionMode, (name) => resolveNpcAnimationRef(npcData.instanceIndex, name));
+            }
           }
         }
       }
