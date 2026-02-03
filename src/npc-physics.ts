@@ -59,6 +59,8 @@ export const NPC_RENDER_TUNING = {
   jumpForwardSpeed: 400,
   jumpMinAirSeconds: 1,
   jumpMaxAirSeconds: 1,
+  jumpGraceSeconds: 1,
+  jumpGraceMinDistDown: 30,
   jumpForwardCarrySeconds: 1,
   jumpForwardCarryEasePower: 0.6,
   jumpGravityScale: 0.4,
@@ -139,6 +141,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
   const getJumpMinAirSeconds = () => NPC_RENDER_TUNING.jumpMinAirSeconds;
   const getJumpMaxAirSeconds = () => NPC_RENDER_TUNING.jumpMaxAirSeconds;
+  const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
+  const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
   const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
   const getJumpForwardCarryEasePower = () => NPC_RENDER_TUNING.jumpForwardCarryEasePower;
   const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
@@ -214,6 +218,8 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       jumpForwardSpeed: getJumpForwardSpeed(),
       jumpMinAirSeconds: getJumpMinAirSeconds(),
       jumpMaxAirSeconds: getJumpMaxAirSeconds(),
+      jumpGraceSeconds: getJumpGraceSeconds(),
+      jumpGraceMinDistDown: getJumpGraceMinDistDown(),
       jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
       jumpForwardCarryEasePower: getJumpForwardCarryEasePower(),
       jumpGravityScale: getJumpGravityScale(),
@@ -720,19 +726,60 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
   const airForMs =
     typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
-  const maxAirMs = Math.max(0, (kccConfig.jumpMaxAirSeconds ?? 0) * 1000);
-  const canEndByProbe = airForMs >= minAirMs;
-  const shouldEndJump =
-    canEndByProbe &&
-    typeof probeDistDown === "number" &&
-    Number.isFinite(probeDistDown) &&
-    probeDistDown < 20;
+  const maxAirMsRaw = Math.max(0, (kccConfig.jumpMaxAirSeconds ?? 0) * 1000);
   const canEndByGround = airForMs >= minAirMs;
+  const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
+  const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
+  const maxAirMs = maxAirMsRaw > 0 ? Math.max(maxAirMsRaw, minAirMs + graceMs) : 0;
   const forceEndByMaxAir = maxAirMs > 0 && airForMs >= maxAirMs;
-  if (jumpActive && (forceEndByMaxAir || (canEndByGround && groundedNow) || shouldEndJump)) {
-    (ud as any)._kccJumpActive = false;
-    jumpActive = false;
+  const probeDownVal =
+    typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
+  const canEndByProbe = airForMs >= minAirMs;
+  const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
+  const graceActive = Boolean((ud as any)._kccJumpGraceActive);
+  const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
+
+  if (jumpActive && graceActive) {
+    if (forceEndByMaxAir) {
+      (ud as any)._kccJumpGraceActive = false;
+      (ud as any)._kccJumpActive = false;
+      jumpActive = false;
+    } else if (shouldEndByProbe || (canEndByGround && groundedNow)) {
+      (ud as any)._kccJumpGraceActive = false;
+      (ud as any)._kccJumpActive = false;
+      if (shouldEndByProbe) {
+        (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+      }
+      jumpActive = false;
+    } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
+      (ud as any)._kccJumpGraceActive = false;
+      (ud as any)._kccJumpActive = false;
+      jumpActive = false;
+    }
+  } else if (jumpActive) {
+    const canStartGrace =
+      graceMs > 0 &&
+      canEndByProbe &&
+      (probeDownVal == null || probeDownVal >= graceMinDown);
+    if (canStartGrace) {
+      (ud as any)._kccJumpGraceActive = true;
+      (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
+    } else if (forceEndByMaxAir || (canEndByGround && groundedNow) || shouldEndByProbe) {
+      (ud as any)._kccJumpActive = false;
+      if (shouldEndByProbe) {
+        (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+      }
+      jumpActive = false;
+    }
   }
+  if (!jumpActive) {
+    (ud as any)._kccJumpGraceActive = false;
+    (ud as any)._kccJumpGraceUntilMs = undefined;
+    if (groundedNow) {
+      (ud as any)._kccJumpBlockUntilMs = undefined;
+    }
+  }
+  // no-op
   if (prevJumpActive && !jumpActive) {
     const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
     if (last && Number.isFinite(last.x) && Number.isFinite(last.z)) {
@@ -1773,16 +1820,25 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
         ud._kccFallEntryFor = 0;
       }
 
+      const jumpGraceActive = Boolean((ud as any)._kccJumpGraceActive);
       ud.isFalling = !stableGrounded;
-      if (!wasFalling && ud.isFalling) {
-        (ud as any)._kccFallStartY = npcGroup.position.y;
+      // During jump/grace, don't enter fall state on landing.
+      if (jumpActive || jumpGraceActive) {
+        ud.isFalling = false;
       }
-      if (wasFalling && !ud.isFalling) {
-        const fallStartY = (ud as any)._kccFallStartY as number | undefined;
-        const nowY = npcGroup.position.y;
-        if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
-          const drop = fallStartY - nowY;
-          console.log("[NPCFallDrop] " + drop);
+      const jumpEndByProbeAtMs = (ud as any)._kccJumpEndByProbeAtMs as number | undefined;
+      const suppressFallAfterJump =
+        typeof jumpEndByProbeAtMs === "number" && nowMs - jumpEndByProbeAtMs < 250;
+      if (!jumpActive && !jumpGraceActive && !suppressFallAfterJump) {
+        if (!wasFalling && ud.isFalling) {
+          (ud as any)._kccFallStartY = npcGroup.position.y;
+        }
+        if (wasFalling && !ud.isFalling) {
+          const fallStartY = (ud as any)._kccFallStartY as number | undefined;
+          const nowY = npcGroup.position.y;
+          if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
+            const drop = fallStartY - nowY;
+            console.log("[NPCFallDrop] " + drop);
           const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
           console.log(
             "[NPCFallDropJSON]" +
@@ -1814,10 +1870,14 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
           else if (drop < 50) lockMs = 200;
           else if (drop < 100) lockMs = 300;
           else lockMs = 500;
-          if (lockMs > 0) (ud as any)._kccIgnoreInputUntilMs = Date.now() + lockMs;
+            if (lockMs > 0) (ud as any)._kccIgnoreInputUntilMs = Date.now() + lockMs;
+          }
+          (ud as any)._kccFallStartY = undefined;
         }
+      } else {
         (ud as any)._kccFallStartY = undefined;
       }
+      // no-op
       let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
       if (!stableGrounded) fallFor += dtClamped;
       else fallFor = 0;

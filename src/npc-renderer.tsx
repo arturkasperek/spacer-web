@@ -607,10 +607,8 @@ export function NpcRenderer({
           const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
           const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
           const jumpUntilMs = ud._kccJumpActive as boolean | undefined;
-          const jumpBlockUntilMs = ud._kccJumpBlockUntilMs as number | undefined;
           const jumpActive = Boolean(jumpUntilMs);
-          const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
-          if (grounded && !jumpActive && !jumpBlocked) {
+          if (grounded && !jumpActive) {
             ud._kccJumpRequest = { atMs: nowMs };
           } else {
             ud._kccJumpRequest = undefined;
