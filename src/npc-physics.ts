@@ -57,7 +57,6 @@ export const NPC_RENDER_TUNING = {
   // Jumping
   jumpSpeed: 200,
   jumpForwardSpeed: 400,
-  jumpMinAirSeconds: 1,
   jumpGraceSeconds: 1,
   jumpGraceMinDistDown: 30,
   jumpForwardCarrySeconds: 1,
@@ -138,7 +137,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     const getFallEntryDelaySeconds = () => NPC_RENDER_TUNING.fallEntryDelaySeconds;
   const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
-  const getJumpMinAirSeconds = () => NPC_RENDER_TUNING.jumpMinAirSeconds;
   const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
   const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
   const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
@@ -214,7 +212,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       // Jumping
       jumpSpeed: getJumpSpeed(),
       jumpForwardSpeed: getJumpForwardSpeed(),
-      jumpMinAirSeconds: getJumpMinAirSeconds(),
       jumpGraceSeconds: getJumpGraceSeconds(),
       jumpGraceMinDistDown: getJumpGraceMinDistDown(),
       jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
@@ -719,7 +716,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   let jumpActive = Boolean((ud as any)._kccJumpActive);
   const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
   const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
-  const minAirMs = Math.max(0, (kccConfig.jumpMinAirSeconds ?? 0) * 1000);
+  const minAirMsConfig = 0;
+  const minAirMsOverride = (ud as any)._kccJumpMinAirMs as number | undefined;
+  const minAirMs =
+    typeof minAirMsOverride === "number" && Number.isFinite(minAirMsOverride) && minAirMsOverride > 0
+      ? minAirMsOverride
+      : minAirMsConfig;
   const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
   const airForMs =
     typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
@@ -791,6 +793,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     (ud as any)._kccJumpRequest = undefined;
     (ud as any)._kccJumpAtMs = jumpReq.atMs;
     (ud as any)._kccJumpActive = true;
+    (ud as any)._kccJumpMinAirMs = undefined;
     const forward =
       (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
     npcGroup.getWorldDirection(forward);

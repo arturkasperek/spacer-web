@@ -892,6 +892,13 @@ export function NpcRenderer({
               const startName =
                 locomotionMode === "run" || locomotionMode === "walk" ? "T_RUNL_2_JUMP" : "T_STAND_2_JUMP";
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
+              const durMs =
+                estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
+                estimateAnimationDurationMs("HUMANS", ref.animationName) ??
+                0;
+              if (durMs > 0) {
+                (ud as any)._kccJumpMinAirMs = durMs;
+              }
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMP");
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
