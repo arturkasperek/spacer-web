@@ -58,7 +58,6 @@ export const NPC_RENDER_TUNING = {
   jumpSpeed: 200,
   jumpForwardSpeed: 400,
   jumpMinAirSeconds: 1,
-  jumpMaxAirSeconds: 1,
   jumpGraceSeconds: 1,
   jumpGraceMinDistDown: 30,
   jumpForwardCarrySeconds: 1,
@@ -140,7 +139,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
   const getJumpMinAirSeconds = () => NPC_RENDER_TUNING.jumpMinAirSeconds;
-  const getJumpMaxAirSeconds = () => NPC_RENDER_TUNING.jumpMaxAirSeconds;
   const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
   const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
   const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
@@ -217,7 +215,6 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       jumpSpeed: getJumpSpeed(),
       jumpForwardSpeed: getJumpForwardSpeed(),
       jumpMinAirSeconds: getJumpMinAirSeconds(),
-      jumpMaxAirSeconds: getJumpMaxAirSeconds(),
       jumpGraceSeconds: getJumpGraceSeconds(),
       jumpGraceMinDistDown: getJumpGraceMinDistDown(),
       jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
@@ -726,12 +723,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
   const airForMs =
     typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
-  const maxAirMsRaw = Math.max(0, (kccConfig.jumpMaxAirSeconds ?? 0) * 1000);
   const canEndByGround = airForMs >= minAirMs;
   const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
   const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
-  const maxAirMs = maxAirMsRaw > 0 ? Math.max(maxAirMsRaw, minAirMs + graceMs) : 0;
-  const forceEndByMaxAir = maxAirMs > 0 && airForMs >= maxAirMs;
   const probeDownVal =
     typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
   const canEndByProbe = airForMs >= minAirMs;
@@ -740,11 +734,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
 
   if (jumpActive && graceActive) {
-    if (forceEndByMaxAir) {
-      (ud as any)._kccJumpGraceActive = false;
-      (ud as any)._kccJumpActive = false;
-      jumpActive = false;
-    } else if (shouldEndByProbe || (canEndByGround && groundedNow)) {
+    if (shouldEndByProbe || (canEndByGround && groundedNow)) {
       (ud as any)._kccJumpGraceActive = false;
       (ud as any)._kccJumpActive = false;
       if (shouldEndByProbe) {
@@ -764,7 +754,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     if (canStartGrace) {
       (ud as any)._kccJumpGraceActive = true;
       (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
-    } else if (forceEndByMaxAir || (canEndByGround && groundedNow) || shouldEndByProbe) {
+    } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
       (ud as any)._kccJumpActive = false;
       if (shouldEndByProbe) {
         (ud as any)._kccJumpEndByProbeAtMs = nowMs;
