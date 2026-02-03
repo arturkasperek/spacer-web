@@ -57,7 +57,10 @@ export const NPC_RENDER_TUNING = {
   // Jumping
   jumpSpeed: 200,
   jumpForwardSpeed: 400,
-  jumpHoldSeconds: 1,
+  jumpMinAirSeconds: 1,
+  jumpMaxAirSeconds: 1,
+  jumpForwardCarrySeconds: 1,
+  jumpForwardCarryEasePower: 0.6,
   jumpGravityScale: 0.4,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
@@ -134,7 +137,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     const getFallEntryDelaySeconds = () => NPC_RENDER_TUNING.fallEntryDelaySeconds;
   const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
-  const getJumpHoldSeconds = () => NPC_RENDER_TUNING.jumpHoldSeconds;
+  const getJumpMinAirSeconds = () => NPC_RENDER_TUNING.jumpMinAirSeconds;
+  const getJumpMaxAirSeconds = () => NPC_RENDER_TUNING.jumpMaxAirSeconds;
+  const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
+  const getJumpForwardCarryEasePower = () => NPC_RENDER_TUNING.jumpForwardCarryEasePower;
   const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
   const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
   const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
@@ -206,7 +212,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       // Jumping
       jumpSpeed: getJumpSpeed(),
       jumpForwardSpeed: getJumpForwardSpeed(),
-      jumpHoldSeconds: getJumpHoldSeconds(),
+      jumpMinAirSeconds: getJumpMinAirSeconds(),
+      jumpMaxAirSeconds: getJumpMaxAirSeconds(),
+      jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
+      jumpForwardCarryEasePower: getJumpForwardCarryEasePower(),
       jumpGravityScale: getJumpGravityScale(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
@@ -703,9 +712,39 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   let didJumpThisFrame = false;
   let jumpUpInitial = 0;
   const nowMs = Date.now();
-  const jumpUntilMs = (ud as any)._kccJumpUntilMs as number | undefined;
-  const jumpAtMs = (ud as any)._kccJumpAtMs as number | undefined;
-  const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
+  const prevJumpActive = Boolean((ud as any)._kccJumpActivePrev);
+  let jumpActive = Boolean((ud as any)._kccJumpActive);
+  const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+  const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
+  const minAirMs = Math.max(0, (kccConfig.jumpMinAirSeconds ?? 0) * 1000);
+  const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
+  const airForMs =
+    typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
+  const maxAirMs = Math.max(0, (kccConfig.jumpMaxAirSeconds ?? 0) * 1000);
+  const canEndByProbe = airForMs >= minAirMs;
+  const shouldEndJump =
+    canEndByProbe &&
+    typeof probeDistDown === "number" &&
+    Number.isFinite(probeDistDown) &&
+    probeDistDown < 20;
+  const canEndByGround = airForMs >= minAirMs;
+  const forceEndByMaxAir = maxAirMs > 0 && airForMs >= maxAirMs;
+  if (jumpActive && (forceEndByMaxAir || (canEndByGround && groundedNow) || shouldEndJump)) {
+    (ud as any)._kccJumpActive = false;
+    jumpActive = false;
+  }
+  if (prevJumpActive && !jumpActive) {
+    const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
+    if (last && Number.isFinite(last.x) && Number.isFinite(last.z)) {
+      const carryMs = Math.max(0, (kccConfig.jumpForwardCarrySeconds ?? 0) * 1000);
+      if (carryMs > 0) {
+        (ud as any)._kccJumpCarryStartMs = nowMs;
+        (ud as any)._kccJumpCarryUntilMs = nowMs + carryMs;
+        (ud as any)._kccJumpCarryVel = { x: last.x, z: last.z };
+      }
+    }
+  }
+  (ud as any)._kccJumpActivePrev = jumpActive;
   const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
   const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
   const jumpReq = (ud as any)._kccJumpRequest as { atMs: number } | undefined;
@@ -714,7 +753,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     vy = Math.max(vy, jumpUpInitial);
     (ud as any)._kccJumpRequest = undefined;
     (ud as any)._kccJumpAtMs = jumpReq.atMs;
-    (ud as any)._kccJumpUntilMs = nowMs + Math.max(0, kccConfig.jumpHoldSeconds) * 1000;
+    (ud as any)._kccJumpActive = true;
     const forward =
       (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
     npcGroup.getWorldDirection(forward);
@@ -725,15 +764,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     (ud as any)._kccJumpUpRemainder = 0;
     didJumpThisFrame = true;
   }
-  let jumpForwardScale = 1;
-  if (jumpActive && typeof jumpAtMs === "number" && Number.isFinite(jumpAtMs)) {
-    const durMs = Math.max(1, Math.max(0, kccConfig.jumpHoldSeconds) * 1000);
-    const t = Math.max(0, Math.min(1, (nowMs - jumpAtMs) / durMs));
-    // Slow start, faster later (ease-in)
-    const p = Math.max(0.01, kccConfig.jumpForwardEasePower ?? 2);
-    const minScale = Math.max(0, Math.min(1, kccConfig.jumpForwardMinScale ?? 0));
-    jumpForwardScale = minScale + (1 - minScale) * Math.pow(t, p);
-  }
+  const jumpForwardScale = 1;
   // During jump: allow only sideways input (no forward/back steering).
   if (jumpActive) {
     const forward =
@@ -935,8 +966,34 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
       if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
         const fwd = kccConfig.jumpForwardSpeed * jumpForwardScale;
+        (ud as any)._kccJumpLastFwd = { x: jumpDir.x * fwd, z: jumpDir.z * fwd };
         dx += jumpDir.x * fwd * dtClamped;
         dz += jumpDir.z * fwd * dtClamped;
+        desiredX = fromX + dx;
+        desiredZ = fromZ + dz;
+        desiredDistXZ = Math.hypot(dx, dz);
+      }
+    }
+
+    // Carry some forward momentum after jump ends (helps natural fall motion).
+    if (!jumpActive && !wasStableGrounded) {
+      const carryUntilMs = (ud as any)._kccJumpCarryUntilMs as number | undefined;
+      const carryStartMs = (ud as any)._kccJumpCarryStartMs as number | undefined;
+      const carryVel = (ud as any)._kccJumpCarryVel as { x: number; z: number } | undefined;
+      if (
+        typeof carryUntilMs === "number" &&
+        typeof carryStartMs === "number" &&
+        carryVel &&
+        Number.isFinite(carryVel.x) &&
+        Number.isFinite(carryVel.z) &&
+        nowMs < carryUntilMs
+      ) {
+        const durMs = Math.max(1, carryUntilMs - carryStartMs);
+        const t = Math.max(0, Math.min(1, (nowMs - carryStartMs) / durMs));
+        const p = Math.max(0.01, kccConfig.jumpForwardCarryEasePower ?? 1);
+        const scale = Math.max(0, Math.pow(1 - t, p));
+        dx += carryVel.x * scale * dtClamped;
+        dz += carryVel.z * scale * dtClamped;
         desiredX = fromX + dx;
         desiredZ = fromZ + dz;
         desiredDistXZ = Math.hypot(dx, dz);

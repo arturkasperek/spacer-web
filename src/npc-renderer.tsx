@@ -606,9 +606,9 @@ export function NpcRenderer({
           manualJumpSeqAppliedRef.current = manualJumpSeqRef.current;
           const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
           const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-          const jumpUntilMs = ud._kccJumpUntilMs as number | undefined;
+          const jumpUntilMs = ud._kccJumpActive as boolean | undefined;
           const jumpBlockUntilMs = ud._kccJumpBlockUntilMs as number | undefined;
-          const jumpActive = typeof jumpUntilMs === "number" && nowMs < jumpUntilMs;
+          const jumpActive = Boolean(jumpUntilMs);
           const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
           if (grounded && !jumpActive && !jumpBlocked) {
             ud._kccJumpRequest = { atMs: nowMs };
@@ -732,8 +732,7 @@ export function NpcRenderer({
 	        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
 	        if (instance) {
 	          const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
-	          const jumpUntilMs = (npcGroup.userData as any)._kccJumpUntilMs as number | undefined;
-	          const jumpActive = typeof jumpUntilMs === "number" && Date.now() < jumpUntilMs;
+	          const jumpActive = Boolean((npcGroup.userData as any)._kccJumpActive);
 	          const jumpAnimActive = Boolean((npcGroup.userData as any)?._kccJumpAnimActive);
 	          const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
             const lastTurnAtMs = Number((manualUd as any)._manualLastTurnAtMs);
@@ -885,8 +884,7 @@ export function NpcRenderer({
         const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
         const suppress = Boolean((npcGroup.userData as any)._emSuppressLocomotion) || Boolean((npcGroup.userData as any)._manualSuppressLocomotion);
         const scriptIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
-        const jumpUntilMs = (npcGroup.userData as any)._kccJumpUntilMs as number | undefined;
-        const jumpActive = typeof jumpUntilMs === "number" && Date.now() < jumpUntilMs;
+        const jumpActive = Boolean((npcGroup.userData as any)._kccJumpActive);
         // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
         if (!suppress) {
           if (jumpActive) {
