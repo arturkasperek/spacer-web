@@ -453,6 +453,7 @@ export async function createHumanoidCharacterInstance(params: {
       const stripRootMotionY =
         currentAnimationName === "S_JUMP" ||
         currentAnimationName === "T_STAND_2_JUMP" ||
+        currentAnimationName === "T_RUNL_2_JUMP" ||
         currentAnimationName === "T_JUMP_2_STAND";
       const ok = evaluatePose(skeleton, currentSequence, currentTimeMs, currentLoop, {
         extractRootMotion: rootMotion,

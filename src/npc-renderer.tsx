@@ -889,7 +889,9 @@ export function NpcRenderer({
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (!ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = true;
-              const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_STAND_2_JUMP");
+              const startName =
+                locomotionMode === "run" || locomotionMode === "walk" ? "T_RUNL_2_JUMP" : "T_STAND_2_JUMP";
+              const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMP");
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
