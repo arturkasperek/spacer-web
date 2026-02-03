@@ -917,32 +917,45 @@ export function NpcRenderer({
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = false;
-              const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMP_2_STAND");
-              const durMs =
-                estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
-                estimateAnimationDurationMs("HUMANS", ref.animationName) ??
-                400;
-              (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
+              const moving = locomotionMode === "run" || locomotionMode === "walk";
               const nextName =
                 locomotionMode === "run" ? "s_RunL" : locomotionMode === "walk" ? "s_WalkL" : "s_Run";
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
-              instance.setAnimation(ref.animationName, {
-                modelName: ref.modelName,
-                loop: false,
-                resetTime: true,
-                blendInMs: ref.blendInMs,
-                blendOutMs: ref.blendOutMs,
-                fallbackNames: ["S_RUN"],
-                next: {
-                  animationName: nextRef.animationName,
+              if (moving) {
+                (ud as any)._kccJumpBlockUntilMs = undefined;
+                instance.setAnimation(nextRef.animationName, {
                   modelName: nextRef.modelName,
                   loop: true,
                   resetTime: true,
                   blendInMs: nextRef.blendInMs,
                   blendOutMs: nextRef.blendOutMs,
                   fallbackNames: ["s_Run"],
-                },
-              });
+                });
+              } else {
+                const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMP_2_STAND");
+                const durMs =
+                  estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
+                  estimateAnimationDurationMs("HUMANS", ref.animationName) ??
+                  400;
+                (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
+                instance.setAnimation(ref.animationName, {
+                  modelName: ref.modelName,
+                  loop: false,
+                  resetTime: true,
+                  blendInMs: ref.blendInMs,
+                  blendOutMs: ref.blendOutMs,
+                  fallbackNames: ["S_RUN"],
+                  next: {
+                    animationName: nextRef.animationName,
+                    modelName: nextRef.modelName,
+                    loop: true,
+                    resetTime: true,
+                    blendInMs: nextRef.blendInMs,
+                    blendOutMs: nextRef.blendOutMs,
+                    fallbackNames: ["s_Run"],
+                  },
+                });
+              }
             }
             if (scriptIdle && locomotionMode === "idle") {
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
