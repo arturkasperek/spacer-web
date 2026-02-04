@@ -376,7 +376,16 @@ export function NpcRenderer({
       characterCachesRef.current.binary,
       characterCachesRef.current.animations,
       "HUMANS",
-      [...HUMAN_LOCOMOTION_PRELOAD_ANIS, "T_1HATTACKL", "T_1HATTACKR", "T_2HATTACKL"]
+      [
+        ...HUMAN_LOCOMOTION_PRELOAD_ANIS,
+        "T_STAND_2_JUMP",
+        "T_RUNL_2_JUMP",
+        "S_JUMP",
+        "T_JUMP_2_STAND",
+        "T_1HATTACKL",
+        "T_1HATTACKR",
+        "T_2HATTACKL",
+      ]
     );
   }, [enabled, zenKit]);
 
