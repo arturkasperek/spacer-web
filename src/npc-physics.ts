@@ -741,6 +741,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       (ud as any)._kccJumpActive = false;
       if (shouldEndByProbe) {
         (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+        (ud as any)._kccJumpEndByProbePending = true;
       }
       jumpActive = false;
     } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
@@ -760,6 +761,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       (ud as any)._kccJumpActive = false;
       if (shouldEndByProbe) {
         (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+        (ud as any)._kccJumpEndByProbePending = true;
       }
       jumpActive = false;
     }
@@ -773,6 +775,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   }
   // no-op
   if (prevJumpActive && !jumpActive) {
+    (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 200;
     const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
     if (last && Number.isFinite(last.x) && Number.isFinite(last.z)) {
       const carryMs = Math.max(0, (kccConfig.jumpForwardCarrySeconds ?? 0) * 1000);
@@ -1727,11 +1730,22 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	      let groundRayNormalY: number | null = null;
   	      let groundRayColliderHandle: number | null = null;
   	      let groundRecoverDropApplied: number | null = null;
+      const jumpEndByProbePending = Boolean((ud as any)._kccJumpEndByProbePending);
+      if (jumpEndByProbePending && stableGrounded) {
+        (ud as any)._kccJumpEndByProbePending = false;
+      }
+      const jumpGraceActiveRecover = Boolean((ud as any)._kccJumpGraceActive);
+      const recoverSuppressUntilMs = (ud as any)._kccGroundRecoverSuppressUntilMs as number | undefined;
+      const recoverSuppressed = typeof recoverSuppressUntilMs === "number" && nowMs < recoverSuppressUntilMs;
       if (
         !rawGroundedNow &&
         !tooSteepToStandNow &&
         !fallHitSlideSurfaceNow &&
         !jumpActive &&
+        !jumpGraceActiveRecover &&
+        !wasFalling &&
+        !jumpEndByProbePending &&
+        !recoverSuppressed &&
         (wasStableGrounded || stableGrounded) &&
         vy <= 0 &&
         kccConfig.groundRecoverDistance > 0
