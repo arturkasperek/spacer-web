@@ -699,7 +699,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   	    if (wasFalling) {
   	      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
   	      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
-  	      const inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+        const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
+  	      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+        if (skipFallDownPhase) {
+          inFallDownPhase = false;
+          if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
+        }
   	      if (inFallDownPhase && desiredDistXZ > 1e-6) {
   	        desiredX = fromX;
   	        desiredZ = fromZ;
@@ -747,6 +752,9 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
     } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
       (ud as any)._kccJumpGraceActive = false;
       (ud as any)._kccJumpActive = false;
+      if (!groundedNow) {
+        (ud as any)._kccSkipFallDownPhase = true;
+      }
       jumpActive = false;
     }
   } else if (jumpActive) {
@@ -756,6 +764,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       (probeDownVal == null || probeDownVal >= graceMinDown);
     if (canStartGrace) {
       (ud as any)._kccJumpGraceActive = true;
+      (ud as any)._kccJumpGraceStartMs = nowMs;
       (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
     } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
       (ud as any)._kccJumpActive = false;
@@ -769,6 +778,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   if (!jumpActive) {
     (ud as any)._kccJumpGraceActive = false;
     (ud as any)._kccJumpGraceUntilMs = undefined;
+    (ud as any)._kccJumpGraceStartMs = undefined;
     if (groundedNow) {
       (ud as any)._kccJumpBlockUntilMs = undefined;
     }
@@ -1008,10 +1018,20 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       // Parabolic jump: no per-frame vertical boost.
       const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
       if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
+        const graceActive = Boolean((ud as any)._kccJumpGraceActive);
         const fwd = kccConfig.jumpForwardSpeed * jumpForwardScale;
-        (ud as any)._kccJumpLastFwd = { x: jumpDir.x * fwd, z: jumpDir.z * fwd };
-        dx += jumpDir.x * fwd * dtClamped;
-        dz += jumpDir.z * fwd * dtClamped;
+        if (!graceActive) {
+          (ud as any)._kccJumpLastFwd = { x: jumpDir.x * fwd, z: jumpDir.z * fwd };
+          dx += jumpDir.x * fwd * dtClamped;
+          dz += jumpDir.z * fwd * dtClamped;
+        } else {
+          const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
+          const baseX = last?.x ?? jumpDir.x * fwd;
+          const baseZ = last?.z ?? jumpDir.z * fwd;
+          (ud as any)._kccJumpLastFwd = { x: baseX, z: baseZ };
+          dx += baseX * dtClamped;
+          dz += baseZ * dtClamped;
+        }
         desiredX = fromX + dx;
         desiredZ = fromZ + dz;
         desiredDistXZ = Math.hypot(dx, dz);
@@ -1252,7 +1272,12 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   				        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
   				      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
   				      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
-  				      const inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+                const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
+  				      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+                if (skipFallDownPhase) {
+                  inFallDownPhase = false;
+                  if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
+                }
   				      const fallSlidePushSpeedBase = kccConfig.fallSlidePushSpeed;
   				      const fallSlidePushSpeedEffective = inFallDownPhase ? fallSlidePushSpeedBase * 0.4 : fallSlidePushSpeedBase;
   				      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && fallSlidePushSpeedEffective > 0) {

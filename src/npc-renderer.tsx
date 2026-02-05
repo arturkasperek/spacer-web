@@ -850,7 +850,7 @@ export function NpcRenderer({
 		        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
 		        const wasFalling = Boolean(ud._wasFalling);
 		        ud._wasFalling = true;
-		        const fallFor = (ud._kccFallFor as number | undefined) ?? 0;
+		        let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
 		        const fallDelay = (kccConfig as any).fallEntryDelaySeconds ?? 0;
 		        // Distance-based fallDown like ZenGin: switch after a vertical drop threshold.
 		        const yNow = npcGroup.position.y;
@@ -859,13 +859,31 @@ export function NpcRenderer({
 		        if (!wasFalling || typeof startY !== "number" || !Number.isFinite(startY)) startY = yNow;
 		        if (!wasFalling || typeof minY !== "number" || !Number.isFinite(minY)) minY = yNow;
 		        if (yNow < minY) minY = yNow;
-		        const distY = Math.max(0, startY - minY);
+		        let distY = Math.max(0, startY - minY);
+		        const skipFallDown = Boolean((ud as any)._kccSkipFallDownPhase);
+		        if (skipFallDown) {
+		          const h = kccConfig.fallDownHeight ?? 0;
+		          if (h > 0) distY = h + 1;
+              fallFor = Math.max(fallFor, fallDelay);
+              (ud as any)._kccFallFor = fallFor;
+              (ud as any)._fallDownStartY = yNow;
+              (ud as any)._fallDownMinY = yNow;
+              distY = 0;
+              (ud as any)._kccForceFallMode = true;
+		        }
 		        ud._fallDownStartY = startY;
 		        ud._fallDownMinY = minY;
 		        ud._fallDownDistY = distY;
 		        ud._fallAnimT = 0;
 		        if (fallDelay <= 0 || fallFor >= fallDelay - 1e-6) {
-		          locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
+              if (Boolean((ud as any)._kccForceFallMode)) {
+                locomotionMode = "fall";
+              } else {
+                locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
+              }
+              if (skipFallDown) {
+                (ud as any)._kccSkipFallDownPhase = false;
+              }
 		        }
 		      }
 	      // Sliding has priority over walk/run/idle (but not over falling).
@@ -873,6 +891,7 @@ export function NpcRenderer({
 	        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
 	        const slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
         const slideDelay = kccConfig.slideEntryDelaySeconds ?? 0;
+          (ud as any)._kccForceFallMode = false;
 	        (npcGroup.userData as any)._wasFalling = false;
 	        (npcGroup.userData as any)._fallAnimT = 0;
 	        (npcGroup.userData as any)._fallDownStartY = undefined;
@@ -880,6 +899,7 @@ export function NpcRenderer({
 	        (npcGroup.userData as any)._fallDownDistY = 0;
 	        if (slideDelay <= 0 || slideFor >= slideDelay - 1e-6) locomotionMode = "slide";
 	      } else {
+	        (npcGroup.userData as any)._kccForceFallMode = false;
 	        (npcGroup.userData as any)._wasFalling = false;
 	        (npcGroup.userData as any)._fallAnimT = 0;
 	        (npcGroup.userData as any)._fallDownStartY = undefined;
