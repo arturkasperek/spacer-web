@@ -62,7 +62,8 @@ export const NPC_RENDER_TUNING = {
   jumpForwardCarrySeconds: 1,
   jumpForwardCarryEasePower: 0.6,
   jumpGravityScale: 0.4,
-  jumpGraceDownAccel: 200,
+  jumpGraceDownAccel: 700,
+  jumpGraceDownEasePower: 0.3,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
 
@@ -150,6 +151,7 @@ export function useNpcPhysics({
   const getJumpForwardCarryEasePower = () => NPC_RENDER_TUNING.jumpForwardCarryEasePower;
   const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
   const getJumpGraceDownAccel = () => NPC_RENDER_TUNING.jumpGraceDownAccel;
+  const getJumpGraceDownEasePower = () => NPC_RENDER_TUNING.jumpGraceDownEasePower;
   const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
   const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
 
@@ -226,6 +228,7 @@ export function useNpcPhysics({
       jumpForwardCarryEasePower: getJumpForwardCarryEasePower(),
       jumpGravityScale: getJumpGravityScale(),
       jumpGraceDownAccel: getJumpGraceDownAccel(),
+      jumpGraceDownEasePower: getJumpGraceDownEasePower(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
 
@@ -1700,7 +1703,20 @@ export function useNpcPhysics({
         vy -= kccConfig.gravity * jumpGravityScale * dtClamped;
         if (jumpActive && Boolean((ud as any)._kccJumpGraceActive)) {
           const graceDown = Math.max(0, kccConfig.jumpGraceDownAccel ?? 0);
-          if (graceDown > 0) vy -= graceDown * dtClamped;
+          if (graceDown > 0) {
+            const graceStartMs = (ud as any)._kccJumpGraceStartMs as number | undefined;
+            const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
+            const graceTotalMs =
+              typeof graceUntilMs === "number" && typeof graceStartMs === "number"
+                ? Math.max(1, graceUntilMs - graceStartMs)
+                : Math.max(1, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
+            const graceElapsedMs =
+              typeof graceStartMs === "number" ? Math.max(0, nowMs - graceStartMs) : graceTotalMs;
+            const graceT = Math.max(0, Math.min(1, graceElapsedMs / graceTotalMs));
+            const graceEasePower = Math.max(0.01, kccConfig.jumpGraceDownEasePower ?? 1);
+            const graceScale = Math.pow(graceT, graceEasePower);
+            vy -= graceDown * graceScale * dtClamped;
+          }
         }
         if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
       }
