@@ -95,7 +95,13 @@ export type UseNpcPhysicsArgs = {
   playerGroupRef: MutableRefObject<THREE.Group | null>;
 };
 
-export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule = false }: UseNpcPhysicsArgs & { showKccCapsule?: boolean }) {
+export function useNpcPhysics({
+  loadedNpcsRef,
+  physicsFrameRef,
+  playerGroupRef,
+  showKccCapsule = false,
+  showGroundProbeRay = false,
+}: UseNpcPhysicsArgs & { showKccCapsule?: boolean; showGroundProbeRay?: boolean }) {
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
@@ -1544,17 +1550,13 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
           }
 
           const isHero = playerGroupRef.current === npcGroup;
-          if (isHero) {
+          if (isHero && showGroundProbeRay) {
             const startV = new THREE.Vector3(ox, oy, oz);
             const endY = hitPoint ? hitPoint.y : oy - maxToi;
             const endV = new THREE.Vector3(ox, endY, oz);
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, startV, endV, true);
-
-            const nowMs = Date.now();
-            const lastAt = (ud as any)._kccGroundProbeLogAtMs as number | undefined;
-            if (typeof lastAt !== "number" || nowMs - lastAt > 1000) {
-              (ud as any)._kccGroundProbeLogAtMs = nowMs;
-            }
+          } else if (isHero) {
+            updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
           } else {
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
           }

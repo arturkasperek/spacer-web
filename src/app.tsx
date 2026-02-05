@@ -75,7 +75,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     showLights: boolean;
     showFpsMeter: boolean;
     showKccCapsule: boolean;
+    showGroundProbeRay: boolean;
     hideHero: boolean;
+    timeScale: number;
   };
 }>) {
   const { camera } = useThree();
@@ -229,6 +231,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           cameraPosition={cameraPosition}
           enabled={true}
           showKccCapsule={viewSettings.showKccCapsule}
+          showGroundProbeRay={viewSettings.showGroundProbeRay}
           hideHero={viewSettings.hideHero}
         />
       )}

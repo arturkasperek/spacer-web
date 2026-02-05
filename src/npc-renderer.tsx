@@ -36,6 +36,7 @@ export interface NpcRendererProps {
   cameraPosition?: THREE.Vector3;
   enabled?: boolean;
   showKccCapsule?: boolean;
+  showGroundProbeRay?: boolean;
   hideHero?: boolean;
 }
 
@@ -66,6 +67,7 @@ export function NpcRenderer({
   cameraPosition,
   enabled = true,
   showKccCapsule = false,
+  showGroundProbeRay = false,
   hideHero = false,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
@@ -93,7 +95,7 @@ export function NpcRenderer({
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
   const { kccConfig, getNpcVisualRoot, applyMoveConstraint, trySnapNpcToGroundWithRapier, removeNpcKccCollider } =
-    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule });
+    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule, showGroundProbeRay });
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());
