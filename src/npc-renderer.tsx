@@ -920,6 +920,7 @@ export function NpcRenderer({
               ud._kccJumpAnimActive = true;
               const startName =
                 locomotionMode === "run" || locomotionMode === "walk" ? "T_RUNL_2_JUMP" : "T_STAND_2_JUMP";
+              ud._kccJumpStartWasRun = startName === "T_RUNL_2_JUMP";
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
               const durMs =
                 estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
@@ -955,14 +956,16 @@ export function NpcRenderer({
               const nextName =
                 locomotionMode === "run" ? "s_RunL" : locomotionMode === "walk" ? "s_WalkL" : "s_Run";
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
+              const jumpStartWasRun = Boolean((ud as any)._kccJumpStartWasRun);
+              (ud as any)._kccJumpStartWasRun = false;
               if (moving) {
                 (ud as any)._kccJumpBlockUntilMs = undefined;
                 instance.setAnimation(nextRef.animationName, {
                   modelName: nextRef.modelName,
                   loop: true,
                   resetTime: true,
-                  blendInMs: nextRef.blendInMs,
-                  blendOutMs: nextRef.blendOutMs,
+                  blendInMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendInMs,
+                  blendOutMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendOutMs,
                   fallbackNames: ["s_Run"],
                 });
               } else {

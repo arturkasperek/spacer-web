@@ -62,6 +62,7 @@ export const NPC_RENDER_TUNING = {
   jumpForwardCarrySeconds: 1,
   jumpForwardCarryEasePower: 0.6,
   jumpGravityScale: 0.4,
+  jumpGraceDownAccel: 200,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
 
@@ -142,6 +143,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
   const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
   const getJumpForwardCarryEasePower = () => NPC_RENDER_TUNING.jumpForwardCarryEasePower;
   const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
+  const getJumpGraceDownAccel = () => NPC_RENDER_TUNING.jumpGraceDownAccel;
   const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
   const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
 
@@ -217,6 +219,7 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
       jumpForwardCarryEasePower: getJumpForwardCarryEasePower(),
       jumpGravityScale: getJumpGravityScale(),
+      jumpGraceDownAccel: getJumpGraceDownAccel(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
 
@@ -1693,6 +1696,10 @@ export function useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, 
       } else {
         const jumpGravityScale = jumpActive ? Math.max(0.01, kccConfig.jumpGravityScale ?? 1) : 1;
         vy -= kccConfig.gravity * jumpGravityScale * dtClamped;
+        if (jumpActive && Boolean((ud as any)._kccJumpGraceActive)) {
+          const graceDown = Math.max(0, kccConfig.jumpGraceDownAccel ?? 0);
+          if (graceDown > 0) vy -= graceDown * dtClamped;
+        }
         if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
       }
 
