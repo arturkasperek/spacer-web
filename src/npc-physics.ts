@@ -22,7 +22,7 @@ export const NPC_RENDER_TUNING = {
   slideToFallDeg: 67, // slide->fall threshold
 
   // Physics
-  gravity: 1070,
+  gravity: 1030,
   maxFallSpeed: 8000,
 
   // Grounding / snapping
