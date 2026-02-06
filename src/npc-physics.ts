@@ -82,7 +82,7 @@ export const NPC_RENDER_TUNING = {
   controllerSnapDistance: 20,
 
   // Manual control (player hero)
-  manualControlSpeeds: { walk: 180, run: 350 },
+  manualControlSpeeds: { walk: 180, run: 350, back: 120 },
 } as const;
 
 export type UseNpcPhysicsArgs = {

@@ -680,7 +680,12 @@ export function NpcRenderer({
           if (tmpManualForward.lengthSq() < 1e-8) tmpManualForward.set(0, 0, 1);
           else tmpManualForward.normalize();
 
-          const speed = manualRunToggleRef.current ? manualControlSpeeds.run : manualControlSpeeds.walk;
+          const speed =
+            move < 0
+              ? manualControlSpeeds.back
+              : manualRunToggleRef.current
+                ? manualControlSpeeds.run
+                : manualControlSpeeds.walk;
           let desiredX = npcGroup.position.x;
           let desiredZ = npcGroup.position.z;
           if (move !== 0) {
@@ -735,7 +740,8 @@ export function NpcRenderer({
           turnNow = 0;
           moveNow = 0;
         }
-	        const manualLocomotionMode: LocomotionMode = moveNow !== 0 ? (manualRunToggleRef.current ? "run" : "walk") : "idle";
+	        const manualLocomotionMode: LocomotionMode =
+          moveNow > 0 ? (manualRunToggleRef.current ? "run" : "walk") : moveNow < 0 ? "walkBack" : "idle";
 
 	        // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
 	        // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
@@ -921,7 +927,9 @@ export function NpcRenderer({
             if (!ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = true;
               const startName =
-                locomotionMode === "run" || locomotionMode === "walk" ? "T_RUNL_2_JUMP" : "T_STAND_2_JUMP";
+                locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
+                  ? "T_RUNL_2_JUMP"
+                  : "T_STAND_2_JUMP";
               ud._kccJumpStartWasRun = startName === "T_RUNL_2_JUMP";
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
               const durMs =
@@ -954,9 +962,15 @@ export function NpcRenderer({
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = false;
-              const moving = locomotionMode === "run" || locomotionMode === "walk";
+              const moving = locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack";
               const nextName =
-                locomotionMode === "run" ? "s_RunL" : locomotionMode === "walk" ? "s_WalkL" : "s_Run";
+                locomotionMode === "run"
+                  ? "s_RunL"
+                  : locomotionMode === "walk"
+                    ? "s_WalkL"
+                    : locomotionMode === "walkBack"
+                      ? "t_JumpB"
+                      : "s_Run";
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
               const jumpStartWasRun = Boolean((ud as any)._kccJumpStartWasRun);
               (ud as any)._kccJumpStartWasRun = false;

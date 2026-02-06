@@ -1,6 +1,15 @@
 import type { CharacterInstance } from "./character/character-instance.js";
 
-export type LocomotionMode = "idle" | "walk" | "run" | "slide" | "slideBack" | "fallDown" | "fall" | "fallBack";
+export type LocomotionMode =
+  | "idle"
+  | "walk"
+  | "walkBack"
+  | "run"
+  | "slide"
+  | "slideBack"
+  | "fallDown"
+  | "fall"
+  | "fallBack";
 
 export type AnimationRef = {
   animationName: string;
@@ -23,6 +32,9 @@ export type LocomotionSpec = {
   walkStart: LocomotionAnimationSpec;
   walkLoop: LocomotionAnimationSpec;
   walkStop: LocomotionAnimationSpec;
+  walkBackStart: LocomotionAnimationSpec;
+  walkBackLoop: LocomotionAnimationSpec;
+  walkBackStop: LocomotionAnimationSpec;
 
   runStart: LocomotionAnimationSpec;
   runLoop: LocomotionAnimationSpec;
@@ -102,6 +114,7 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
         initialized = true;
         lastMode = mode;
         if (mode === "walk") play(instance, spec.walkStart, spec.walkLoop, resolve);
+        else if (mode === "walkBack") play(instance, spec.walkBackStart, spec.walkBackLoop, resolve);
         else if (mode === "run") play(instance, spec.runStart, spec.runLoop, resolve);
         else if (mode === "slide") play(instance, spec.slide, undefined, resolve);
         else if (mode === "slideBack") play(instance, spec.slideBack, undefined, resolve);
@@ -116,6 +129,8 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
 
       if (mode === "walk") {
         play(instance, spec.walkStart, spec.walkLoop, resolve);
+      } else if (mode === "walkBack") {
+        play(instance, spec.walkBackStart, spec.walkBackLoop, resolve);
       } else if (mode === "run") {
         play(instance, spec.runStart, spec.runLoop, resolve);
       } else if (mode === "slide") {
@@ -130,6 +145,7 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
         play(instance, spec.fallBack, undefined, resolve);
       } else {
         if (lastMode === "walk") play(instance, spec.walkStop, spec.idle, resolve);
+        else if (lastMode === "walkBack") play(instance, spec.walkBackStop, spec.idle, resolve);
         else if (lastMode === "run") play(instance, spec.runStop, spec.idle, resolve);
         else play(instance, spec.idle, undefined, resolve);
       }
@@ -152,6 +168,10 @@ export const HUMAN_LOCOMOTION_SPEC: LocomotionSpec = {
   walkStart: { name: "t_Walk_2_WalkL", loop: false, fallbackNames: ["s_WalkL"] },
   walkLoop: { name: "s_WalkL", loop: true, fallbackNames: ["s_RunL", "s_Run"] },
   walkStop: { name: "t_WalkL_2_Walk", loop: false, fallbackNames: ["s_Run"] },
+  // OpenGothic-compatible backward move uses JUMPB-family animation for HUMANS.
+  walkBackStart: { name: "t_JumpB", loop: false, fallbackNames: ["s_Run"] },
+  walkBackLoop: { name: "t_JumpB", loop: true, fallbackNames: ["s_Run"] },
+  walkBackStop: { name: "s_Run", loop: true, fallbackNames: ["s_Run"] },
 
   runStart: { name: "t_Run_2_RunL", loop: false, fallbackNames: ["s_RunL"] },
   runLoop: { name: "s_RunL", loop: true, fallbackNames: ["s_Run"] },
@@ -175,6 +195,9 @@ export function collectLocomotionAnimationNames(spec: LocomotionSpec): string[] 
   push(spec.walkStart);
   push(spec.walkLoop);
   push(spec.walkStop);
+  push(spec.walkBackStart);
+  push(spec.walkBackLoop);
+  push(spec.walkBackStop);
   push(spec.runStart);
   push(spec.runLoop);
   push(spec.runStop);
