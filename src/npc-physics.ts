@@ -22,7 +22,7 @@ export const NPC_RENDER_TUNING = {
   slideToFallDeg: 67, // slide->fall threshold
 
   // Physics
-  gravity: 981,
+  gravity: 1070,
   maxFallSpeed: 8000,
 
   // Grounding / snapping
@@ -55,15 +55,10 @@ export const NPC_RENDER_TUNING = {
   fallDownHeight: 500,
 
   // Jumping
-  jumpSpeed: 200,
+  jumpSpeed: 420,
   jumpForwardSpeed: 400,
   jumpGraceSeconds: 1,
   jumpGraceMinDistDown: 30,
-  jumpForwardCarrySeconds: 1,
-  jumpForwardCarryEasePower: 0.6,
-  jumpGravityScale: 0.4,
-  jumpGraceDownAccel: 700,
-  jumpGraceDownEasePower: 0.3,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
 
@@ -147,11 +142,6 @@ export function useNpcPhysics({
   const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
   const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
   const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
-  const getJumpForwardCarrySeconds = () => NPC_RENDER_TUNING.jumpForwardCarrySeconds;
-  const getJumpForwardCarryEasePower = () => NPC_RENDER_TUNING.jumpForwardCarryEasePower;
-  const getJumpGravityScale = () => NPC_RENDER_TUNING.jumpGravityScale;
-  const getJumpGraceDownAccel = () => NPC_RENDER_TUNING.jumpGraceDownAccel;
-  const getJumpGraceDownEasePower = () => NPC_RENDER_TUNING.jumpGraceDownEasePower;
   const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
   const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
 
@@ -224,11 +214,6 @@ export function useNpcPhysics({
       jumpForwardSpeed: getJumpForwardSpeed(),
       jumpGraceSeconds: getJumpGraceSeconds(),
       jumpGraceMinDistDown: getJumpGraceMinDistDown(),
-      jumpForwardCarrySeconds: getJumpForwardCarrySeconds(),
-      jumpForwardCarryEasePower: getJumpForwardCarryEasePower(),
-      jumpGravityScale: getJumpGravityScale(),
-      jumpGraceDownAccel: getJumpGraceDownAccel(),
-      jumpGraceDownEasePower: getJumpGraceDownEasePower(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
 
@@ -798,15 +783,6 @@ export function useNpcPhysics({
   // no-op
   if (prevJumpActive && !jumpActive) {
     (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 200;
-    const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
-    if (last && Number.isFinite(last.x) && Number.isFinite(last.z)) {
-      const carryMs = Math.max(0, (kccConfig.jumpForwardCarrySeconds ?? 0) * 1000);
-      if (carryMs > 0) {
-        (ud as any)._kccJumpCarryStartMs = nowMs;
-        (ud as any)._kccJumpCarryUntilMs = nowMs + carryMs;
-        (ud as any)._kccJumpCarryVel = { x: last.x, z: last.z };
-      }
-    }
   }
   (ud as any)._kccJumpActivePrev = jumpActive;
   const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
@@ -888,7 +864,7 @@ export function useNpcPhysics({
       const burstRemaining = (ud as any)._kccStuckBurstRemaining as number | undefined;
       const burstNextAt = (ud as any)._kccStuckBurstNextAtMs as number | undefined;
 
-      if (stuckFor >= 3 && (burstUntil == null || nowMs > burstUntil)) {
+      if (stuckFor >= 2 && (burstUntil == null || nowMs > burstUntil)) {
         const durationMs = 3000;
         const count = 40;
         (ud as any)._kccStuckBurstUntilMs = nowMs + durationMs;
@@ -909,7 +885,7 @@ export function useNpcPhysics({
           const pushUp = 500;
           // First, push up to unstick from edges/steps.
           const burstStartY = (ud as any)._kccStuckBurstStartY as number | undefined;
-          const maxRise = 300;
+          const maxRise = 250;
           const capY =
             typeof burstStartY === "number" && Number.isFinite(burstStartY) ? burstStartY + maxRise : pos.y + maxRise;
           const maxVy = dtClamped > 0 ? (capY - pos.y) / dtClamped : 0;
@@ -1044,31 +1020,6 @@ export function useNpcPhysics({
           dx += baseX * dtClamped;
           dz += baseZ * dtClamped;
         }
-        desiredX = fromX + dx;
-        desiredZ = fromZ + dz;
-        desiredDistXZ = Math.hypot(dx, dz);
-      }
-    }
-
-    // Carry some forward momentum after jump ends (helps natural fall motion).
-    if (!jumpActive && !wasStableGrounded) {
-      const carryUntilMs = (ud as any)._kccJumpCarryUntilMs as number | undefined;
-      const carryStartMs = (ud as any)._kccJumpCarryStartMs as number | undefined;
-      const carryVel = (ud as any)._kccJumpCarryVel as { x: number; z: number } | undefined;
-      if (
-        typeof carryUntilMs === "number" &&
-        typeof carryStartMs === "number" &&
-        carryVel &&
-        Number.isFinite(carryVel.x) &&
-        Number.isFinite(carryVel.z) &&
-        nowMs < carryUntilMs
-      ) {
-        const durMs = Math.max(1, carryUntilMs - carryStartMs);
-        const t = Math.max(0, Math.min(1, (nowMs - carryStartMs) / durMs));
-        const p = Math.max(0.01, kccConfig.jumpForwardCarryEasePower ?? 1);
-        const scale = Math.max(0, Math.pow(1 - t, p));
-        dx += carryVel.x * scale * dtClamped;
-        dz += carryVel.z * scale * dtClamped;
         desiredX = fromX + dx;
         desiredZ = fromZ + dz;
         desiredDistXZ = Math.hypot(dx, dz);
@@ -1699,25 +1650,8 @@ export function useNpcPhysics({
   	      if (rawGroundedNow && !tooSteepToStandEffective && !fallHitSlideSurfaceNow && !jumpActive) {
   	        vy = 0;
       } else {
-        const jumpGravityScale = jumpActive ? Math.max(0.01, kccConfig.jumpGravityScale ?? 1) : 1;
-        vy -= kccConfig.gravity * jumpGravityScale * dtClamped;
-        if (jumpActive && Boolean((ud as any)._kccJumpGraceActive)) {
-          const graceDown = Math.max(0, kccConfig.jumpGraceDownAccel ?? 0);
-          if (graceDown > 0) {
-            const graceStartMs = (ud as any)._kccJumpGraceStartMs as number | undefined;
-            const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
-            const graceTotalMs =
-              typeof graceUntilMs === "number" && typeof graceStartMs === "number"
-                ? Math.max(1, graceUntilMs - graceStartMs)
-                : Math.max(1, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
-            const graceElapsedMs =
-              typeof graceStartMs === "number" ? Math.max(0, nowMs - graceStartMs) : graceTotalMs;
-            const graceT = Math.max(0, Math.min(1, graceElapsedMs / graceTotalMs));
-            const graceEasePower = Math.max(0.01, kccConfig.jumpGraceDownEasePower ?? 1);
-            const graceScale = Math.pow(graceT, graceEasePower);
-            vy -= graceDown * graceScale * dtClamped;
-          }
-        }
+        vy -= kccConfig.gravity * dtClamped;
+        // no extra downward accel during grace
         if (vy < -kccConfig.maxFallSpeed) vy = -kccConfig.maxFallSpeed;
       }
 
