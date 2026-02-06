@@ -510,7 +510,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           targetVeloRef.current = 0;
         } else {
           const inertiaTarget = true;
-          const mul = 3.5;
+          const mul = 2;
           const mul2 = 10;
           const baseSpeed = Math.max(0, veloTrans) * 100;
           if (baseSpeed > 0 && delta > 0) {
