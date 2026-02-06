@@ -57,7 +57,7 @@ export const NPC_RENDER_TUNING = {
   // Jumping
   jumpSpeed: 420,
   jumpForwardSpeed: 400,
-  jumpGraceSeconds: 1,
+  jumpGraceSeconds: 0.7,
   jumpGraceMinDistDown: 30,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
