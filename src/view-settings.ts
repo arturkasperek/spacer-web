@@ -7,6 +7,7 @@ export type ViewSettingsState = {
   showFpsMeter: boolean;
   showKccCapsule: boolean;
   showGroundProbeRay: boolean;
+  showTestMoveRay: boolean;
   hideHero: boolean;
   timeScale: number;
 };
@@ -18,6 +19,7 @@ const defaultState: ViewSettingsState = {
   showFpsMeter: false,
   showKccCapsule: false,
   showGroundProbeRay: false,
+  showTestMoveRay: false,
   hideHero: false,
   timeScale: 1,
 };
@@ -33,6 +35,7 @@ function setSnapshot(next: ViewSettingsState) {
     snapshot.showFpsMeter === next.showFpsMeter &&
     snapshot.showKccCapsule === next.showKccCapsule &&
     snapshot.showGroundProbeRay === next.showGroundProbeRay &&
+    snapshot.showTestMoveRay === next.showTestMoveRay &&
     snapshot.hideHero === next.hideHero &&
     snapshot.timeScale === next.timeScale
   ) {
@@ -54,6 +57,7 @@ export function setViewSettings(partial: Partial<ViewSettingsState>): void {
     showFpsMeter: partial.showFpsMeter ?? snapshot.showFpsMeter,
     showKccCapsule: partial.showKccCapsule ?? snapshot.showKccCapsule,
     showGroundProbeRay: partial.showGroundProbeRay ?? snapshot.showGroundProbeRay,
+    showTestMoveRay: partial.showTestMoveRay ?? snapshot.showTestMoveRay,
     hideHero: partial.hideHero ?? snapshot.hideHero,
     timeScale: partial.timeScale ?? snapshot.timeScale,
   });
