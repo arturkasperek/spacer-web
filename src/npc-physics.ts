@@ -83,7 +83,6 @@ export const NPC_RENDER_TUNING = {
 
   // Manual control (player hero)
   manualControlSpeeds: { walk: 180, run: 350, back: 120 },
-
 } as const;
 
 export type UseNpcPhysicsArgs = {
@@ -98,8 +97,7 @@ export function useNpcPhysics({
   playerGroupRef,
   showKccCapsule = false,
   showGroundProbeRay = false,
-  showTestMoveRay = false,
-}: UseNpcPhysicsArgs & { showKccCapsule?: boolean; showGroundProbeRay?: boolean; showTestMoveRay?: boolean }) {
+}: UseNpcPhysicsArgs & { showKccCapsule?: boolean; showGroundProbeRay?: boolean }) {
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
@@ -235,10 +233,6 @@ export function useNpcPhysics({
   }, []);
 
   const kccRef = useRef<any>(null);
-  const testMoveShapeRef = useRef<any>(null);
-  const testMoveShapeDimsRef = useRef<{ r: number; h: number } | null>(null);
-  const tmpDebugTestMoveForwardRef = useRef(new THREE.Vector3());
-  const tmpDebugTestMoveToRef = useRef(new THREE.Vector3());
 
   const getNpcVisualRoot = (npcGroup: THREE.Group): THREE.Object3D => {
     const ud: any = npcGroup.userData ?? {};
@@ -286,7 +280,7 @@ export function useNpcPhysics({
 
   const updateNpcDebugRayLine = (
     npcGroup: THREE.Group,
-    key: "_kccGroundProbeLine" | "_kccTestMoveLine",
+    key: "_kccGroundProbeLine",
     color: number,
     width: number,
     startWorld: THREE.Vector3,
@@ -320,66 +314,6 @@ export function useNpcPhysics({
     npcGroup.worldToLocal(end);
     (line.geometry as LineGeometry).setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
     line.computeLineDistances();
-  };
-
-  const updateNpcDebugRaySegments = (
-    npcGroup: THREE.Group,
-    key: "_kccTestMoveSegLines",
-    colors: number[],
-    widths: number[],
-    pointsWorld: Array<[THREE.Vector3, THREE.Vector3]>,
-    visible: boolean
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let lines = npcGroup.userData[key] as Line2[] | undefined;
-    if (!lines) {
-      lines = [];
-      npcGroup.userData[key] = lines;
-    }
-
-    const needed = visible ? pointsWorld.length : 0;
-    while (lines.length < needed) {
-      const geometry = new LineGeometry();
-      const material = new LineMaterial({ color: 0x2dff2d, linewidth: widths[0] ?? 2, depthTest: false });
-      if (typeof window !== "undefined") material.resolution.set(window.innerWidth, window.innerHeight);
-      const line = new Line2(geometry, material);
-      line.frustumCulled = false;
-      line.visible = false;
-      line.renderOrder = 9999;
-      npcGroup.add(line);
-      lines.push(line);
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const shouldShow = i < needed;
-      line.visible = shouldShow;
-      if (!shouldShow) continue;
-      if (typeof window !== "undefined") {
-        const mat = line.material as LineMaterial;
-        mat.resolution.set(window.innerWidth, window.innerHeight);
-      }
-      const colorCount = Math.max(1, colors.length);
-      const colorIndex =
-        needed <= 1
-          ? colorCount - 1
-          : Math.round((i * (colorCount - 1)) / (needed - 1));
-      const color = colors[Math.min(colorCount - 1, Math.max(0, colorIndex))] ?? 0x2dff2d;
-      const width = widths[i % widths.length] ?? widths[0] ?? 2;
-      const mat = line.material as LineMaterial;
-      mat.color.setHex(color);
-      mat.linewidth = width;
-
-      const [startWorld, endWorld] = pointsWorld[i];
-      const start = ((npcGroup.userData._kccSegStart as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccSegStart = new THREE.Vector3())).copy(
-        startWorld
-      );
-      const end = ((npcGroup.userData._kccSegEnd as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccSegEnd = new THREE.Vector3())).copy(endWorld);
-      npcGroup.worldToLocal(start);
-      npcGroup.worldToLocal(end);
-      (line.geometry as LineGeometry).setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
-      line.computeLineDistances();
-    }
   };
 
   const updateNpcDebugCapsuleWire = (
@@ -417,66 +351,6 @@ export function useNpcPhysics({
     if (!visible) return;
     wire.position.set(0, height / 2, 0);
   };
-
-  const updateNpcDebugCapsuleWireAt = (
-    npcGroup: THREE.Group,
-    key: "_kccTestMoveCapsule",
-    radius: number,
-    height: number,
-    color: number,
-    visible: boolean,
-    centerWorld: THREE.Vector3
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let wire = npcGroup.userData[key] as THREE.LineSegments | undefined;
-    const cached = npcGroup.userData._kccTestMoveCapsuleDims as { r: number; h: number } | undefined;
-    if (!wire || !cached || cached.r !== radius || cached.h !== height) {
-      if (wire) {
-        try {
-          wire.geometry.dispose();
-          (wire.material as THREE.Material).dispose();
-        } catch {
-          // ignore
-        }
-        npcGroup.remove(wire);
-      }
-      const length = Math.max(0.001, height - radius * 2);
-      const geom = new THREE.CapsuleGeometry(radius, length, 6, 12);
-      const wireGeom = new THREE.WireframeGeometry(geom);
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
-      wire = new THREE.LineSegments(wireGeom, mat);
-      wire.frustumCulled = false;
-      wire.renderOrder = 9997;
-      npcGroup.add(wire);
-      npcGroup.userData[key] = wire;
-      npcGroup.userData._kccTestMoveCapsuleDims = { r: radius, h: height };
-    }
-    wire.visible = visible;
-    if (!visible) return;
-    const local = ((npcGroup.userData._kccTestMoveCapsulePos as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccTestMoveCapsulePos = new THREE.Vector3())).copy(
-      centerWorld
-    );
-    npcGroup.worldToLocal(local);
-    wire.position.copy(local);
-    wire.position.y += height / 2;
-  };
-
-  useEffect(() => {
-    if (showTestMoveRay) return;
-    for (const npcGroup of loadedNpcsRef.current.values()) {
-      updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-      updateNpcDebugCapsuleWireAt(
-        npcGroup,
-        "_kccTestMoveCapsule",
-        kccConfig.radius,
-        kccConfig.capsuleHeight,
-        0x2dff2d,
-        false,
-        new THREE.Vector3()
-      );
-      updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
-    }
-  }, [showTestMoveRay, loadedNpcsRef, kccConfig.radius, kccConfig.capsuleHeight]);
 
 
   	  useEffect(() => {
@@ -557,189 +431,6 @@ export function useNpcPhysics({
       // Best-effort cleanup.
     }
     delete ud._kccColliderHandle;
-  };
-
-  const getTestMoveShape = () => {
-    if (!rapier) return null;
-    const r = kccConfig.radius;
-    const h = kccConfig.capsuleHeight;
-    const cached = testMoveShapeDimsRef.current;
-    if (testMoveShapeRef.current && cached && cached.r === r && cached.h === h) {
-      return testMoveShapeRef.current;
-    }
-    const halfHeight = Math.max(0, h / 2 - r);
-    testMoveShapeRef.current = new rapier.Capsule(halfHeight, r);
-    testMoveShapeDimsRef.current = { r, h };
-    return testMoveShapeRef.current;
-  };
-
-  const testMove = (npcGroup: THREE.Group, to: THREE.Vector3, from?: THREE.Vector3): boolean => {
-    if (!rapierWorld || !rapier) return true;
-    const shape = getTestMoveShape();
-    if (!shape) return true;
-    const collider = ensureNpcKccCollider(npcGroup);
-    if (!collider) return true;
-
-    const src = from ?? npcGroup.position;
-    const dx = to.x - src.x;
-    const dy = to.y - src.y;
-    const dz = to.z - src.z;
-    const dist = Math.hypot(dx, dy, dz);
-
-    const shapeRot = { x: 0, y: 0, z: 0, w: 1 };
-    const WORLD_MEMBERSHIP = 0x0001;
-    const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-    const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
-
-    const intersectsAt = (p: { x: number; y: number; z: number }): boolean => {
-      const shapePos = { x: p.x, y: p.y + kccConfig.capsuleHeight / 2, z: p.z };
-      let hit = false;
-      rapierWorld.intersectionsWithShape(
-        shapePos,
-        shapeRot,
-        shape,
-        () => {
-          hit = true;
-          return false;
-        },
-        filterFlags,
-        filterGroups,
-        collider
-      );
-      return hit;
-    };
-
-    let blocked = false;
-    let hitSegmentIndex: number | null = null;
-    let stepCount = 1;
-    if (dist < 1e-6) {
-      blocked = intersectsAt({ x: src.x, y: src.y, z: src.z });
-      if (blocked) hitSegmentIndex = 0;
-    } else {
-      const r = kccConfig.radius;
-      const h = kccConfig.capsuleHeight;
-      let count = 1;
-      if (dx * dx + dz * dz > r * r || dy > h * 0.5) {
-        const countXZ = Math.ceil(Math.sqrt(dx * dx + dz * dz) / r);
-        const countY = Math.ceil(Math.abs(dy) / (h * 0.5));
-        count = Math.max(countXZ, countY);
-      }
-      stepCount = count;
-      for (let i = 1; i <= count; i += 1) {
-        const t = i / count;
-        const p = { x: src.x + dx * t, y: src.y + dy * t, z: src.z + dz * t };
-        if (intersectsAt(p)) {
-          hitSegmentIndex = i - 1;
-          if (i > 1) {
-            blocked = true;
-            break;
-          }
-          // Match OpenGothic: if already in collision at start, allow the move.
-          if (intersectsAt({ x: src.x, y: src.y, z: src.z })) {
-            blocked = false;
-            hitSegmentIndex = null;
-          } else {
-            blocked = true;
-          }
-          break;
-        }
-      }
-    }
-
-    const isHero = playerGroupRef.current === npcGroup;
-    if (isHero && showTestMoveRay) {
-      const startV = new THREE.Vector3(src.x, src.y, src.z);
-      const endV = new THREE.Vector3(to.x, to.y, to.z);
-      const shades = [0xeeffee, 0xc8ffc8, 0x7dff7d, 0x22cc22, 0x0a6a0a, 0x022a02];
-      const segs: Array<[THREE.Vector3, THREE.Vector3]> = [];
-      const widths: number[] = [];
-      const segColors: number[] = [];
-      const count = Math.max(1, stepCount);
-      for (let i = 0; i < count; i += 1) {
-        const t0 = i / count;
-        const t1 = (i + 1) / count;
-        const a = new THREE.Vector3(src.x + dx * t0, src.y + dy * t0, src.z + dz * t0);
-        const b = new THREE.Vector3(src.x + dx * t1, src.y + dy * t1, src.z + dz * t1);
-        segs.push([a, b]);
-        widths.push(2 + i * 0.6);
-        const shadeIdx = count <= 1 ? shades.length - 1 : Math.round((i * (shades.length - 1)) / (count - 1));
-        segColors.push(shades[Math.max(0, Math.min(shades.length - 1, shadeIdx))] ?? 0x2dff2d);
-      }
-      if (blocked && hitSegmentIndex != null && hitSegmentIndex >= 0 && hitSegmentIndex < segColors.length) {
-        segColors[hitSegmentIndex] = 0xff2a2a;
-      }
-      updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, startV, endV, false);
-      updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", segColors, widths, segs, true);
-      updateNpcDebugCapsuleWireAt(
-        npcGroup,
-        "_kccTestMoveCapsule",
-        kccConfig.radius,
-        kccConfig.capsuleHeight,
-        0x2dff2d,
-        true,
-        endV
-      );
-    } else if (isHero) {
-      updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-      updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
-      updateNpcDebugCapsuleWireAt(
-        npcGroup,
-        "_kccTestMoveCapsule",
-        kccConfig.radius,
-        kccConfig.capsuleHeight,
-        0x2dff2d,
-        false,
-        new THREE.Vector3()
-      );
-    } else {
-      updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-      updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
-      updateNpcDebugCapsuleWireAt(
-        npcGroup,
-        "_kccTestMoveCapsule",
-        kccConfig.radius,
-        kccConfig.capsuleHeight,
-        0x2dff2d,
-        false,
-        new THREE.Vector3()
-      );
-    }
-
-    return !blocked;
-  };
-
-  const clearTestMoveDebug = (npcGroup: THREE.Group) => {
-    updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-    updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
-    updateNpcDebugCapsuleWireAt(
-      npcGroup,
-      "_kccTestMoveCapsule",
-      kccConfig.radius,
-      kccConfig.capsuleHeight,
-      0x2dff2d,
-      false,
-      new THREE.Vector3()
-    );
-  };
-
-  const debugTestMoveForward = (npcGroup: THREE.Group, distance = 55): boolean => {
-    if (playerGroupRef.current !== npcGroup) return true;
-    if (!showTestMoveRay) {
-      clearTestMoveDebug(npcGroup);
-      return true;
-    }
-    const forward = tmpDebugTestMoveForwardRef.current;
-    const to = tmpDebugTestMoveToRef.current;
-    npcGroup.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
-    else forward.normalize();
-    to.set(
-      npcGroup.position.x + forward.x * distance,
-      npcGroup.position.y,
-      npcGroup.position.z + forward.z * distance
-    );
-    return testMove(npcGroup, to, npcGroup.position);
   };
 
   const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): MoveConstraintResult => {
@@ -2422,8 +2113,8 @@ export function useNpcPhysics({
   	    ud._kccFallWallPushDir = undefined;
 
   	    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
-    ud._visSmoothY = npcGroup.position.y;
-    const visualRoot = getNpcVisualRoot(npcGroup);
+  	    ud._visSmoothY = npcGroup.position.y;
+  	    const visualRoot = getNpcVisualRoot(npcGroup);
     if (visualRoot !== npcGroup) visualRoot.position.y = 0;
     return true;
   };
@@ -2431,8 +2122,6 @@ export function useNpcPhysics({
   return {
     kccConfig,
     getNpcVisualRoot,
-    testMove,
-    debugTestMoveForward,
     applyMoveConstraint,
     trySnapNpcToGroundWithRapier,
     removeNpcKccCollider,

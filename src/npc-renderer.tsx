@@ -37,7 +37,6 @@ export interface NpcRendererProps {
   enabled?: boolean;
   showKccCapsule?: boolean;
   showGroundProbeRay?: boolean;
-  showTestMoveRay?: boolean;
   hideHero?: boolean;
 }
 
@@ -69,7 +68,6 @@ export function NpcRenderer({
   enabled = true,
   showKccCapsule = false,
   showGroundProbeRay = false,
-  showTestMoveRay = false,
   hideHero = false,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
@@ -96,8 +94,8 @@ export function NpcRenderer({
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
-  const { kccConfig, getNpcVisualRoot, debugTestMoveForward, applyMoveConstraint, trySnapNpcToGroundWithRapier, removeNpcKccCollider } =
-    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule, showGroundProbeRay, showTestMoveRay });
+  const { kccConfig, getNpcVisualRoot, applyMoveConstraint, trySnapNpcToGroundWithRapier, removeNpcKccCollider } =
+    useNpcPhysics({ loadedNpcsRef, physicsFrameRef, playerGroupRef, showKccCapsule, showGroundProbeRay });
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>());
@@ -516,7 +514,6 @@ export function NpcRenderer({
       if (playerGroupRef.current === npcGroup) {
         visualRoot.visible = !hideHero;
       }
-      debugTestMoveForward(npcGroup, 55);
       // no-op
       const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
       if (sprite) {
