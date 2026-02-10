@@ -67,6 +67,7 @@ export const NPC_RENDER_TUNING = {
   ledgeScanStepBack: 20,
   ledgeScanVertMinThresh: 10,
   ledgeScanVertMaxThresh: 40,
+  jumpScanStartYOffsetFactor: 0.05,
   ledgeScanDownRange: 120,
   ledgeScanUpRange: 320,
 
@@ -234,6 +235,7 @@ export function useNpcPhysics({
       ledgeScanStepBack: NPC_RENDER_TUNING.ledgeScanStepBack,
       ledgeScanVertMinThresh: NPC_RENDER_TUNING.ledgeScanVertMinThresh,
       ledgeScanVertMaxThresh: NPC_RENDER_TUNING.ledgeScanVertMaxThresh,
+      jumpScanStartYOffsetFactor: NPC_RENDER_TUNING.jumpScanStartYOffsetFactor,
       ledgeScanDownRange: NPC_RENDER_TUNING.ledgeScanDownRange,
       ledgeScanUpRange: NPC_RENDER_TUNING.ledgeScanUpRange,
 
@@ -1670,13 +1672,16 @@ export function useNpcPhysics({
             }
           };
 
+          const jumpScanStartYOffset = kccConfig.capsuleHeight * Math.max(0, kccConfig.jumpScanStartYOffsetFactor ?? 0);
+          const scanStartY = Math.min(rangeTopY, floorY + jumpScanStartYOffset);
           const upper = makeReport(rangeTopY);
-          const lower = makeReport(floorY);
+          const lower = makeReport(scanStartY);
           recurseScan(upper, lower);
           const sortedReports = Array.from(reports.values()).sort((a, b) => b.y - a.y);
 
           (ud as any)._kccLedgeScanRange = {
             yMin: floorY,
+            scanStartY,
             yMax: rangeTopY,
             ceilingY,
             jumpTopTargetY,
@@ -1687,7 +1692,7 @@ export function useNpcPhysics({
           };
 
           if (isHero && showJumpDebugRange) {
-            const startV = new THREE.Vector3(ox, floorY, oz);
+            const startV = new THREE.Vector3(ox, scanStartY, oz);
             const endV = new THREE.Vector3(ox, rangeTopY, oz);
             updateNpcDebugRayLine(npcGroup, "_kccLedgeScanRangeLine", 0x22ccff, 5, startV, endV, true);
             updateNpcDebugJumpScanRays(
