@@ -544,69 +544,6 @@ export function useNpcPhysics({
     normal.geometry.computeBoundingSphere();
   };
 
-  const updateNpcDebugHitAngleLabel = (
-    npcGroup: THREE.Group,
-    key: "_kccTestMoveHitAngleLabel",
-    pointWorld: THREE.Vector3,
-    angleDeg: number,
-    visible: boolean
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let sprite = npcGroup.userData[key] as THREE.Sprite | undefined;
-    if (!sprite) {
-      const canvas = document.createElement("canvas");
-      canvas.width = 256;
-      canvas.height = 96;
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.needsUpdate = true;
-      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
-      sprite = new THREE.Sprite(mat);
-      sprite.renderOrder = 10001;
-      sprite.frustumCulled = false;
-      npcGroup.add(sprite);
-      npcGroup.userData[key] = sprite;
-      npcGroup.userData._kccTestMoveHitAngleCanvas = canvas;
-    }
-    sprite.visible = visible;
-    if (!visible) return;
-
-    const canvas = npcGroup.userData._kccTestMoveHitAngleCanvas as HTMLCanvasElement | undefined;
-    const tex = (sprite.material as THREE.SpriteMaterial).map as THREE.CanvasTexture | null;
-    if (canvas && tex) {
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "rgba(18,18,18,0.70)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = "rgba(255,255,255,0.9)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(1, 1, canvas.width - 2, canvas.height - 2);
-        ctx.fillStyle = "#ffdddd";
-        ctx.font = "bold 19px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`${angleDeg.toFixed(1)}°`, canvas.width / 2, canvas.height / 2);
-        tex.needsUpdate = true;
-      }
-    }
-
-    npcGroup.updateWorldMatrix(true, false);
-    const local =
-      (npcGroup.userData._kccTestMoveHitAngleLocal as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitAngleLocal = new THREE.Vector3());
-    local.copy(pointWorld).add(new THREE.Vector3(0, 16, 0));
-    npcGroup.worldToLocal(local);
-    sprite.position.copy(local);
-
-    const worldScale =
-      (npcGroup.userData._kccTestMoveHitAngleWorldScale as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitAngleWorldScale = new THREE.Vector3());
-    npcGroup.getWorldScale(worldScale);
-    const sx = Math.abs(worldScale.x) > 1e-6 ? 1 / Math.abs(worldScale.x) : 1;
-    const sy = Math.abs(worldScale.y) > 1e-6 ? 1 / Math.abs(worldScale.y) : 1;
-    sprite.scale.set(21 * sx, 7.5 * sy, 1);
-  };
-
   useEffect(() => {
     if (showTestMoveRay) return;
     for (const npcGroup of loadedNpcsRef.current.values()) {
@@ -900,17 +837,6 @@ export function useNpcPhysics({
         hitNormal ?? new THREE.Vector3(0, 1, 0),
         Boolean(blocked && hitPoint)
       );
-      {
-        const n = (hitNormal ?? new THREE.Vector3(0, 1, 0)).clone().normalize();
-        const slopeDeg = THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(n.y, -1, 1)));
-        updateNpcDebugHitAngleLabel(
-          npcGroup,
-          "_kccTestMoveHitAngleLabel",
-          hitPoint ?? new THREE.Vector3(),
-          slopeDeg,
-          Boolean(blocked && hitPoint)
-        );
-      }
     } else if (isHero) {
       updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
       updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
@@ -931,7 +857,6 @@ export function useNpcPhysics({
         new THREE.Vector3(0, 1, 0),
         false
       );
-      updateNpcDebugHitAngleLabel(npcGroup, "_kccTestMoveHitAngleLabel", new THREE.Vector3(), 0, false);
     } else {
       updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
       updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
@@ -952,7 +877,6 @@ export function useNpcPhysics({
         new THREE.Vector3(0, 1, 0),
         false
       );
-      updateNpcDebugHitAngleLabel(npcGroup, "_kccTestMoveHitAngleLabel", new THREE.Vector3(), 0, false);
     }
 
     return !blocked;
@@ -978,7 +902,6 @@ export function useNpcPhysics({
       new THREE.Vector3(0, 1, 0),
       false
     );
-    updateNpcDebugHitAngleLabel(npcGroup, "_kccTestMoveHitAngleLabel", new THREE.Vector3(), 0, false);
   };
 
   const debugTestMoveForward = (npcGroup: THREE.Group, distance = 55): boolean => {
