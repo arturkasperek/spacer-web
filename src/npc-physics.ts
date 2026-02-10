@@ -61,6 +61,10 @@ export const NPC_RENDER_TUNING = {
   jumpGraceMinDistDown: 30,
   jumpForwardMinScale: 0.7,
   jumpForwardEasePower: 0.7,
+  jumpUpHeight: 120,
+  ledgeScanForwardDistance: 55,
+  ledgeScanDownRange: 120,
+  ledgeScanUpRange: 320,
 
   // State hysteresis
   slideToFallGraceSeconds: 0.1,
@@ -89,6 +93,9 @@ export type UseNpcPhysicsArgs = {
   loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
   physicsFrameRef: MutableRefObject<number>;
   playerGroupRef: MutableRefObject<THREE.Group | null>;
+  showKccCapsule?: boolean;
+  showGroundProbeRay?: boolean;
+  showJumpDebugRange?: boolean;
 };
 
 export function useNpcPhysics({
@@ -97,7 +104,8 @@ export function useNpcPhysics({
   playerGroupRef,
   showKccCapsule = false,
   showGroundProbeRay = false,
-}: UseNpcPhysicsArgs & { showKccCapsule?: boolean; showGroundProbeRay?: boolean }) {
+  showJumpDebugRange = false,
+}: UseNpcPhysicsArgs) {
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
@@ -216,6 +224,10 @@ export function useNpcPhysics({
       jumpGraceMinDistDown: getJumpGraceMinDistDown(),
       jumpForwardMinScale: getJumpForwardMinScale(),
       jumpForwardEasePower: getJumpForwardEasePower(),
+      jumpUpHeight: NPC_RENDER_TUNING.jumpUpHeight,
+      ledgeScanForwardDistance: NPC_RENDER_TUNING.ledgeScanForwardDistance,
+      ledgeScanDownRange: NPC_RENDER_TUNING.ledgeScanDownRange,
+      ledgeScanUpRange: NPC_RENDER_TUNING.ledgeScanUpRange,
 
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -280,7 +292,7 @@ export function useNpcPhysics({
 
   const updateNpcDebugRayLine = (
     npcGroup: THREE.Group,
-    key: "_kccGroundProbeLine",
+    key: "_kccGroundProbeLine" | "_kccLedgeScanRangeLine",
     color: number,
     width: number,
     startWorld: THREE.Vector3,
@@ -1513,6 +1525,47 @@ export function useNpcPhysics({
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
           } else {
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
+          }
+
+          // ZenGin-like ledge scan Y-range at the probe origin:
+          // - scan down to find local floor
+          // - scan up to find ceiling
+          // - clamp usable jump-up interval by both limits
+          const downRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: -1, z: 0 });
+          const upRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: 1, z: 0 });
+          const downHit = rapierWorld.castRayAndGetNormal(downRay, kccConfig.ledgeScanDownRange, true, filterFlags, filterGroups, collider);
+          const upHit = rapierWorld.castRayAndGetNormal(upRay, kccConfig.ledgeScanUpRange, true, filterFlags, filterGroups, collider);
+
+          const floorY = downHit ? downRay.pointAt(downHit.timeOfImpact).y : npcGroup.position.y;
+          const ceilingY = upHit ? upRay.pointAt(upHit.timeOfImpact).y : npcGroup.position.y + kccConfig.ledgeScanUpRange;
+          const modelHeight = kccConfig.capsuleHeight;
+          const jumpTopTargetY = floorY + kccConfig.jumpUpHeight * 0.95 + modelHeight;
+          const maxTopY = Math.min(jumpTopTargetY, ceilingY);
+          const rangeTopY = Math.max(floorY, maxTopY);
+
+          (ud as any)._kccLedgeScanRange = {
+            yMin: floorY,
+            yMax: rangeTopY,
+            ceilingY,
+            jumpTopTargetY,
+            downHit: Boolean(downHit),
+            upHit: Boolean(upHit),
+          };
+
+          if (isHero && showJumpDebugRange) {
+            const startV = new THREE.Vector3(ox, floorY, oz);
+            const endV = new THREE.Vector3(ox, rangeTopY, oz);
+            updateNpcDebugRayLine(npcGroup, "_kccLedgeScanRangeLine", 0x22ccff, 5, startV, endV, true);
+          } else {
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccLedgeScanRangeLine",
+              0x22ccff,
+              5,
+              new THREE.Vector3(),
+              new THREE.Vector3(),
+              false
+            );
           }
         } catch {
           // ignore

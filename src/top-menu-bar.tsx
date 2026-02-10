@@ -193,6 +193,7 @@ export function TopMenuBar() {
             <MenuItem label="FPS Meter" checked={view.showFpsMeter} onClick={() => toggleViewSetting("showFpsMeter")} />
             <MenuItem label="KCC Capsule" checked={view.showKccCapsule} onClick={() => toggleViewSetting("showKccCapsule")} />
             <MenuItem label="Ground Probe Ray" checked={view.showGroundProbeRay} onClick={() => toggleViewSetting("showGroundProbeRay")} />
+            <MenuItem label="Jump Debug Range" checked={view.showJumpDebugRange} onClick={() => toggleViewSetting("showJumpDebugRange")} />
             <MenuItem label="Hide Hero" checked={view.hideHero} onClick={() => toggleViewSetting("hideHero")} />
             <div style={{ height: 1, background: "rgba(0,0,0,0.12)", margin: "4px 0" }} />
             <MenuItem label="VOB Tree" checked={ui.showVobTree} onClick={() => toggleUiSetting("showVobTree")} />

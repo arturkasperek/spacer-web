@@ -76,6 +76,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     showFpsMeter: boolean;
     showKccCapsule: boolean;
     showGroundProbeRay: boolean;
+    showJumpDebugRange: boolean;
     hideHero: boolean;
     timeScale: number;
   };
@@ -232,6 +233,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
           enabled={true}
           showKccCapsule={viewSettings.showKccCapsule}
           showGroundProbeRay={viewSettings.showGroundProbeRay}
+          showJumpDebugRange={viewSettings.showJumpDebugRange}
           hideHero={viewSettings.hideHero}
         />
       )}
