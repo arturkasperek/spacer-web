@@ -8,6 +8,23 @@ import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collisi
 import type { NpcData } from "./types";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
+type JumpType = "jump_forward" | "jump_up_low" | "jump_up_mid" | "jump_up_high" | "climb_up" | "blocked";
+type JumpDecision = {
+  type: JumpType;
+  reason: string;
+  canJump: boolean;
+  ledgeHeight: number | null;
+  obstacleDistance: number | null;
+  ceilingClearance: number | null;
+  fullWall: boolean;
+};
+type JumpScanReport = {
+  y: number;
+  hit: boolean;
+  hitColliderHandle: number | null;
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+};
 
 // Centralized NPC movement/physics tuning (hardcoded; no query params).
 // Keep this as the single place to tweak feel/thresholds.
@@ -70,6 +87,12 @@ export const NPC_RENDER_TUNING = {
   jumpScanStartYOffsetFactor: 0.05,
   ledgeScanDownRange: 120,
   ledgeScanUpRange: 320,
+  jumpDecisionObstacleMinDist: 6,
+  jumpDecisionObstacleMaxDist: 180,
+  jumpDecisionCeilingClearanceMin: 12,
+  jumpDecisionLowMaxHeight: 105,
+  jumpDecisionMidMaxHeight: 205,
+  jumpDecisionHighMaxHeight: 305,
 
   // State hysteresis
   slideToFallGraceSeconds: 0.1,
@@ -238,6 +261,12 @@ export function useNpcPhysics({
       jumpScanStartYOffsetFactor: NPC_RENDER_TUNING.jumpScanStartYOffsetFactor,
       ledgeScanDownRange: NPC_RENDER_TUNING.ledgeScanDownRange,
       ledgeScanUpRange: NPC_RENDER_TUNING.ledgeScanUpRange,
+      jumpDecisionObstacleMinDist: NPC_RENDER_TUNING.jumpDecisionObstacleMinDist,
+      jumpDecisionObstacleMaxDist: NPC_RENDER_TUNING.jumpDecisionObstacleMaxDist,
+      jumpDecisionCeilingClearanceMin: NPC_RENDER_TUNING.jumpDecisionCeilingClearanceMin,
+      jumpDecisionLowMaxHeight: NPC_RENDER_TUNING.jumpDecisionLowMaxHeight,
+      jumpDecisionMidMaxHeight: NPC_RENDER_TUNING.jumpDecisionMidMaxHeight,
+      jumpDecisionHighMaxHeight: NPC_RENDER_TUNING.jumpDecisionHighMaxHeight,
 
   			      // State hysteresis.
   		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
@@ -431,6 +460,150 @@ export function useNpcPhysics({
     for (let i = rays.length; i < pool.length; i++) {
       pool[i].visible = false;
     }
+  };
+
+  const decideJumpTypeFromScan = (
+    range: {
+      floorY: number;
+      rangeTopY: number;
+      ceilingY: number;
+    },
+    reports: JumpScanReport[]
+  ): JumpDecision => {
+    if (!reports.length) {
+      return {
+        type: "jump_forward",
+        reason: "no_scan_data",
+        canJump: true,
+        ledgeHeight: null,
+        obstacleDistance: null,
+        ceilingClearance: null,
+        fullWall: false,
+      };
+    }
+
+    const sorted = reports.slice().sort((a, b) => b.y - a.y);
+    const hitReports = sorted.filter((r) => r.hit);
+    const hitCount = hitReports.length;
+    const fullWall = hitCount > 0 && hitCount === sorted.length;
+    const highestHit = hitCount > 0 ? hitReports[0] : null;
+    const obstacleDistance =
+      highestHit != null ? Math.hypot(highestHit.end.x - highestHit.start.x, highestHit.end.z - highestHit.start.z) : null;
+    const obstacleMin = kccConfig.jumpDecisionObstacleMinDist;
+    const obstacleMax = kccConfig.jumpDecisionObstacleMaxDist;
+    const obstacleInRange = obstacleDistance != null && obstacleDistance >= obstacleMin && obstacleDistance <= obstacleMax;
+    const ceilingClearance = range.ceilingY - (range.floorY + kccConfig.capsuleHeight);
+    const hasCeilingSpace = ceilingClearance >= kccConfig.jumpDecisionCeilingClearanceMin;
+
+    let ledgeY: number | null = null;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const upper = sorted[i];
+      const lower = sorted[i + 1];
+      if (!upper.hit && lower.hit) {
+        ledgeY = (upper.y + lower.y) * 0.5;
+        break;
+      }
+    }
+    if (ledgeY == null && highestHit) ledgeY = highestHit.y;
+    const ledgeHeight = ledgeY != null ? ledgeY - range.floorY : null;
+
+    if (fullWall) {
+      return {
+        type: "blocked",
+        reason: "full_wall",
+        canJump: false,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: true,
+      };
+    }
+    if (!hasCeilingSpace) {
+      return {
+        type: "blocked",
+        reason: "low_ceiling_clearance",
+        canJump: false,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (hitCount === 0) {
+      return {
+        type: "jump_forward",
+        reason: "clear_forward_path",
+        canJump: true,
+        ledgeHeight: null,
+        obstacleDistance: null,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (!obstacleInRange) {
+      return {
+        type: "jump_forward",
+        reason: obstacleDistance != null && obstacleDistance < obstacleMin ? "obstacle_too_close" : "obstacle_too_far",
+        canJump: true,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (ledgeHeight == null || ledgeHeight <= kccConfig.stepHeight) {
+      return {
+        type: "jump_forward",
+        reason: "ledge_below_step_height",
+        canJump: true,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (ledgeHeight <= kccConfig.jumpDecisionLowMaxHeight) {
+      return {
+        type: "jump_up_low",
+        reason: "ledge_height_low",
+        canJump: true,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (ledgeHeight <= kccConfig.jumpDecisionMidMaxHeight) {
+      return {
+        type: "jump_up_mid",
+        reason: "ledge_height_mid",
+        canJump: true,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    if (ledgeHeight <= kccConfig.jumpDecisionHighMaxHeight) {
+      return {
+        type: "jump_up_high",
+        reason: "ledge_height_high",
+        canJump: true,
+        ledgeHeight,
+        obstacleDistance,
+        ceilingClearance,
+        fullWall: false,
+      };
+    }
+    return {
+      type: "climb_up",
+      reason: "ledge_above_jump_up_high",
+      canJump: true,
+      ledgeHeight,
+      obstacleDistance,
+      ceilingClearance,
+      fullWall: false,
+    };
   };
 
 
@@ -1614,14 +1787,6 @@ export function useNpcPhysics({
 
           // ZenGin-like recursive horizontal scan: upper/lower + middle subdivision.
           // We keep this as a geometry probe (for jump-type decision), independent from movement.
-          type ScanReport = {
-            y: number;
-            hit: boolean;
-            hitColliderHandle: number | null;
-            start: THREE.Vector3;
-            end: THREE.Vector3;
-          };
-
           const scanStepBack = kccConfig.ledgeScanStepBack;
           const scanDepth = kccConfig.ledgeScanDepth;
           const scanLen = scanDepth + scanStepBack;
@@ -1629,10 +1794,10 @@ export function useNpcPhysics({
           const scanBaseZ = oz - forward.z * scanStepBack;
           const minThresh2 = kccConfig.ledgeScanVertMinThresh * kccConfig.ledgeScanVertMinThresh;
           const maxThresh2 = kccConfig.ledgeScanVertMaxThresh * kccConfig.ledgeScanVertMaxThresh;
-          const reports = new Map<string, ScanReport>();
+          const reports = new Map<string, JumpScanReport>();
 
           const mkKey = (y: number) => y.toFixed(4);
-          const makeReport = (y: number): ScanReport => {
+          const makeReport = (y: number): JumpScanReport => {
             const k = mkKey(y);
             const cached = reports.get(k);
             if (cached) return cached;
@@ -1657,7 +1822,7 @@ export function useNpcPhysics({
             return rep;
           };
 
-          const recurseScan = (upper: ScanReport, lower: ScanReport) => {
+          const recurseScan = (upper: JumpScanReport, lower: JumpScanReport) => {
             const dy = upper.y - lower.y;
             const dist2 = dy * dy;
             const sameCollider =
@@ -1678,6 +1843,14 @@ export function useNpcPhysics({
           const lower = makeReport(scanStartY);
           recurseScan(upper, lower);
           const sortedReports = Array.from(reports.values()).sort((a, b) => b.y - a.y);
+          const jumpDecision = decideJumpTypeFromScan(
+            {
+              floorY,
+              rangeTopY,
+              ceilingY,
+            },
+            sortedReports
+          );
 
           (ud as any)._kccLedgeScanRange = {
             yMin: floorY,
@@ -1690,6 +1863,7 @@ export function useNpcPhysics({
             rayCount: sortedReports.length,
             hitCount: sortedReports.filter((r) => r.hit).length,
           };
+          (ud as any)._kccJumpDecision = jumpDecision;
 
           if (isHero && showJumpDebugRange) {
             const startV = new THREE.Vector3(ox, scanStartY, oz);
