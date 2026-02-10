@@ -461,89 +461,6 @@ export function useNpcPhysics({
     wire.position.y += height / 2;
   };
 
-  const updateNpcDebugHitMarker = (
-    npcGroup: THREE.Group,
-    keyPoint: "_kccTestMoveHitPoint",
-    keyNormal: "_kccTestMoveHitNormal",
-    pointWorld: THREE.Vector3,
-    normalWorld: THREE.Vector3,
-    visible: boolean
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let point = npcGroup.userData[keyPoint] as THREE.Mesh | undefined;
-    if (!point) {
-      const geom = new THREE.SphereGeometry(3.5, 12, 12);
-      const mat = new THREE.MeshBasicMaterial({ color: 0xff3b3b, depthTest: false });
-      point = new THREE.Mesh(geom, mat);
-      point.renderOrder = 10000;
-      point.frustumCulled = false;
-      npcGroup.add(point);
-      npcGroup.userData[keyPoint] = point;
-    }
-
-    let normal = npcGroup.userData[keyNormal] as THREE.Line | undefined;
-    if (!normal) {
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
-      const mat = new THREE.LineBasicMaterial({ color: 0xff3b3b, depthTest: false });
-      normal = new THREE.Line(geom, mat);
-      normal.renderOrder = 10000;
-      normal.frustumCulled = false;
-      npcGroup.add(normal);
-      npcGroup.userData[keyNormal] = normal;
-    }
-
-    point.visible = visible;
-    normal.visible = visible;
-    if (!visible) return;
-    npcGroup.updateWorldMatrix(true, false);
-
-    const localPoint =
-      (npcGroup.userData._kccTestMoveHitPointLocal as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitPointLocal = new THREE.Vector3());
-    localPoint.copy(pointWorld);
-    npcGroup.worldToLocal(localPoint);
-    point.position.copy(localPoint);
-    const worldScale =
-      (npcGroup.userData._kccTestMoveHitWorldScale as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitWorldScale = new THREE.Vector3());
-    npcGroup.getWorldScale(worldScale);
-    const sx = Math.abs(worldScale.x) > 1e-6 ? 1 / Math.abs(worldScale.x) : 1;
-    const sy = Math.abs(worldScale.y) > 1e-6 ? 1 / Math.abs(worldScale.y) : 1;
-    const sz = Math.abs(worldScale.z) > 1e-6 ? 1 / Math.abs(worldScale.z) : 1;
-    point.scale.set(sx, sy, sz);
-
-    const normalLen = 60;
-    const n =
-      (npcGroup.userData._kccTestMoveHitNormalVec as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitNormalVec = new THREE.Vector3());
-    n.copy(normalWorld);
-    if (!Number.isFinite(n.x) || !Number.isFinite(n.y) || !Number.isFinite(n.z) || n.lengthSq() < 1e-8) {
-      n.set(0, 1, 0);
-    } else {
-      n.normalize();
-    }
-    const endWorld =
-      (npcGroup.userData._kccTestMoveHitEndWorld as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitEndWorld = new THREE.Vector3());
-    endWorld.copy(pointWorld).addScaledVector(n, normalLen);
-    const localEnd =
-      (npcGroup.userData._kccTestMoveHitEndLocal as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccTestMoveHitEndLocal = new THREE.Vector3());
-    localEnd.copy(endWorld);
-    npcGroup.worldToLocal(localEnd);
-
-    const pos = (normal.geometry.getAttribute("position") as THREE.Float32BufferAttribute).array as Float32Array;
-    pos[0] = localPoint.x;
-    pos[1] = localPoint.y;
-    pos[2] = localPoint.z;
-    pos[3] = localEnd.x;
-    pos[4] = localEnd.y;
-    pos[5] = localEnd.z;
-    normal.geometry.attributes.position.needsUpdate = true;
-    normal.geometry.computeBoundingSphere();
-  };
-
   useEffect(() => {
     if (showTestMoveRay) return;
     for (const npcGroup of loadedNpcsRef.current.values()) {
@@ -558,14 +475,6 @@ export function useNpcPhysics({
         new THREE.Vector3()
       );
       updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
-      updateNpcDebugHitMarker(
-        npcGroup,
-        "_kccTestMoveHitPoint",
-        "_kccTestMoveHitNormal",
-        new THREE.Vector3(),
-        new THREE.Vector3(0, 1, 0),
-        false
-      );
     }
   }, [showTestMoveRay, loadedNpcsRef, kccConfig.radius, kccConfig.capsuleHeight]);
 
@@ -699,39 +608,13 @@ export function useNpcPhysics({
       );
       return hit;
     };
-    const castHit = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => {
-      const vx = b.x - a.x;
-      const vy = b.y - a.y;
-      const vz = b.z - a.z;
-      if (vx * vx + vy * vy + vz * vz < 1e-8) return null;
-      const shapePos = { x: a.x, y: a.y + kccConfig.capsuleHeight / 2, z: a.z };
-      const hit = rapierWorld.castShape(
-        shapePos,
-        shapeRot,
-        { x: vx, y: vy, z: vz },
-        shape,
-        0,
-        1,
-        true,
-        filterFlags,
-        filterGroups,
-        collider
-      );
-      return hit;
-    };
 
     let blocked = false;
     let hitSegmentIndex: number | null = null;
-    let hitPoint: THREE.Vector3 | null = null;
-    let hitNormal: THREE.Vector3 | null = null;
     let stepCount = 1;
     if (dist < 1e-6) {
       blocked = intersectsAt({ x: src.x, y: src.y, z: src.z });
-      if (blocked) {
-        hitSegmentIndex = 0;
-        hitPoint = new THREE.Vector3(src.x, src.y, src.z);
-        hitNormal = new THREE.Vector3(0, 1, 0);
-      }
+      if (blocked) hitSegmentIndex = 0;
     } else {
       const r = kccConfig.radius;
       const h = kccConfig.capsuleHeight;
@@ -742,41 +625,11 @@ export function useNpcPhysics({
         count = Math.max(countXZ, countY);
       }
       stepCount = count;
-      let prev = { x: src.x, y: src.y, z: src.z };
       for (let i = 1; i <= count; i += 1) {
         const t = i / count;
         const p = { x: src.x + dx * t, y: src.y + dy * t, z: src.z + dz * t };
         if (intersectsAt(p)) {
           hitSegmentIndex = i - 1;
-          const hit = castHit(prev, p);
-          if (hit) {
-            const toi = Math.max(0, Math.min(1, Number(hit.time_of_impact ?? 0)));
-            const cx = prev.x + (p.x - prev.x) * toi;
-            const cy = prev.y + (p.y - prev.y) * toi;
-            const cz = prev.z + (p.z - prev.z) * toi;
-            const shapeCenter = new THREE.Vector3(cx, cy + kccConfig.capsuleHeight / 2, cz);
-            // In some Rapier builds `witness1` may already be world-space.
-            // Use it as local only if it looks like a small offset inside capsule bounds.
-            const w1 = hit.witness1 as { x?: number; y?: number; z?: number } | undefined;
-            if (w1 && Number.isFinite(w1.x) && Number.isFinite(w1.y) && Number.isFinite(w1.z)) {
-              const wx = w1.x as number;
-              const wy = w1.y as number;
-              const wz = w1.z as number;
-              const localBound = Math.max(kccConfig.capsuleHeight, kccConfig.radius * 4);
-              const looksLocal = Math.abs(wx) <= localBound && Math.abs(wy) <= localBound && Math.abs(wz) <= localBound;
-              if (looksLocal) {
-                hitPoint = new THREE.Vector3(shapeCenter.x + wx, shapeCenter.y + wy, shapeCenter.z + wz);
-              } else {
-                hitPoint = new THREE.Vector3(wx, wy, wz);
-              }
-            } else {
-              hitPoint = shapeCenter;
-            }
-            const n = hit.normal1 as { x?: number; y?: number; z?: number } | undefined;
-            if (n && Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.z)) {
-              hitNormal = new THREE.Vector3(n.x as number, n.y as number, n.z as number);
-            }
-          }
           if (i > 1) {
             blocked = true;
             break;
@@ -785,14 +638,11 @@ export function useNpcPhysics({
           if (intersectsAt({ x: src.x, y: src.y, z: src.z })) {
             blocked = false;
             hitSegmentIndex = null;
-            hitPoint = null;
-            hitNormal = null;
           } else {
             blocked = true;
           }
           break;
         }
-        prev = p;
       }
     }
 
@@ -829,14 +679,6 @@ export function useNpcPhysics({
         true,
         endV
       );
-      updateNpcDebugHitMarker(
-        npcGroup,
-        "_kccTestMoveHitPoint",
-        "_kccTestMoveHitNormal",
-        hitPoint ?? new THREE.Vector3(),
-        hitNormal ?? new THREE.Vector3(0, 1, 0),
-        Boolean(blocked && hitPoint)
-      );
     } else if (isHero) {
       updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
       updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
@@ -849,14 +691,6 @@ export function useNpcPhysics({
         false,
         new THREE.Vector3()
       );
-      updateNpcDebugHitMarker(
-        npcGroup,
-        "_kccTestMoveHitPoint",
-        "_kccTestMoveHitNormal",
-        new THREE.Vector3(),
-        new THREE.Vector3(0, 1, 0),
-        false
-      );
     } else {
       updateNpcDebugRayLine(npcGroup, "_kccTestMoveLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
       updateNpcDebugRaySegments(npcGroup, "_kccTestMoveSegLines", [0x2dff2d], [3], [], false);
@@ -868,14 +702,6 @@ export function useNpcPhysics({
         0x2dff2d,
         false,
         new THREE.Vector3()
-      );
-      updateNpcDebugHitMarker(
-        npcGroup,
-        "_kccTestMoveHitPoint",
-        "_kccTestMoveHitNormal",
-        new THREE.Vector3(),
-        new THREE.Vector3(0, 1, 0),
-        false
       );
     }
 
@@ -893,14 +719,6 @@ export function useNpcPhysics({
       0x2dff2d,
       false,
       new THREE.Vector3()
-    );
-    updateNpcDebugHitMarker(
-      npcGroup,
-      "_kccTestMoveHitPoint",
-      "_kccTestMoveHitNormal",
-      new THREE.Vector3(),
-      new THREE.Vector3(0, 1, 0),
-      false
     );
   };
 
