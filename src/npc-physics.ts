@@ -63,6 +63,10 @@ export const NPC_RENDER_TUNING = {
   jumpForwardEasePower: 0.7,
   jumpUpHeight: 120,
   ledgeScanForwardDistance: 55,
+  ledgeScanDepth: 150,
+  ledgeScanStepBack: 20,
+  ledgeScanVertMinThresh: 10,
+  ledgeScanVertMaxThresh: 40,
   ledgeScanDownRange: 120,
   ledgeScanUpRange: 320,
 
@@ -226,6 +230,10 @@ export function useNpcPhysics({
       jumpForwardEasePower: getJumpForwardEasePower(),
       jumpUpHeight: NPC_RENDER_TUNING.jumpUpHeight,
       ledgeScanForwardDistance: NPC_RENDER_TUNING.ledgeScanForwardDistance,
+      ledgeScanDepth: NPC_RENDER_TUNING.ledgeScanDepth,
+      ledgeScanStepBack: NPC_RENDER_TUNING.ledgeScanStepBack,
+      ledgeScanVertMinThresh: NPC_RENDER_TUNING.ledgeScanVertMinThresh,
+      ledgeScanVertMaxThresh: NPC_RENDER_TUNING.ledgeScanVertMaxThresh,
       ledgeScanDownRange: NPC_RENDER_TUNING.ledgeScanDownRange,
       ledgeScanUpRange: NPC_RENDER_TUNING.ledgeScanUpRange,
 
@@ -362,6 +370,65 @@ export function useNpcPhysics({
     wire.visible = visible;
     if (!visible) return;
     wire.position.set(0, height / 2, 0);
+  };
+
+  type JumpDebugRay = {
+    start: THREE.Vector3;
+    end: THREE.Vector3;
+    hit: boolean;
+  };
+
+  const updateNpcDebugJumpScanRays = (npcGroup: THREE.Group, rays: JumpDebugRay[], visible: boolean) => {
+    if (npcGroup.userData == null) npcGroup.userData = {};
+    let group = npcGroup.userData._kccJumpScanRayGroup as THREE.Group | undefined;
+    let pool = npcGroup.userData._kccJumpScanRayPool as Line2[] | undefined;
+    if (!group) {
+      group = new THREE.Group();
+      group.name = "kcc-jump-scan-rays";
+      group.visible = false;
+      npcGroup.add(group);
+      npcGroup.userData._kccJumpScanRayGroup = group;
+    }
+    if (!pool) {
+      pool = [];
+      npcGroup.userData._kccJumpScanRayPool = pool;
+    }
+    group.visible = visible;
+    if (!visible) return;
+
+    const ensureLine = (idx: number) => {
+      let line = pool![idx];
+      if (line) return line;
+      const geometry = new LineGeometry();
+      const material = new LineMaterial({ color: 0x2ddf2d, linewidth: 2, depthTest: false });
+      if (typeof window !== "undefined") material.resolution.set(window.innerWidth, window.innerHeight);
+      line = new Line2(geometry, material);
+      line.frustumCulled = false;
+      line.visible = false;
+      line.renderOrder = 9998;
+      group!.add(line);
+      pool![idx] = line;
+      return line;
+    };
+
+    for (let i = 0; i < rays.length; i++) {
+      const line = ensureLine(i);
+      const mat = line.material as LineMaterial;
+      if (typeof window !== "undefined") mat.resolution.set(window.innerWidth, window.innerHeight);
+      mat.color.setHex(rays[i].hit ? 0xff2f2f : 0x2ddf2d);
+      mat.linewidth = 2;
+
+      const s = rays[i].start.clone();
+      const e = rays[i].end.clone();
+      npcGroup.worldToLocal(s);
+      npcGroup.worldToLocal(e);
+      (line.geometry as LineGeometry).setPositions([s.x, s.y, s.z, e.x, e.y, e.z]);
+      line.computeLineDistances();
+      line.visible = true;
+    }
+    for (let i = rays.length; i < pool.length; i++) {
+      pool[i].visible = false;
+    }
   };
 
 
@@ -1543,6 +1610,71 @@ export function useNpcPhysics({
           const maxTopY = Math.min(jumpTopTargetY, ceilingY);
           const rangeTopY = Math.max(floorY, maxTopY);
 
+          // ZenGin-like recursive horizontal scan: upper/lower + middle subdivision.
+          // We keep this as a geometry probe (for jump-type decision), independent from movement.
+          type ScanReport = {
+            y: number;
+            hit: boolean;
+            hitColliderHandle: number | null;
+            start: THREE.Vector3;
+            end: THREE.Vector3;
+          };
+
+          const scanStepBack = kccConfig.ledgeScanStepBack;
+          const scanDepth = kccConfig.ledgeScanDepth;
+          const scanLen = scanDepth + scanStepBack;
+          const scanBaseX = ox - forward.x * scanStepBack;
+          const scanBaseZ = oz - forward.z * scanStepBack;
+          const minThresh2 = kccConfig.ledgeScanVertMinThresh * kccConfig.ledgeScanVertMinThresh;
+          const maxThresh2 = kccConfig.ledgeScanVertMaxThresh * kccConfig.ledgeScanVertMaxThresh;
+          const reports = new Map<string, ScanReport>();
+
+          const mkKey = (y: number) => y.toFixed(4);
+          const makeReport = (y: number): ScanReport => {
+            const k = mkKey(y);
+            const cached = reports.get(k);
+            if (cached) return cached;
+            const start = new THREE.Vector3(scanBaseX, y, scanBaseZ);
+            const ray = new rapier.Ray({ x: start.x, y: start.y, z: start.z }, { x: forward.x, y: 0, z: forward.z });
+            const cast = rapierWorld.castRayAndGetNormal(ray, scanLen, true, filterFlags, filterGroups, collider);
+            let hit = false;
+            let hitColliderHandle: number | null = null;
+            let end = new THREE.Vector3(start.x + forward.x * scanLen, start.y, start.z + forward.z * scanLen);
+            if (cast) {
+              const p = ray.pointAt(cast.timeOfImpact);
+              const d2 = (p.x - start.x) * (p.x - start.x) + (p.y - start.y) * (p.y - start.y) + (p.z - start.z) * (p.z - start.z);
+              if (d2 >= scanStepBack * scanStepBack) {
+                hit = true;
+                end = new THREE.Vector3(p.x, p.y, p.z);
+                const handle = (cast as any)?.collider?.handle;
+                hitColliderHandle = typeof handle === "number" ? handle : null;
+              }
+            }
+            const rep = { y, hit, hitColliderHandle, start, end };
+            reports.set(k, rep);
+            return rep;
+          };
+
+          const recurseScan = (upper: ScanReport, lower: ScanReport) => {
+            const dy = upper.y - lower.y;
+            const dist2 = dy * dy;
+            const sameCollider =
+              lower.hitColliderHandle != null &&
+              upper.hitColliderHandle != null &&
+              lower.hitColliderHandle === upper.hitColliderHandle;
+            if (sameCollider && (lower.hit || dist2 < maxThresh2)) return;
+            if (dist2 > minThresh2) {
+              const mid = makeReport(lower.y + dy * 0.5);
+              recurseScan(upper, mid);
+              recurseScan(mid, lower);
+            }
+          };
+
+          const upper = makeReport(rangeTopY);
+          const lower = makeReport(floorY);
+          recurseScan(upper, lower);
+          const sortedReports = Array.from(reports.values()).sort((a, b) => b.y - a.y);
+
           (ud as any)._kccLedgeScanRange = {
             yMin: floorY,
             yMax: rangeTopY,
@@ -1550,12 +1682,19 @@ export function useNpcPhysics({
             jumpTopTargetY,
             downHit: Boolean(downHit),
             upHit: Boolean(upHit),
+            rayCount: sortedReports.length,
+            hitCount: sortedReports.filter((r) => r.hit).length,
           };
 
           if (isHero && showJumpDebugRange) {
             const startV = new THREE.Vector3(ox, floorY, oz);
             const endV = new THREE.Vector3(ox, rangeTopY, oz);
             updateNpcDebugRayLine(npcGroup, "_kccLedgeScanRangeLine", 0x22ccff, 5, startV, endV, true);
+            updateNpcDebugJumpScanRays(
+              npcGroup,
+              sortedReports.map((r) => ({ start: r.start, end: r.end, hit: r.hit })),
+              true
+            );
           } else {
             updateNpcDebugRayLine(
               npcGroup,
@@ -1566,6 +1705,7 @@ export function useNpcPhysics({
               new THREE.Vector3(),
               false
             );
+            updateNpcDebugJumpScanRays(npcGroup, [], false);
           }
         } catch {
           // ignore
