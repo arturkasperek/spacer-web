@@ -844,7 +844,15 @@ export function useNpcPhysics({
             blocked = true;
             break;
           }
-          blocked = true;
+          // Match OpenGothic: if already in collision at start, allow the move.
+          if (intersectsAt({ x: src.x, y: src.y, z: src.z })) {
+            blocked = false;
+            hitSegmentIndex = null;
+            hitPoint = null;
+            hitNormal = null;
+          } else {
+            blocked = true;
+          }
           break;
         }
         prev = p;
