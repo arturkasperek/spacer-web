@@ -628,12 +628,24 @@ export function NpcRenderer({
                 fullWall?: boolean;
               }
             | undefined;
+          const best = (npcGroup.userData as any)?._kccLedgeBest as
+            | {
+                value?: number;
+                ledgeHeight?: number;
+              }
+            | null
+            | undefined;
           const fmt = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) : "-");
+          const fmt2 = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(2) : "-");
+          const bestText =
+            best && (typeof best.value === "number" || typeof best.ledgeHeight === "number")
+              ? `best:${fmt2(best.value)} bh:${fmt(best.ledgeHeight)}`
+              : "best:- bh:-";
           const text = jd
             ? `${String(jd.type ?? "n/a").toUpperCase()}\n${String(jd.reason ?? "no_reason")}\nh:${fmt(jd.ledgeHeight)} d:${fmt(
                 jd.obstacleDistance
-              )} c:${fmt(jd.ceilingClearance)}${jd.fullWall ? " wall" : ""}`
-            : "NO JUMP DATA\n-\nh:- d:- c:-";
+              )} c:${fmt(jd.ceilingClearance)}${jd.fullWall ? " wall" : ""}\n${bestText}`
+            : `NO JUMP DATA\n-\nh:- d:- c:-\n${bestText}`;
           setText(text);
         } catch {
           // ignore debug-label failures
@@ -727,8 +739,17 @@ export function NpcRenderer({
           const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
           const jumpUntilMs = ud._kccJumpActive as boolean | undefined;
           const jumpActive = Boolean(jumpUntilMs);
+          const jumpDecision = ud._kccJumpDecision as { type?: string; canJump?: boolean; reason?: string } | undefined;
+          const jumpType = String(jumpDecision?.type ?? "jump_forward");
+          const canJumpByDecision = jumpDecision?.canJump !== false;
           if (grounded && !jumpActive) {
-            ud._kccJumpRequest = { atMs: nowMs };
+            if (canJumpByDecision) {
+              ud._kccJumpRequest = { atMs: nowMs, jumpType };
+              ud._kccJumpBlockedReason = undefined;
+            } else {
+              ud._kccJumpRequest = undefined;
+              ud._kccJumpBlockedReason = String(jumpDecision?.reason ?? "decision_blocked");
+            }
           } else {
             ud._kccJumpRequest = undefined;
           }
@@ -1034,11 +1055,25 @@ export function NpcRenderer({
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (!ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = true;
-              const startName =
-                locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
+              const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
+              const isForward = jumpType === "jump_forward";
+              const startName = isForward
+                ? locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
                   ? "T_RUNL_2_JUMP"
-                  : "T_STAND_2_JUMP";
-              ud._kccJumpStartWasRun = startName === "T_RUNL_2_JUMP";
+                  : "T_STAND_2_JUMP"
+                : jumpType === "jump_up_low"
+                  ? "T_STAND_2_JUMPUPLOW"
+                  : jumpType === "jump_up_mid"
+                    ? "T_STAND_2_JUMPUPMID"
+                    : "T_STAND_2_JUMPUP";
+              const loopName = isForward
+                ? "S_JUMP"
+                : jumpType === "jump_up_low"
+                  ? "S_JUMPUPLOW"
+                  : jumpType === "jump_up_mid"
+                    ? "S_JUMPUPMID"
+                    : "S_JUMPUP";
+              ud._kccJumpStartWasRun = isForward && startName === "T_RUNL_2_JUMP";
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
               const durMs =
                 estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
@@ -1047,14 +1082,14 @@ export function NpcRenderer({
               if (durMs > 0) {
                 (ud as any)._kccJumpMinAirMs = durMs;
               }
-              const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMP");
+              const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
                 loop: false,
                 resetTime: true,
                 blendInMs: ref.blendInMs,
                 blendOutMs: ref.blendOutMs,
-                fallbackNames: ["S_JUMP", "S_RUN"],
+                fallbackNames: isForward ? ["S_JUMP", "S_RUN"] : [loopName, "S_JUMP", "S_RUN"],
                 next: {
                   animationName: nextRef.animationName,
                   modelName: nextRef.modelName,
