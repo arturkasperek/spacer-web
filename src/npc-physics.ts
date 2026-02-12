@@ -94,12 +94,12 @@ export const NPC_RENDER_TUNING = {
   // Jump-up assist: lerp/arc to ledge instead of teleport.
   jumpUpTeleportOnStart: true,
   jumpUpTeleportSkipKccMs: 280,
-  jumpUpAssistDelaySeconds: 0.3,
-  jumpUpAssistDurationSeconds: 0.4,
-  jumpUpAssistArcHeight: 30,
+  jumpUpAssistDelaySeconds: 0.35,
+  jumpUpAssistDurationSeconds: 0.5,
+  jumpUpAssistArcHeight: 40,
   jumpUpHeight: 120,
   ledgeScanForwardDistance: 55,
-  ledgeScanDepth: 150,
+  ledgeScanDepth: 100,
   ledgeScanStepBack: 20,
   ledgeScanStepForward: 3,
   ledgeScanVertMinThresh: 10,
@@ -1069,6 +1069,8 @@ export function useNpcPhysics({
   const nowMs = Date.now();
   const prevJumpActive = Boolean((ud as any)._kccJumpActivePrev);
   let jumpActive = Boolean((ud as any)._kccJumpActive);
+  const jumpForceUntilMs = (ud as any)._kccJumpForceActiveUntilMs as number | undefined;
+  const jumpForceActive = jumpActive && typeof jumpForceUntilMs === "number" && nowMs < jumpForceUntilMs;
   const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
   const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
   const minAirMsConfig = 0;
@@ -1090,7 +1092,9 @@ export function useNpcPhysics({
   const graceActive = Boolean((ud as any)._kccJumpGraceActive);
   const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
 
-  if (jumpActive && graceActive) {
+  if (jumpForceActive) {
+    (ud as any)._kccJumpGraceActive = false;
+  } else if (jumpActive && graceActive) {
     if (shouldEndByProbe || (canEndByGround && groundedNow)) {
       (ud as any)._kccJumpGraceActive = false;
       (ud as any)._kccJumpActive = false;
@@ -1139,6 +1143,7 @@ export function useNpcPhysics({
     (ud as any)._kccJumpDecisionFrozen = null;
     (ud as any)._kccJumpLedgeFrozen = null;
     (ud as any)._kccJumpTeleportSkipKccUntilMs = undefined;
+    (ud as any)._kccJumpForceActiveUntilMs = undefined;
   }
   (ud as any)._kccJumpActivePrev = jumpActive;
   const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
@@ -1192,6 +1197,7 @@ export function useNpcPhysics({
           endMs: assistEnd,
           arc,
         };
+        (ud as any)._kccJumpForceActiveUntilMs = assistEnd;
         if (typeof kccConfig.jumpUpTeleportSkipKccMs === "number" && kccConfig.jumpUpTeleportSkipKccMs > 0) {
           (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(nowMs + kccConfig.jumpUpTeleportSkipKccMs, assistEnd);
         } else {

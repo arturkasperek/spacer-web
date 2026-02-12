@@ -1083,20 +1083,22 @@ export function NpcRenderer({
                 (ud as any)._kccJumpMinAirMs = durMs;
               }
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
+              const jumpUpBlendMs = isForward ? undefined : 80;
+              const loopJumpMid = isForward;
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
                 loop: false,
                 resetTime: true,
                 blendInMs: ref.blendInMs,
-                blendOutMs: ref.blendOutMs,
+                blendOutMs: jumpUpBlendMs ?? ref.blendOutMs,
                 fallbackNames: isForward ? ["S_JUMP", "S_RUN"] : [loopName, "S_JUMP", "S_RUN"],
                 next: {
                   animationName: nextRef.animationName,
                   modelName: nextRef.modelName,
-                  loop: true,
+                  loop: loopJumpMid,
                   resetTime: true,
-                  blendInMs: nextRef.blendInMs,
-                  blendOutMs: nextRef.blendOutMs,
+                  blendInMs: jumpUpBlendMs ?? nextRef.blendInMs,
+                  blendOutMs: jumpUpBlendMs ?? nextRef.blendOutMs,
                   fallbackNames: ["S_RUN"],
                 },
               });
