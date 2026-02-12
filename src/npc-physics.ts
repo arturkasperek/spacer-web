@@ -91,8 +91,12 @@ export const NPC_RENDER_TUNING = {
   jumpForwardEasePower: 0.7,
   jumpUpForwardBoost: 1.5,
   jumpUpUseLedgeDir: true,
+  // Jump-up assist: lerp/arc to ledge instead of teleport.
   jumpUpTeleportOnStart: true,
-  jumpUpTeleportSkipKccMs: 3000,
+  jumpUpTeleportSkipKccMs: 280,
+  jumpUpAssistDelaySeconds: 0.3,
+  jumpUpAssistDurationSeconds: 0.4,
+  jumpUpAssistArcHeight: 30,
   jumpUpHeight: 120,
   ledgeScanForwardDistance: 55,
   ledgeScanDepth: 150,
@@ -205,6 +209,9 @@ export function useNpcPhysics({
   const getJumpUpUseLedgeDir = () => NPC_RENDER_TUNING.jumpUpUseLedgeDir;
   const getJumpUpTeleportOnStart = () => NPC_RENDER_TUNING.jumpUpTeleportOnStart;
   const getJumpUpTeleportSkipKccMs = () => NPC_RENDER_TUNING.jumpUpTeleportSkipKccMs;
+  const getJumpUpAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpAssistDelaySeconds;
+  const getJumpUpAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpAssistDurationSeconds;
+  const getJumpUpAssistArcHeight = () => NPC_RENDER_TUNING.jumpUpAssistArcHeight;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
@@ -281,6 +288,9 @@ export function useNpcPhysics({
       jumpUpUseLedgeDir: getJumpUpUseLedgeDir(),
       jumpUpTeleportOnStart: getJumpUpTeleportOnStart(),
       jumpUpTeleportSkipKccMs: getJumpUpTeleportSkipKccMs(),
+      jumpUpAssistDelaySeconds: getJumpUpAssistDelaySeconds(),
+      jumpUpAssistDurationSeconds: getJumpUpAssistDurationSeconds(),
+      jumpUpAssistArcHeight: getJumpUpAssistArcHeight(),
       jumpUpHeight: NPC_RENDER_TUNING.jumpUpHeight,
       ledgeScanForwardDistance: NPC_RENDER_TUNING.ledgeScanForwardDistance,
       ledgeScanDepth: NPC_RENDER_TUNING.ledgeScanDepth,
@@ -1014,6 +1024,7 @@ export function useNpcPhysics({
   		    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
   			    const FALL_WALL_PUSH_DURATION_S = kccConfig.fallWallPushDurationSeconds;
   			    const fromX = npcGroup.position.x;
+  			    const fromY = npcGroup.position.y;
   			    const fromZ = npcGroup.position.z;
   			    let dx = desiredX - fromX;
   			    let dz = desiredZ - fromZ;
@@ -1167,16 +1178,24 @@ export function useNpcPhysics({
         | undefined;
       const lp = frozen?.point;
       if (lp) {
-        npcGroup.position.x = lp.x;
-        npcGroup.position.z = lp.z;
-        npcGroup.position.y = lp.y;
-        collider.setTranslation({ x: lp.x, y: lp.y + kccConfig.capsuleHeight / 2, z: lp.z });
-        vy = 0;
-        (ud as any)._kccVy = 0;
+        const delayS = Math.max(0, kccConfig.jumpUpAssistDelaySeconds ?? 0);
+        const delayMs = delayS * 1000;
+        const durS = Math.max(0.1, kccConfig.jumpUpAssistDurationSeconds ?? 0.28);
+        const durMs = durS * 1000;
+        const arc = Math.max(0, kccConfig.jumpUpAssistArcHeight ?? 0);
+        const assistStart = nowMs + delayMs;
+        const assistEnd = assistStart + durMs;
+        (ud as any)._kccJumpAssist = {
+          start: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+          end: { x: lp.x, y: lp.y, z: lp.z },
+          startMs: assistStart,
+          endMs: assistEnd,
+          arc,
+        };
         if (typeof kccConfig.jumpUpTeleportSkipKccMs === "number" && kccConfig.jumpUpTeleportSkipKccMs > 0) {
-          (ud as any)._kccJumpTeleportSkipKccUntilMs = nowMs + kccConfig.jumpUpTeleportSkipKccMs;
+          (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(nowMs + kccConfig.jumpUpTeleportSkipKccMs, assistEnd);
         } else {
-          (ud as any)._kccJumpTeleportSkipKccUntilMs = undefined;
+          (ud as any)._kccJumpTeleportSkipKccUntilMs = assistEnd;
         }
       }
     }
@@ -1459,6 +1478,75 @@ export function useNpcPhysics({
       }
     }
   }
+
+    // Jump-up assist: smoothly pull to ledge instead of teleporting.
+    const assist = (ud as any)._kccJumpAssist as
+      | { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number }; startMs: number; endMs: number; arc: number }
+      | undefined;
+    if (assist && nowMs < assist.startMs) {
+      // Pre-assist delay: hold position while the "prepare" animation plays.
+      desiredX = fromX;
+      desiredZ = fromZ;
+      dx = 0;
+      dz = 0;
+      desiredDistXZ = 0;
+      dy = 0;
+      vy = 0;
+      (ud as any)._kccVy = 0;
+      (ud as any)._kccJumpAssistActive = true;
+    } else if (assist && nowMs >= assist.startMs) {
+      const dur = Math.max(1, assist.endMs - assist.startMs);
+      const tRaw = (nowMs - assist.startMs) / dur;
+      const t = Math.max(0, Math.min(1, tRaw));
+      const smooth = t * t * (3 - 2 * t);
+      const baseX = assist.start.x + (assist.end.x - assist.start.x) * smooth;
+      const baseY = assist.start.y + (assist.end.y - assist.start.y) * smooth;
+      const baseZ = assist.start.z + (assist.end.z - assist.start.z) * smooth;
+      const arc = assist.arc > 0 ? assist.arc * 4 * t * (1 - t) : 0;
+      const targetX = baseX;
+      const targetY = baseY + arc;
+      const targetZ = baseZ;
+
+      desiredX = targetX;
+      desiredZ = targetZ;
+      dx = desiredX - fromX;
+      dz = desiredZ - fromZ;
+      desiredDistXZ = Math.hypot(dx, dz);
+      dy = targetY - fromY;
+      vy = 0;
+      (ud as any)._kccVy = 0;
+      (ud as any)._kccJumpAssistActive = true;
+
+      if (t >= 1 - 1e-4) {
+        // Final snap and short stabilization to avoid end-of-assist jitter.
+        npcGroup.position.x = assist.end.x;
+        npcGroup.position.y = assist.end.y;
+        npcGroup.position.z = assist.end.z;
+        if (collider) {
+          collider.setTranslation({
+            x: assist.end.x,
+            y: assist.end.y + kccConfig.capsuleHeight / 2,
+            z: assist.end.z,
+          });
+        }
+        vy = 0;
+        (ud as any)._kccVy = 0;
+        (ud as any)._kccGrounded = true;
+        (ud as any)._kccStableGrounded = true;
+        (ud as any)._kccUngroundedFor = 0;
+        (ud as any)._kccGroundedFor = 0;
+        (ud as any)._kccFallEntryFor = 0;
+        (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 150;
+        (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(
+          (ud as any)._kccJumpTeleportSkipKccUntilMs ?? 0,
+          nowMs + 80
+        );
+        (ud as any)._kccJumpAssist = undefined;
+        (ud as any)._kccJumpAssistActive = false;
+      }
+    } else {
+      (ud as any)._kccJumpAssistActive = false;
+    }
 
     // While sliding, add an explicit downhill movement that scales with slope steepness.
     // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
