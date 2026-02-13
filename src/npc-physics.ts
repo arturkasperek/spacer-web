@@ -94,8 +94,8 @@ export const NPC_RENDER_TUNING = {
   // Jump-up assist: lerp/arc to ledge instead of teleport.
   jumpUpTeleportOnStart: true,
   jumpUpTeleportSkipKccMs: 280,
-  jumpUpAssistDelaySeconds: 0.35,
-  jumpUpAssistDurationSeconds: 0.5,
+  jumpUpAssistDelaySeconds: 0.5,
+  jumpUpAssistDurationSeconds: 0.6,
   jumpUpAssistArcHeight: 40,
   jumpUpHeight: 120,
   ledgeScanForwardDistance: 55,

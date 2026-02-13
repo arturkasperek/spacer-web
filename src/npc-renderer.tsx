@@ -1057,22 +1057,31 @@ export function NpcRenderer({
               ud._kccJumpAnimActive = true;
               const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
               const isForward = jumpType === "jump_forward";
-              const startName = isForward
-                ? locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
-                  ? "T_RUNL_2_JUMP"
-                  : "T_STAND_2_JUMP"
-                : jumpType === "jump_up_low"
-                  ? "T_STAND_2_JUMPUPLOW"
-                  : jumpType === "jump_up_mid"
-                    ? "T_STAND_2_JUMPUPMID"
-                    : "T_STAND_2_JUMPUP";
-              const loopName = isForward
-                ? "S_JUMP"
-                : jumpType === "jump_up_low"
-                  ? "S_JUMPUPLOW"
-                  : jumpType === "jump_up_mid"
-                    ? "S_JUMPUPMID"
-                    : "S_JUMPUP";
+              const isJumpUpMid = jumpType === "jump_up_mid";
+              let startName: string;
+              let loopName: string;
+              if (isForward) {
+                startName =
+                  locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
+                    ? "T_RUNL_2_JUMP"
+                    : "T_STAND_2_JUMP";
+                loopName = "S_JUMP";
+              } else {
+                switch (jumpType) {
+                  case "jump_up_low":
+                    startName = "T_STAND_2_JUMPUPLOW";
+                    loopName = "S_JUMPUPLOW";
+                    break;
+                  case "jump_up_mid":
+                    startName = "T_STAND_2_JUMPUPMID";
+                    loopName = "S_JUMPUPMID";
+                    break;
+                  default:
+                    startName = "T_STAND_2_JUMPUP";
+                    loopName = "S_JUMPUP";
+                    break;
+                }
+              }
               ud._kccJumpStartWasRun = isForward && startName === "T_RUNL_2_JUMP";
               const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
               const durMs =
@@ -1102,11 +1111,48 @@ export function NpcRenderer({
                   fallbackNames: ["S_RUN"],
                 },
               });
+              if (isJumpUpMid) {
+                const midDurMs =
+                  estimateAnimationDurationMs(nextRef.modelName ?? "HUMANS", nextRef.animationName) ??
+                  estimateAnimationDurationMs("HUMANS", nextRef.animationName) ??
+                  0;
+                (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(0, durMs) + Math.max(0, midDurMs);
+                (ud as any)._kccJumpMidStandPlayed = false;
+              } else {
+                (ud as any)._kccJumpMidStandAtMs = undefined;
+                (ud as any)._kccJumpMidStandPlayed = false;
+              }
+            } else {
+              const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
+              const isJumpUpMid = jumpType === "jump_up_mid";
+              const midStandAtMs = (ud as any)._kccJumpMidStandAtMs as number | undefined;
+              const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
+              if (
+                isJumpUpMid &&
+                !midStandPlayed &&
+                typeof midStandAtMs === "number" &&
+                Number.isFinite(midStandAtMs) &&
+                Date.now() >= midStandAtMs
+              ) {
+                const midStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPMID_2_STAND");
+                const jumpUpBlendMs = 80;
+                instance.setAnimation(midStandRef.animationName, {
+                  modelName: midStandRef.modelName,
+                  loop: false,
+                  resetTime: true,
+                  blendInMs: jumpUpBlendMs ?? midStandRef.blendInMs,
+                  blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
+                  fallbackNames: ["S_RUN"],
+                });
+                (ud as any)._kccJumpMidStandPlayed = true;
+              }
             }
           } else {
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = false;
+              (ud as any)._kccJumpMidStandAtMs = undefined;
+              (ud as any)._kccJumpMidStandPlayed = false;
               const moving = locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack";
               const nextName =
                 locomotionMode === "run"
