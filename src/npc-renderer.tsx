@@ -1057,6 +1057,7 @@ export function NpcRenderer({
               ud._kccJumpAnimActive = true;
               const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
               const isForward = jumpType === "jump_forward";
+              const isJumpUpLow = jumpType === "jump_up_low";
               const isJumpUpMid = jumpType === "jump_up_mid";
               let startName: string;
               let loopName: string;
@@ -1092,7 +1093,8 @@ export function NpcRenderer({
                 (ud as any)._kccJumpMinAirMs = durMs;
               }
               const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
-              const jumpUpBlendMs = isForward ? undefined : 80;
+              const lowJumpBlendMs = 200;
+              const jumpUpBlendMs = isForward ? undefined : isJumpUpLow ? lowJumpBlendMs : 80;
               const loopJumpMid = isForward;
               instance.setAnimation(ref.animationName, {
                 modelName: ref.modelName,
@@ -1111,22 +1113,70 @@ export function NpcRenderer({
                   fallbackNames: ["S_RUN"],
                 },
               });
-              if (isJumpUpMid) {
+              if (isJumpUpLow || isJumpUpMid) {
                 const midDurMs =
                   estimateAnimationDurationMs(nextRef.modelName ?? "HUMANS", nextRef.animationName) ??
                   estimateAnimationDurationMs("HUMANS", nextRef.animationName) ??
                   0;
-                (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(0, durMs) + Math.max(0, midDurMs);
-                (ud as any)._kccJumpMidStandPlayed = false;
+                const standAtMs = Date.now() + Math.max(0, durMs) + Math.max(0, midDurMs);
+                if (isJumpUpLow) {
+                  // Arm low jump end only after we really enter S_JUMPUPLOW
+                  // (duration estimates can be 0 before sequence loads).
+                  (ud as any)._kccJumpLowStandAtMs = undefined;
+                  (ud as any)._kccJumpLowStandPlayed = false;
+                  (ud as any)._kccJumpMidStandAtMs = undefined;
+                  (ud as any)._kccJumpMidStandPlayed = false;
+                } else {
+                  (ud as any)._kccJumpMidStandAtMs = standAtMs;
+                  (ud as any)._kccJumpMidStandPlayed = false;
+                  (ud as any)._kccJumpLowStandAtMs = undefined;
+                  (ud as any)._kccJumpLowStandPlayed = false;
+                }
               } else {
                 (ud as any)._kccJumpMidStandAtMs = undefined;
                 (ud as any)._kccJumpMidStandPlayed = false;
+                (ud as any)._kccJumpLowStandAtMs = undefined;
+                (ud as any)._kccJumpLowStandPlayed = false;
               }
             } else {
               const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
+              const isJumpUpLow = jumpType === "jump_up_low";
               const isJumpUpMid = jumpType === "jump_up_mid";
+              const currentAnimUpper = String((instance.object.userData as any)?.__currentAnimationName ?? "").toUpperCase();
+              const lowStandAtMs = (ud as any)._kccJumpLowStandAtMs as number | undefined;
+              const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
               const midStandAtMs = (ud as any)._kccJumpMidStandAtMs as number | undefined;
               const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
+              if (
+                isJumpUpLow &&
+                !lowStandPlayed
+              ) {
+                if (currentAnimUpper === "S_JUMPUPLOW" && (typeof lowStandAtMs !== "number" || !Number.isFinite(lowStandAtMs))) {
+                  const lowLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPLOW");
+                  const lowLoopDurMs =
+                    estimateAnimationDurationMs(lowLoopRef.modelName ?? "HUMANS", lowLoopRef.animationName) ??
+                    estimateAnimationDurationMs("HUMANS", lowLoopRef.animationName) ??
+                    250;
+                  (ud as any)._kccJumpLowStandAtMs = Date.now() + Math.max(120, lowLoopDurMs);
+                } else if (
+                  currentAnimUpper === "S_JUMPUPLOW" &&
+                  typeof lowStandAtMs === "number" &&
+                  Number.isFinite(lowStandAtMs) &&
+                  Date.now() >= lowStandAtMs
+                ) {
+                  const lowStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPLOW_2_STAND");
+                  const jumpUpBlendMs = 120;
+                  instance.setAnimation(lowStandRef.animationName, {
+                    modelName: lowStandRef.modelName,
+                    loop: false,
+                    resetTime: true,
+                    blendInMs: jumpUpBlendMs ?? lowStandRef.blendInMs,
+                    blendOutMs: jumpUpBlendMs ?? lowStandRef.blendOutMs,
+                    fallbackNames: ["S_RUN"],
+                  });
+                  (ud as any)._kccJumpLowStandPlayed = true;
+                }
+              }
               if (
                 isJumpUpMid &&
                 !midStandPlayed &&
@@ -1153,6 +1203,10 @@ export function NpcRenderer({
               ud._kccJumpAnimActive = false;
               (ud as any)._kccJumpMidStandAtMs = undefined;
               (ud as any)._kccJumpMidStandPlayed = false;
+              const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
+              (ud as any)._kccJumpLowStandAtMs = undefined;
+              (ud as any)._kccJumpLowStandPlayed = false;
+              const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
               const moving = locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack";
               const nextName =
                 locomotionMode === "run"
@@ -1175,8 +1229,20 @@ export function NpcRenderer({
                   blendOutMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendOutMs,
                   fallbackNames: ["s_Run"],
                 });
+              } else if (jumpType === "jump_up_low" && lowStandPlayed) {
+                (ud as any)._kccJumpBlockUntilMs = undefined;
+                const lowExitBlendMs = 120;
+                instance.setAnimation(nextRef.animationName, {
+                  modelName: nextRef.modelName,
+                  loop: true,
+                  resetTime: true,
+                  blendInMs: lowExitBlendMs,
+                  blendOutMs: lowExitBlendMs,
+                  fallbackNames: ["s_Run"],
+                });
               } else {
-                const ref = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMP_2_STAND");
+                const endName = jumpType === "jump_up_low" ? "T_JUMPUPLOW_2_STAND" : "T_JUMP_2_STAND";
+                const ref = resolveNpcAnimationRef(npcData.instanceIndex, endName);
                 const durMs =
                   estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
                   estimateAnimationDurationMs("HUMANS", ref.animationName) ??
