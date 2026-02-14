@@ -1113,25 +1113,18 @@ export function NpcRenderer({
                   fallbackNames: ["S_RUN"],
                 },
               });
-              if (isJumpUpLow || isJumpUpMid) {
-                const midDurMs =
-                  estimateAnimationDurationMs(nextRef.modelName ?? "HUMANS", nextRef.animationName) ??
-                  estimateAnimationDurationMs("HUMANS", nextRef.animationName) ??
-                  0;
-                const standAtMs = Date.now() + Math.max(0, durMs) + Math.max(0, midDurMs);
-                if (isJumpUpLow) {
-                  // Arm low jump end only after we really enter S_JUMPUPLOW
-                  // (duration estimates can be 0 before sequence loads).
-                  (ud as any)._kccJumpLowStandAtMs = undefined;
-                  (ud as any)._kccJumpLowStandPlayed = false;
-                  (ud as any)._kccJumpMidStandAtMs = undefined;
-                  (ud as any)._kccJumpMidStandPlayed = false;
-                } else {
-                  (ud as any)._kccJumpMidStandAtMs = standAtMs;
-                  (ud as any)._kccJumpMidStandPlayed = false;
-                  (ud as any)._kccJumpLowStandAtMs = undefined;
-                  (ud as any)._kccJumpLowStandPlayed = false;
-                }
+              if (isJumpUpLow) {
+                // Arm jump end only after we really enter S_JUMPUPLOW.
+                (ud as any)._kccJumpLowStandAtMs = undefined;
+                (ud as any)._kccJumpLowStandPlayed = false;
+                (ud as any)._kccJumpMidStandAtMs = undefined;
+                (ud as any)._kccJumpMidStandPlayed = false;
+              } else if (isJumpUpMid) {
+                // Arm jump end only after we really enter S_JUMPUPMID.
+                (ud as any)._kccJumpMidStandAtMs = undefined;
+                (ud as any)._kccJumpMidStandPlayed = false;
+                (ud as any)._kccJumpLowStandAtMs = undefined;
+                (ud as any)._kccJumpLowStandPlayed = false;
               } else {
                 (ud as any)._kccJumpMidStandAtMs = undefined;
                 (ud as any)._kccJumpMidStandPlayed = false;
@@ -1179,28 +1172,40 @@ export function NpcRenderer({
               }
               if (
                 isJumpUpMid &&
-                !midStandPlayed &&
-                typeof midStandAtMs === "number" &&
-                Number.isFinite(midStandAtMs) &&
-                Date.now() >= midStandAtMs
+                !midStandPlayed
               ) {
-                const midStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPMID_2_STAND");
-                const jumpUpBlendMs = 80;
-                instance.setAnimation(midStandRef.animationName, {
-                  modelName: midStandRef.modelName,
-                  loop: false,
-                  resetTime: true,
-                  blendInMs: jumpUpBlendMs ?? midStandRef.blendInMs,
-                  blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
-                  fallbackNames: ["S_RUN"],
-                });
-                (ud as any)._kccJumpMidStandPlayed = true;
+                if (currentAnimUpper === "S_JUMPUPMID" && (typeof midStandAtMs !== "number" || !Number.isFinite(midStandAtMs))) {
+                  const midLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPMID");
+                  const midLoopDurMs =
+                    estimateAnimationDurationMs(midLoopRef.modelName ?? "HUMANS", midLoopRef.animationName) ??
+                    estimateAnimationDurationMs("HUMANS", midLoopRef.animationName) ??
+                    250;
+                  (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(120, midLoopDurMs);
+                } else if (
+                  currentAnimUpper === "S_JUMPUPMID" &&
+                  typeof midStandAtMs === "number" &&
+                  Number.isFinite(midStandAtMs) &&
+                  Date.now() >= midStandAtMs
+                ) {
+                  const midStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPMID_2_STAND");
+                  const jumpUpBlendMs = 80;
+                  instance.setAnimation(midStandRef.animationName, {
+                    modelName: midStandRef.modelName,
+                    loop: false,
+                    resetTime: true,
+                    blendInMs: jumpUpBlendMs ?? midStandRef.blendInMs,
+                    blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
+                    fallbackNames: ["S_RUN"],
+                  });
+                  (ud as any)._kccJumpMidStandPlayed = true;
+                }
               }
             }
           } else {
             const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
             if (ud._kccJumpAnimActive) {
               ud._kccJumpAnimActive = false;
+              const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
               (ud as any)._kccJumpMidStandAtMs = undefined;
               (ud as any)._kccJumpMidStandPlayed = false;
               const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
@@ -1238,6 +1243,17 @@ export function NpcRenderer({
                   resetTime: true,
                   blendInMs: lowExitBlendMs,
                   blendOutMs: lowExitBlendMs,
+                  fallbackNames: ["s_Run"],
+                });
+              } else if (jumpType === "jump_up_mid" && midStandPlayed) {
+                (ud as any)._kccJumpBlockUntilMs = undefined;
+                const midExitBlendMs = 220;
+                instance.setAnimation(nextRef.animationName, {
+                  modelName: nextRef.modelName,
+                  loop: true,
+                  resetTime: true,
+                  blendInMs: midExitBlendMs,
+                  blendOutMs: midExitBlendMs,
                   fallbackNames: ["s_Run"],
                 });
               } else {
