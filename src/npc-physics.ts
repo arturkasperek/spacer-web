@@ -1095,15 +1095,16 @@ export function useNpcPhysics({
     typeof minAirMsOverride === "number" && Number.isFinite(minAirMsOverride) && minAirMsOverride > 0
       ? minAirMsOverride
       : minAirMsConfig;
+  const isDescending = vy <= 0;
   const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
   const airForMs =
     typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
-  const canEndByGround = airForMs >= minAirMs;
+  const canEndByGround = isDescending && airForMs >= minAirMs;
   const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
   const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
   const probeDownVal =
     typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
-  const canEndByProbe = airForMs >= minAirMs;
+  const canEndByProbe = isDescending && airForMs >= minAirMs;
   const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
   const graceActive = Boolean((ud as any)._kccJumpGraceActive);
   const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
