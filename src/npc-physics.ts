@@ -99,6 +99,11 @@ export const NPC_RENDER_TUNING = {
   // Low jump-up can be tuned independently from mid/high.
   jumpUpLowAssistDelaySeconds: 0.4,
   jumpUpLowAssistDurationSeconds: 0.4,
+  // High jump-up can be tuned independently.
+  jumpUpHighAssistDelaySeconds: 0.4,
+  jumpUpHighAssistDurationSeconds: 0.8,
+  // How long to keep S_JUMPUP before switching to S_HANG (seconds).
+  jumpUpHighJumpUpPhaseSeconds: 0.1,
   jumpUpAssistArcHeight: 20,
   jumpUpHeight: 120,
   ledgeScanForwardDistance: 55,
@@ -216,6 +221,8 @@ export function useNpcPhysics({
   const getJumpUpAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpAssistDurationSeconds;
   const getJumpUpLowAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpLowAssistDelaySeconds;
   const getJumpUpLowAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpLowAssistDurationSeconds;
+  const getJumpUpHighAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpHighAssistDelaySeconds;
+  const getJumpUpHighAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpHighAssistDurationSeconds;
   const getJumpUpAssistArcHeight = () => NPC_RENDER_TUNING.jumpUpAssistArcHeight;
 
   		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
@@ -297,6 +304,8 @@ export function useNpcPhysics({
       jumpUpAssistDurationSeconds: getJumpUpAssistDurationSeconds(),
       jumpUpLowAssistDelaySeconds: getJumpUpLowAssistDelaySeconds(),
       jumpUpLowAssistDurationSeconds: getJumpUpLowAssistDurationSeconds(),
+      jumpUpHighAssistDelaySeconds: getJumpUpHighAssistDelaySeconds(),
+      jumpUpHighAssistDurationSeconds: getJumpUpHighAssistDurationSeconds(),
       jumpUpAssistArcHeight: getJumpUpAssistArcHeight(),
       jumpUpHeight: NPC_RENDER_TUNING.jumpUpHeight,
       ledgeScanForwardDistance: NPC_RENDER_TUNING.ledgeScanForwardDistance,
@@ -1191,12 +1200,17 @@ export function useNpcPhysics({
       const lp = frozen?.point;
       if (lp) {
         const isJumpUpLow = jumpTypeNow === "jump_up_low";
+        const isJumpUpHigh = jumpTypeNow === "jump_up_high";
         const assistDelaySeconds = isJumpUpLow
           ? (kccConfig.jumpUpLowAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
-          : kccConfig.jumpUpAssistDelaySeconds;
+          : isJumpUpHigh
+            ? (kccConfig.jumpUpHighAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
+            : kccConfig.jumpUpAssistDelaySeconds;
         const assistDurationSeconds = isJumpUpLow
           ? (kccConfig.jumpUpLowAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
-          : kccConfig.jumpUpAssistDurationSeconds;
+          : isJumpUpHigh
+            ? (kccConfig.jumpUpHighAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
+            : kccConfig.jumpUpAssistDurationSeconds;
         const delayS = Math.max(0, assistDelaySeconds ?? 0);
         const delayMs = delayS * 1000;
         const durS = Math.max(0.1, assistDurationSeconds ?? 0.28);

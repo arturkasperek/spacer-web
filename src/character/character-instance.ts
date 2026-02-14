@@ -482,9 +482,11 @@ export async function createHumanoidCharacterInstance(params: {
         animUpper === "S_JUMPUPLOW" ||
         animUpper === "S_JUMPUPMID" ||
         animUpper === "S_JUMPUP" ||
+        animUpper === "S_HANG" ||
         animUpper === "T_JUMPUPLOW_2_STAND" ||
         animUpper === "T_JUMPUPMID_2_STAND" ||
-        animUpper === "T_JUMPUP_2_STAND";
+        animUpper === "T_JUMPUP_2_STAND" ||
+        animUpper === "T_HANG_2_STAND";
       const ok = evaluatePose(skeleton, currentSequence, currentTimeMs, currentLoop, {
         extractRootMotion: rootMotion,
         outRootMotionPos: rootMotionPos,
