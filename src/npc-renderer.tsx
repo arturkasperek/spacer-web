@@ -34,12 +34,19 @@ import { setWaynetWaypointPositions } from "./waynet-index";
 import { buildNpcWorldIndices } from "./npc-world-indices";
 import { computeNpcsWithPositions } from "./npc-renderer-data";
 import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader";
-import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
 import { useNpcManualControl } from "./npc-renderer-hooks/use-npc-manual-control";
 import { useNpcAnimationState } from "./npc-renderer-hooks/use-npc-animation-state";
 import { useNpcCombatTick } from "./npc-renderer-hooks/use-npc-combat-tick";
 import { useNpcStreaming } from "./npc-renderer-hooks/use-npc-streaming";
+import {
+  type FrameContext,
+  tickCombatStage,
+  tickScriptsStage,
+  tickStreamingStage,
+  tickTeleportDebugStage,
+  tickWorldSyncStage,
+} from "./npc-frame-stages";
 
 function createJumpDebugTextSprite(initialText: string): {
   sprite: THREE.Sprite;
@@ -462,78 +469,9 @@ export function NpcRenderer({
     npcActiveBboxHalfY: NPC_ACTIVE_BBOX_HALF_Y,
   });
 
-  // Streaming update via useFrame
-  useFrame((_state, delta) => {
-    const physicsFrame = ++physicsFrameRef.current;
-    if (allNpcsRef.current.length > 0) {
-      updateNpcStreaming();
-    }
+  const resolveFrameCameraPos = () => cameraPosition || (camera ? camera.position : undefined);
 
-    freepointOwnerOverlayRef.current?.update(Boolean(enabled));
-
-    if (!enabled || loadedNpcsRef.current.size === 0) return;
-
-    // Sync current world positions for all loaded NPCs before the VM/state-loop tick.
-    // This ensures builtins like `Npc_IsOnFP` / `Wld_IsFPAvailable` see up-to-date coordinates.
-    for (const g of loadedNpcsRef.current.values()) {
-      if (!g || g.userData.isDisposed) continue;
-      const npcData = g.userData.npcData as NpcData | undefined;
-      if (!npcData) continue;
-      updateNpcWorldPosition(npcData.instanceIndex, {
-        x: g.position.x,
-        y: g.position.y,
-        z: g.position.z,
-      });
-    }
-
-    // Run a minimal Daedalus "state loop" tick for loaded NPCs.
-    // This is what triggers scripts like `zs_bandit_loop()` that call `AI_GotoFP(...)`.
-    tickNpcDaedalusStateLoop({ loadedNpcsRef, waypointMoverRef });
-
-    // Keep a lightweight hero pose snapshot for camera follow (no Three.js refs).
-    setPlayerPoseFromObject3D(playerGroupRef.current);
-
-    // Debug helper: teleport the hero in front of the camera.
-    if (teleportHeroSeqAppliedRef.current !== teleportHeroSeqRef.current) {
-      const player = playerGroupRef.current;
-      const cam = camera;
-      if (player && cam) {
-        cam.getWorldDirection(tmpTeleportForward);
-        tmpTeleportForward.y = 0;
-        if (tmpTeleportForward.lengthSq() < 1e-8) tmpTeleportForward.set(0, 0, -1);
-        else tmpTeleportForward.normalize();
-
-        const TELEPORT_DISTANCE = 220;
-        const targetX = cam.position.x + tmpTeleportForward.x * TELEPORT_DISTANCE;
-        const targetY = cam.position.y + 50;
-        const targetZ = cam.position.z + tmpTeleportForward.z * TELEPORT_DISTANCE;
-        player.position.x = targetX;
-        player.position.y = targetY;
-        player.position.z = targetZ;
-
-        // Face the same direction as the camera.
-        const yaw = Math.atan2(tmpTeleportForward.x, tmpTeleportForward.z);
-        tmpTeleportDesiredQuat.setFromAxisAngle(tmpManualUp, yaw);
-        player.quaternion.copy(tmpTeleportDesiredQuat);
-
-        player.userData._kccSnapped = false;
-        player.userData._kccVy = 0;
-        player.userData._kccGrounded = false;
-        player.userData._kccStableGrounded = false;
-        player.userData._kccGroundedFor = 0;
-        player.userData._kccUngroundedFor = 0;
-        player.userData._kccSlideSpeed = 0;
-        player.userData.isFalling = true;
-        player.userData.isSliding = false;
-
-        persistNpcPosition(player);
-        teleportHeroSeqAppliedRef.current = teleportHeroSeqRef.current;
-      }
-    }
-
-    const cameraPos = cameraPosition || (camera ? camera.position : undefined);
-    if (!cameraPos) return;
-
+  const tickNpc = (delta: number, physicsFrame: number, cameraPos: THREE.Vector3) => {
     for (const npcGroup of loadedNpcsRef.current.values()) {
       const visualRoot = getNpcVisualRoot(npcGroup);
       if (playerGroupRef.current === npcGroup) {
@@ -1502,9 +1440,47 @@ export function NpcRenderer({
         };
       }
     }
+  };
 
-    // Combat update after movement tick: for now only melee hit resolution for loaded NPCs.
-    runCombatTick(delta, loadedNpcsRef.current.values(), resolveNpcAnimationRef);
+  // Frame pipeline: keep stages explicit to reduce cognitive load and side-effect coupling.
+  useFrame((_state, delta) => {
+    const frameCtx: FrameContext = {
+      loadedNpcsRef,
+      waypointMoverRef,
+      playerGroupRef,
+    };
+    const physicsFrame = tickStreamingStage({
+      physicsFrameRef,
+      allNpcsRef,
+      updateNpcStreaming,
+      freepointOwnerOverlayRef,
+      enabled,
+    });
+    if (!enabled || loadedNpcsRef.current.size === 0) return;
+
+    tickWorldSyncStage(frameCtx);
+    tickScriptsStage(frameCtx);
+    tickTeleportDebugStage({
+      teleportHeroSeqAppliedRef,
+      teleportHeroSeqRef,
+      playerGroupRef,
+      camera,
+      tmpTeleportForward,
+      tmpTeleportDesiredQuat,
+      tmpManualUp,
+      persistNpcPosition,
+    });
+
+    const cameraPos = resolveFrameCameraPos();
+    if (!cameraPos) return;
+
+    tickNpc(delta, physicsFrame, cameraPos);
+    tickCombatStage({
+      delta,
+      loadedNpcsRef,
+      runCombatTick,
+      resolveNpcAnimationRef,
+    });
   });
 
   // Cleanup on unmount
