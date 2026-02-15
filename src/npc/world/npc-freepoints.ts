@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Vob, World } from "@kolarz3/zenkit";
-import { getVobType } from "./vob-utils";
+import { getVobType } from "../../vob-utils";
 
 export type FreepointSpot = {
   vobId: number;

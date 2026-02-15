@@ -1,6 +1,6 @@
 export {};
 
-type Aabb = import("../npc-routine-waybox").Aabb;
+type Aabb = import("../npc/world/npc-routine-waybox").Aabb;
 type NpcData = import("../types").NpcData;
 
 function aabbAround(x: number, y: number, z: number, half: number): Aabb {
@@ -26,7 +26,7 @@ function makeNpcData(instanceIndex: number, symbolName: string, extra?: Partial<
 
 describe("npc-streaming", () => {
   let THREE: typeof import("three");
-  let mod: typeof import("../npc-streaming");
+  let mod: typeof import("../npc/world/npc-streaming");
 
   const mockShouldUpdateStreaming = jest.fn();
   const mockDisposeObject3D = jest.fn();
@@ -76,7 +76,7 @@ describe("npc-streaming", () => {
     }));
 
     THREE = await import("three");
-    mod = await import("../npc-streaming");
+    mod = await import("../npc/world/npc-streaming");
   });
 
   beforeEach(() => {

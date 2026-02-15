@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { setWorldTime, useWorldTime } from "./world-time.js";
+import { setWorldTime, useWorldTime } from "./world-time";
 
 const clampInt = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, Math.trunc(value)));

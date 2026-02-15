@@ -6,7 +6,7 @@ import {
   getNpcModelScriptsState,
   removeNpcOverlayModelScript,
   setNpcBaseModelScript,
-} from "../npc-model-scripts";
+} from "../npc/scripting/npc-model-scripts";
 
 describe("npc-model-scripts", () => {
   beforeEach(() => {

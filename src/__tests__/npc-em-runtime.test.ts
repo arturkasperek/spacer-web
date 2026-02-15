@@ -1,17 +1,17 @@
 export {};
 
 let THREE: any;
-let enqueueNpcEmMessage: typeof import("../npc-em-queue").enqueueNpcEmMessage;
-let requestNpcEmClear: typeof import("../npc-em-queue").requestNpcEmClear;
-let updateNpcEventManager: typeof import("../npc-em-runtime").updateNpcEventManager;
+let enqueueNpcEmMessage: typeof import("../npc/combat/npc-em-queue").enqueueNpcEmMessage;
+let requestNpcEmClear: typeof import("../npc/combat/npc-em-queue").requestNpcEmClear;
+let updateNpcEventManager: typeof import("../npc/combat/npc-em-runtime").updateNpcEventManager;
 
 describe("npc event manager runtime", () => {
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
     THREE = await import("three");
-    ({ enqueueNpcEmMessage, requestNpcEmClear } = await import("../npc-em-queue"));
-    ({ updateNpcEventManager } = await import("../npc-em-runtime"));
+    ({ enqueueNpcEmMessage, requestNpcEmClear } = await import("../npc/combat/npc-em-queue"));
+    ({ updateNpcEventManager } = await import("../npc/combat/npc-em-runtime"));
   });
 
   it("queues non-overlay jobs and starts the next job only after the current one completes", () => {

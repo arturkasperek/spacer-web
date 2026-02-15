@@ -8,9 +8,9 @@ import {
   type WaynetEdge,
   type WaynetGraph,
   type WaynetWaypoint,
-} from "./waynet-pathfinding";
-import type { LocomotionMode } from "./npc-locomotion";
-import { acquireFreepointForNpc } from "./npc-freepoints";
+} from "../../waynet-pathfinding";
+import type { LocomotionMode } from "../physics/npc-locomotion";
+import { acquireFreepointForNpc } from "../world/npc-freepoints";
 
 export type WaypointMoveOptions = {
   speed: number;

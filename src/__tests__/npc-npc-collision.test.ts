@@ -1,9 +1,9 @@
 describe("npc-npc-collision", () => {
-  let mod: typeof import("../npc-npc-collision");
+  let mod: typeof import("../npc/physics/npc-npc-collision");
 
   beforeAll(async () => {
     jest.resetModules();
-    mod = await import("../npc-npc-collision");
+    mod = await import("../npc/physics/npc-npc-collision");
   });
 
   it("returns desired position when no collisions", () => {

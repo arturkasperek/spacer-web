@@ -1,6 +1,6 @@
 export {};
 
-type Aabb = import("../npc-routine-waybox").Aabb;
+type Aabb = import("../npc/world/npc-routine-waybox").Aabb;
 
 function aabbAround(x: number, y: number, z: number, half: number): Aabb {
   return {
@@ -15,13 +15,13 @@ function aabbAround(x: number, y: number, z: number, half: number): Aabb {
 
 describe("npc-renderer-data", () => {
   let THREE: typeof import("three");
-  let mod: typeof import("../npc-renderer-data");
+  let mod: typeof import("../npc/renderer/npc-renderer-data");
 
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
     THREE = await import("three");
-    mod = await import("../npc-renderer-data");
+    mod = await import("../npc/renderer/npc-renderer-data");
   });
 
   afterEach(() => {

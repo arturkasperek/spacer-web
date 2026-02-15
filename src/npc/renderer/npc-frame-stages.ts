@@ -1,11 +1,11 @@
 import type { MutableRefObject } from "react";
 import * as THREE from "three";
-import { updateNpcWorldPosition } from "./npc-freepoints";
-import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
-import { setPlayerPoseFromObject3D } from "./player-runtime";
-import type { NpcData } from "./types";
-import type { Aabb } from "./npc-routine-waybox";
-import type { WaypointMover } from "./npc-waypoint-mover";
+import { updateNpcWorldPosition } from "../world/npc-freepoints";
+import { tickNpcDaedalusStateLoop } from "../scripting/npc-daedalus-loop";
+import { setPlayerPoseFromObject3D } from "../../player-runtime";
+import type { NpcData } from "../../types";
+import type { Aabb } from "../world/npc-routine-waybox";
+import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 
 export type FrameContext = {
   loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;

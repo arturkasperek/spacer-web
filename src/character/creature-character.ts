@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { CharacterCaches, CharacterInstance } from "./character-instance.js";
-import { fetchBinaryCached } from "./binary-cache.js";
-import { loadAnimationSequence, evaluatePose } from "./animation.js";
-import { buildSkeletonFromHierarchy } from "./skeleton.js";
-import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning.js";
-import { buildSoftSkinMeshCPU } from "./soft-skin.js";
-import { disposeObject3D } from "../distance-streaming.js";
+import type { CharacterCaches, CharacterInstance } from "./character-instance";
+import { fetchBinaryCached } from "./binary-cache";
+import { loadAnimationSequence, evaluatePose } from "./animation";
+import { buildSkeletonFromHierarchy } from "./skeleton";
+import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
+import { buildSoftSkinMeshCPU } from "./soft-skin";
+import { disposeObject3D } from "../distance-streaming";
 
 function normalizeModelKey(input: string): string {
   return (input || "")

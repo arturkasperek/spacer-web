@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { BinaryCache } from "./binary-cache.js";
-import { fetchBinaryCached } from "./binary-cache.js";
+import type { BinaryCache } from "./binary-cache";
+import { fetchBinaryCached } from "./binary-cache";
 
 export type AnimationSample = {
   position: { x: number; y: number; z: number };

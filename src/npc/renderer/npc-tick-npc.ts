@@ -4,15 +4,15 @@ import {
   createHumanLocomotionController,
   type LocomotionController,
   type LocomotionMode,
-} from "./npc-locomotion";
-import { updateNpcEventManager } from "./npc-em-runtime";
-import { getNpcModelScriptsState } from "./npc-model-scripts";
-import { NPC_RENDER_TUNING } from "./npc-physics";
-import type { WaypointMover } from "./npc-waypoint-mover";
-import type { NpcData } from "./types";
-import type { CharacterInstance } from "./character/character-instance.js";
-import type { ManualKeysState } from "./npc-renderer-hooks/use-npc-manual-control";
-import type { NpcAnimationRef } from "./npc-renderer-hooks/use-npc-animation-state";
+} from "../physics/npc-locomotion";
+import { updateNpcEventManager } from "../combat/npc-em-runtime";
+import { getNpcModelScriptsState } from "../scripting/npc-model-scripts";
+import { NPC_RENDER_TUNING } from "../physics/npc-physics";
+import type { WaypointMover } from "../navigation/npc-waypoint-mover";
+import type { NpcData } from "../../types";
+import type { CharacterInstance } from "../../character/character-instance";
+import type { ManualKeysState } from "./hooks/use-npc-manual-control";
+import type { NpcAnimationRef } from "./hooks/use-npc-animation-state";
 
 type MotionDebugState = {
   isFalling: boolean;

@@ -29,13 +29,13 @@ function quatEquivalent(
 
 describe("npc-world-indices", () => {
   let THREE: typeof import("three");
-  let mod: typeof import("../npc-world-indices");
+  let mod: typeof import("../npc/world/npc-world-indices");
 
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
     THREE = await import("three");
-    mod = await import("../npc-world-indices");
+    mod = await import("../npc/world/npc-world-indices");
   });
 
   it("returns empty indices when world is null", () => {

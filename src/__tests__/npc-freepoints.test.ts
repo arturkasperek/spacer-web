@@ -28,13 +28,13 @@ function createMockWorld(vobs: any[]) {
 }
 
 describe("npc freepoints", () => {
-  let setFreepointsWorld: typeof import("../npc-freepoints").setFreepointsWorld;
-  let updateNpcWorldPosition: typeof import("../npc-freepoints").updateNpcWorldPosition;
-  let acquireFreepointForNpc: typeof import("../npc-freepoints").acquireFreepointForNpc;
-  let findFreepointForNpc: typeof import("../npc-freepoints").findFreepointForNpc;
-  let isFreepointAvailableForNpc: typeof import("../npc-freepoints").isFreepointAvailableForNpc;
-  let isNpcOnFreepoint: typeof import("../npc-freepoints").isNpcOnFreepoint;
-  let reserveFreepoint: typeof import("../npc-freepoints").reserveFreepoint;
+  let setFreepointsWorld: typeof import("../npc/world/npc-freepoints").setFreepointsWorld;
+  let updateNpcWorldPosition: typeof import("../npc/world/npc-freepoints").updateNpcWorldPosition;
+  let acquireFreepointForNpc: typeof import("../npc/world/npc-freepoints").acquireFreepointForNpc;
+  let findFreepointForNpc: typeof import("../npc/world/npc-freepoints").findFreepointForNpc;
+  let isFreepointAvailableForNpc: typeof import("../npc/world/npc-freepoints").isFreepointAvailableForNpc;
+  let isNpcOnFreepoint: typeof import("../npc/world/npc-freepoints").isNpcOnFreepoint;
+  let reserveFreepoint: typeof import("../npc/world/npc-freepoints").reserveFreepoint;
 
   beforeAll(async () => {
     jest.resetModules();
@@ -47,7 +47,7 @@ describe("npc freepoints", () => {
       isFreepointAvailableForNpc,
       isNpcOnFreepoint,
       reserveFreepoint,
-    } = await import("../npc-freepoints"));
+    } = await import("../npc/world/npc-freepoints"));
   });
 
   afterEach(() => {

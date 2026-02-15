@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import { tgaNameToCompiledUrl } from "../vob-utils.js";
-import { loadCompiledTexAsDataTexture } from "../mesh-utils.js";
-import type { CpuSkinningData } from "./cpu-skinning.js";
+import { tgaNameToCompiledUrl } from "../vob-utils";
+import { loadCompiledTexAsDataTexture } from "../mesh-utils";
+import type { CpuSkinningData } from "./cpu-skinning";
 
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;

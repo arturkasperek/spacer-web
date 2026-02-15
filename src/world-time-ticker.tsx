@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
-import { tickWorldTime } from "./world-time.js";
+import { tickWorldTime } from "./world-time";
 
 export function WorldTimeTicker() {
   const hold = useMemo(() => {

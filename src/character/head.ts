@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import { buildThreeJSGeometry, buildMaterialGroups, createMeshMaterial } from "../mesh-utils.js";
-import type { BinaryCache } from "./binary-cache.js";
-import { fetchBinaryCached } from "./binary-cache.js";
+import { buildThreeJSGeometry, buildMaterialGroups, createMeshMaterial } from "../mesh-utils";
+import type { BinaryCache } from "./binary-cache";
+import { fetchBinaryCached } from "./binary-cache";
 
 export const DEFAULT_MALE_HEADS = [
   "HUM_HEAD_BALD",

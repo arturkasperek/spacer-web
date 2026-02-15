@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
-import { normalizeNameKey } from "./npc-renderer-utils";
+import { normalizeNameKey } from "../renderer/npc-renderer-utils";
 
 export function buildNpcWorldIndices(world: World | null) {
   const wpIndex = new Map<string, THREE.Vector3>();

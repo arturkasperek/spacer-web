@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import { disposeObject3D } from "./distance-streaming";
-import { getFreepointReservationsSnapshot, getFreepointSpotsSnapshot } from "./npc-freepoints";
+import {
+  getFreepointReservationsSnapshot,
+  getFreepointSpotsSnapshot,
+} from "./npc/world/npc-freepoints";
 import { createTextSprite } from "./mesh-utils";
 
 type FreepointOwnerOverlay = {

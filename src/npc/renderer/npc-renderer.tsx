@@ -1,39 +1,39 @@
 import { useMemo, useEffect, useRef } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
-import { usePlayerInput } from "./player-input-context";
+import { usePlayerInput } from "../../player-input-context";
 import * as THREE from "three";
 import type { World, ZenKit } from "@kolarz3/zenkit";
-import { createStreamingState, disposeObject3D } from "./distance-streaming";
-import type { NpcData } from "./types";
-import { getMapKey } from "./npc-utils";
-import { type CharacterCaches, type CharacterInstance } from "./character/character-instance.js";
-import { preloadAnimationSequences } from "./character/animation.js";
-import { fetchBinaryCached } from "./character/binary-cache.js";
-import { HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionMode } from "./npc-locomotion";
-import { createWaypointMover, type WaypointMover } from "./npc-waypoint-mover";
+import { createStreamingState, disposeObject3D } from "../../distance-streaming";
+import type { NpcData } from "../../types";
+import { getMapKey } from "../data/npc-utils";
+import { type CharacterCaches, type CharacterInstance } from "../../character/character-instance";
+import { preloadAnimationSequences } from "../../character/animation";
+import { fetchBinaryCached } from "../../character/binary-cache";
+import { HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionMode } from "../physics/npc-locomotion";
+import { createWaypointMover, type WaypointMover } from "../navigation/npc-waypoint-mover";
 import {
   clearNpcFreepointReservations,
   setFreepointsWorld,
   updateNpcWorldPosition,
   removeNpcWorldPosition,
-} from "./npc-freepoints";
-import { clearNpcEmRuntimeState } from "./npc-em-runtime";
-import { clearNpcEmQueueState } from "./npc-em-queue";
-import { ModelScriptRegistry } from "./model-script-registry";
-import { NPC_RENDER_TUNING, useNpcPhysics } from "./npc-physics";
-import { useWorldTime } from "./world-time";
-import { createFreepointOwnerOverlay } from "./freepoint-owner-overlay";
-import { buildRoutineWaybox, type Aabb } from "./npc-routine-waybox";
-import { setWaynetWaypointPositions } from "./waynet-index";
-import { buildNpcWorldIndices } from "./npc-world-indices";
+} from "../world/npc-freepoints";
+import { clearNpcEmRuntimeState } from "../combat/npc-em-runtime";
+import { clearNpcEmQueueState } from "../combat/npc-em-queue";
+import { ModelScriptRegistry } from "../../model-script-registry";
+import { NPC_RENDER_TUNING, useNpcPhysics } from "../physics/npc-physics";
+import { useWorldTime } from "../../world-time";
+import { createFreepointOwnerOverlay } from "../../freepoint-owner-overlay";
+import { buildRoutineWaybox, type Aabb } from "../world/npc-routine-waybox";
+import { setWaynetWaypointPositions } from "../../waynet-index";
+import { buildNpcWorldIndices } from "../world/npc-world-indices";
 import { computeNpcsWithPositions } from "./npc-renderer-data";
 import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader";
-import { setPlayerPoseFromObject3D } from "./player-runtime";
+import { setPlayerPoseFromObject3D } from "../../player-runtime";
 import { createTickNpc } from "./npc-tick-npc";
-import { useNpcManualControl } from "./npc-renderer-hooks/use-npc-manual-control";
-import { useNpcAnimationState } from "./npc-renderer-hooks/use-npc-animation-state";
-import { useNpcCombatTick } from "./npc-renderer-hooks/use-npc-combat-tick";
-import { useNpcStreaming } from "./npc-renderer-hooks/use-npc-streaming";
+import { useNpcManualControl } from "./hooks/use-npc-manual-control";
+import { useNpcAnimationState } from "./hooks/use-npc-animation-state";
+import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
+import { useNpcStreaming } from "./hooks/use-npc-streaming";
 import {
   type FrameContext,
   tickCombatStage,

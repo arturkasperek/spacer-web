@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { useWorldTime } from "./world-time.js";
+import { useWorldTime } from "./world-time";
 
 export function getWorldLightFactor(hour: number, minute: number): number {
   const mins = (((hour % 24) + 24) % 24) * 60 + (((minute % 60) + 60) % 60);

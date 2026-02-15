@@ -1,4 +1,4 @@
-import { findActiveRoutineEntry, findActiveRoutineWaypoint } from "../npc-utils";
+import { findActiveRoutineEntry, findActiveRoutineWaypoint } from "../npc/data/npc-utils";
 import type { RoutineEntry } from "../types";
 
 const r = (

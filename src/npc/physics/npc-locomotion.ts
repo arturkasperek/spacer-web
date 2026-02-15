@@ -1,4 +1,4 @@
-import type { CharacterInstance } from "./character/character-instance.js";
+import type { CharacterInstance } from "../../character/character-instance";
 
 export type LocomotionMode =
   | "idle"

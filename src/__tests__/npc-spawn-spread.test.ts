@@ -1,9 +1,9 @@
 describe("npc-spawn-spread", () => {
-  let mod: typeof import("../npc-spawn-spread");
+  let mod: typeof import("../npc/world/npc-spawn-spread");
 
   beforeAll(async () => {
     jest.resetModules();
-    mod = await import("../npc-spawn-spread");
+    mod = await import("../npc/world/npc-spawn-spread");
   });
 
   it("does not change position when already free", () => {

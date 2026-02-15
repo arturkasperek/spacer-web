@@ -1,14 +1,14 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { BinaryCache } from "./binary-cache.js";
-import type { AnimationCache } from "./animation.js";
-import { fetchBinaryCached } from "./binary-cache.js";
-import { loadAnimationSequence, evaluatePose } from "./animation.js";
-import { buildSkeletonFromHierarchy } from "./skeleton.js";
-import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning.js";
-import { buildSoftSkinMeshCPU } from "./soft-skin.js";
-import { findHeadBoneIndex, loadHeadMesh } from "./head.js";
-import { disposeObject3D } from "../distance-streaming.js";
+import type { BinaryCache } from "./binary-cache";
+import type { AnimationCache } from "./animation";
+import { fetchBinaryCached } from "./binary-cache";
+import { loadAnimationSequence, evaluatePose } from "./animation";
+import { buildSkeletonFromHierarchy } from "./skeleton";
+import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
+import { buildSoftSkinMeshCPU } from "./soft-skin";
+import { findHeadBoneIndex, loadHeadMesh } from "./head";
+import { disposeObject3D } from "../distance-streaming";
 
 export type CharacterCaches = {
   binary: BinaryCache;

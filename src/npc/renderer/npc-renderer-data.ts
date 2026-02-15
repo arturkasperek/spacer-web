@@ -1,9 +1,9 @@
 import type { MutableRefObject } from "react";
 import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
-import { findActiveRoutineWaypoint } from "./npc-utils";
-import { createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
-import type { NpcData } from "./types";
+import { findActiveRoutineWaypoint } from "../data/npc-utils";
+import { createAabbAroundPoint, type Aabb } from "../world/npc-routine-waybox";
+import type { NpcData } from "../../types";
 import { normalizeNameKey } from "./npc-renderer-utils";
 
 export function computeNpcsWithPositions({

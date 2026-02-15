@@ -5,14 +5,14 @@ import {
   createHumanoidCharacterInstance,
   type CharacterCaches,
   type CharacterInstance,
-} from "./character/character-instance.js";
-import { createCreatureCharacterInstance } from "./character/creature-character.js";
-import { disposeObject3D } from "./distance-streaming";
-import type { NpcData } from "./types";
-import { getNpcModelScriptsState, setNpcBaseModelScript } from "./npc-model-scripts";
-import { ModelScriptRegistry } from "./model-script-registry";
-import { createHumanLocomotionController } from "./npc-locomotion";
-import type { WaypointMover } from "./npc-waypoint-mover";
+} from "../../character/character-instance";
+import { createCreatureCharacterInstance } from "../../character/creature-character";
+import { disposeObject3D } from "../../distance-streaming";
+import type { NpcData } from "../../types";
+import { getNpcModelScriptsState, setNpcBaseModelScript } from "../scripting/npc-model-scripts";
+import { ModelScriptRegistry } from "../../model-script-registry";
+import { createHumanLocomotionController } from "../physics/npc-locomotion";
+import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 
 export async function loadNpcCharacter(
   npcGroup: THREE.Group,

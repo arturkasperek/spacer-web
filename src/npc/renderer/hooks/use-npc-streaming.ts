@@ -1,8 +1,8 @@
 import { useCallback, type MutableRefObject } from "react";
 import type * as THREE from "three";
-import { updateNpcStreaming as updateNpcStreamingImpl } from "../npc-streaming";
-import type { Aabb } from "../npc-routine-waybox";
-import type { NpcData } from "../types";
+import { updateNpcStreaming as updateNpcStreamingImpl } from "../../world/npc-streaming";
+import type { Aabb } from "../../world/npc-routine-waybox";
+import type { NpcData } from "../../../types";
 
 export function useNpcStreaming(params: {
   enabled: boolean;

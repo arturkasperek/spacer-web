@@ -20,13 +20,13 @@ function createMockWorld(waypoints: MockWaypoint[], edges: MockEdge[]) {
 
 describe("npc waypoint mover", () => {
   let THREE: any;
-  let createWaypointMover: typeof import("../npc-waypoint-mover").createWaypointMover;
+  let createWaypointMover: typeof import("../npc/navigation/npc-waypoint-mover").createWaypointMover;
 
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
     THREE = await import("three");
-    ({ createWaypointMover } = await import("../npc-waypoint-mover"));
+    ({ createWaypointMover } = await import("../npc/navigation/npc-waypoint-mover"));
   });
 
   it("moves NPC along a simple 2-node route and returns locomotion mode", () => {

@@ -1,4 +1,4 @@
-import { createLocomotionController } from "../npc-locomotion";
+import { createLocomotionController } from "../npc/physics/npc-locomotion";
 
 describe("npc locomotion controller", () => {
   it("plays walk start->loop when walk begins, and walk stop->idle when walk ends", () => {

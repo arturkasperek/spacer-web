@@ -1,18 +1,22 @@
 import type { MutableRefObject } from "react";
 import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
-import { disposeObject3D, shouldUpdateStreaming, type StreamingState } from "./distance-streaming";
-import type { NpcData } from "./types";
-import { isHeroNpcData, normalizeNameKey } from "./npc-renderer-utils";
+import {
+  disposeObject3D,
+  shouldUpdateStreaming,
+  type StreamingState,
+} from "../../distance-streaming";
+import type { NpcData } from "../../types";
+import { isHeroNpcData, normalizeNameKey } from "../renderer/npc-renderer-utils";
 import { aabbIntersects, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
-import { createNpcMesh } from "./npc-utils";
+import { createNpcMesh } from "../data/npc-utils";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
-import { getNpcSpawnOrder } from "./vm-manager";
+import { getNpcSpawnOrder } from "../../vm-manager";
 import { clearNpcFreepointReservations } from "./npc-freepoints";
-import { clearNpcEmRuntimeState } from "./npc-em-runtime";
-import { clearNpcEmQueueState } from "./npc-em-queue";
-import type { CharacterInstance } from "./character/character-instance.js";
-import type { WaypointMover } from "./npc-waypoint-mover";
+import { clearNpcEmRuntimeState } from "../combat/npc-em-runtime";
+import { clearNpcEmQueueState } from "../combat/npc-em-queue";
+import type { CharacterInstance } from "../../character/character-instance";
+import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 
 export function updateNpcStreaming({
   enabled,

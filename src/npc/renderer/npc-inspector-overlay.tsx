@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
-import type { NpcData } from "./types.js";
-import { findActiveRoutineEntry } from "./npc-utils.js";
-import { getWorldTime } from "./world-time.js";
-import { __getNpcEmQueueState } from "./npc-em-queue.js";
-import { __getNpcEmActiveJob } from "./npc-em-runtime.js";
-import { getNpcStateTime } from "./vm-manager.js";
+import type { NpcData } from "../../types";
+import { findActiveRoutineEntry } from "../data/npc-utils";
+import { getWorldTime } from "../../world-time";
+import { __getNpcEmQueueState } from "../combat/npc-em-queue";
+import { __getNpcEmActiveJob } from "../combat/npc-em-runtime";
+import { getNpcStateTime } from "../../vm-manager";
 import {
   findFreepointForNpc,
   isFreepointAvailableForNpc,
   isNpcOnFreepoint,
-} from "./npc-freepoints.js";
+} from "../world/npc-freepoints";
 
 type SelectedNpc = {
   npc: NpcData;

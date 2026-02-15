@@ -2,7 +2,7 @@ export {};
 
 describe("npc-character-loader", () => {
   let THREE: typeof import("three");
-  let mod: typeof import("../npc-character-loader");
+  let mod: typeof import("../npc/renderer/npc-character-loader");
 
   type NpcData = import("../types").NpcData;
   type NpcVisual = import("../types").NpcVisual;
@@ -68,7 +68,7 @@ describe("npc-character-loader", () => {
     }));
 
     THREE = await import("three");
-    mod = await import("../npc-character-loader");
+    mod = await import("../npc/renderer/npc-character-loader");
   });
 
   beforeEach(() => {

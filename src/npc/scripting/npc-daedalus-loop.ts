@@ -1,12 +1,17 @@
 import type { MutableRefObject } from "react";
 import * as THREE from "three";
-import type { WaypointMover } from "./npc-waypoint-mover";
-import type { NpcData } from "./types";
-import { __getNpcEmActiveJob } from "./npc-em-runtime";
-import { __getNpcEmQueueState, requestNpcEmClear } from "./npc-em-queue";
+import type { WaypointMover } from "../navigation/npc-waypoint-mover";
+import type { NpcData } from "../../types";
+import { __getNpcEmActiveJob } from "../combat/npc-em-runtime";
+import { __getNpcEmQueueState, requestNpcEmClear } from "../combat/npc-em-queue";
 import { setNpcRoutineRuntime } from "./npc-routine-runtime";
-import { advanceNpcStateTime, getNpcSpawnOrder, getRuntimeVm, setNpcStateTime } from "./vm-manager";
-import { getWorldTime } from "./world-time";
+import {
+  advanceNpcStateTime,
+  getNpcSpawnOrder,
+  getRuntimeVm,
+  setNpcStateTime,
+} from "../../vm-manager";
+import { getWorldTime } from "../../world-time";
 
 export function tickNpcDaedalusStateLoop({
   loadedNpcsRef,

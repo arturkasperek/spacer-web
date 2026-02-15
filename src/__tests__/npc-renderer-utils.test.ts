@@ -1,9 +1,9 @@
 describe("npc-renderer-utils", () => {
-  let mod: typeof import("../npc-renderer-utils");
+  let mod: typeof import("../npc/renderer/npc-renderer-utils");
 
   beforeAll(async () => {
     jest.resetModules();
-    mod = await import("../npc-renderer-utils");
+    mod = await import("../npc/renderer/npc-renderer-utils");
   });
 
   it("normalizeNameKey trims and uppercases", () => {
