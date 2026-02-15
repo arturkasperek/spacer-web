@@ -14,6 +14,9 @@ export default defineConfig({
         tsconfigPath: './tsconfig.json',
         buildMode: false, // Only check in dev mode
       },
+      eslint: {
+        lintCommand: 'eslint "src/**/*.{ts,tsx}"',
+      },
     }),
     {
       name: 'return-404-for-missing-files',
