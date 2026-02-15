@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Vob, WayPointData } from "@kolarz3/zenkit";
-import type { NpcData } from "./types";
+import type { NpcData } from "../shared/types";
 
 interface VobClickHandlerProps {
   onVobClick?: (vob: Vob) => void;

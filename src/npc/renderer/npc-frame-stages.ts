@@ -2,8 +2,8 @@ import type { MutableRefObject } from "react";
 import * as THREE from "three";
 import { updateNpcWorldPosition } from "../world/npc-freepoints";
 import { tickNpcDaedalusStateLoop } from "../scripting/npc-daedalus-loop";
-import { setPlayerPoseFromObject3D } from "../../player-runtime";
-import type { NpcData } from "../../types";
+import { setPlayerPoseFromObject3D } from "../../player/player-runtime";
+import type { NpcData } from "../../shared/types";
 import type { Aabb } from "../world/npc-routine-waybox";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 

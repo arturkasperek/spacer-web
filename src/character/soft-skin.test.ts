@@ -3,13 +3,13 @@ describe("buildSoftSkinMeshCPU", () => {
     jest.resetModules();
     jest.unmock("three");
 
-    jest.doMock("../mesh-utils", () => ({
+    jest.doMock("../shared/mesh-utils", () => ({
       loadCompiledTexAsDataTexture: jest.fn(async () => ({ isMockTexture: true })),
     }));
 
     const THREE = require("three");
     const { buildSoftSkinMeshCPU } = require("./soft-skin");
-    const { loadCompiledTexAsDataTexture } = require("../mesh-utils");
+    const { loadCompiledTexAsDataTexture } = require("../shared/mesh-utils");
 
     const makeVec = (x: number, y: number, z: number) => ({ x, y, z });
     const makeVec2 = (x: number, y: number) => ({ x, y });

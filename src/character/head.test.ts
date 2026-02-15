@@ -5,14 +5,14 @@ jest.mock("./binary-cache", () => ({
   fetchBinaryCached: jest.fn(),
 }));
 
-jest.mock("../mesh-utils", () => ({
+jest.mock("../shared/mesh-utils", () => ({
   buildThreeJSGeometry: jest.fn(() => ({ mocked: true })),
   buildMaterialGroups: jest.fn(),
   createMeshMaterial: jest.fn(async () => ({ type: "MockMaterial" })),
 }));
 
 import { fetchBinaryCached } from "./binary-cache";
-import { createMeshMaterial } from "../mesh-utils";
+import { createMeshMaterial } from "../shared/mesh-utils";
 
 describe("findHeadBoneIndex", () => {
   it("finds head bone by exact BIP01 HEAD name", () => {

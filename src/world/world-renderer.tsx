@@ -2,14 +2,14 @@ import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from "@kolarz3/zenkit";
 import { useRapier } from "@react-three/rapier";
-import { loadVm, type NpcSpawnCallback } from "./vm-manager";
-import { loadCameraModes } from "./camera-daedalus";
+import { loadVm, type NpcSpawnCallback } from "../vm-manager";
+import { loadCameraModes } from "../camera/camera-daedalus";
 import {
   buildThreeJSGeometry,
   buildMaterialGroups,
   loadCompiledTexAsDataTexture,
-} from "./mesh-utils";
-import { tgaNameToCompiledUrl } from "./vob-utils";
+} from "../shared/mesh-utils";
+import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 
 // World Renderer Component - loads ZenKit and renders world mesh
 function WorldRenderer({

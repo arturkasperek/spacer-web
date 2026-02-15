@@ -45,7 +45,7 @@ jest.mock("@react-three/fiber", () => ({
   useFrame: jest.fn(),
 }));
 
-jest.mock("./player-input-context", () => ({
+jest.mock("../player/player-input-context", () => ({
   usePlayerInput: () => ({
     addMouseYawDelta: jest.fn(),
     consumeMouseYawDelta: jest.fn(),

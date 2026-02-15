@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type * as THREE from "three";
-import type { NpcData } from "../../../types";
+import type { NpcData } from "../../../shared/types";
 import { createCombatRuntime } from "../../../combat/combat-runtime";
 import type { NpcAnimationRef } from "./use-npc-animation-state";
 

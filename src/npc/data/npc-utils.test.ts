@@ -1,5 +1,5 @@
 import { findActiveRoutineEntry, findActiveRoutineWaypoint } from "./npc-utils";
-import type { RoutineEntry } from "../../types";
+import type { RoutineEntry } from "../../shared/types";
 
 const r = (
   p: Partial<RoutineEntry> & Pick<RoutineEntry, "start_h" | "stop_h" | "state" | "waypoint">,

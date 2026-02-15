@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import { buildThreeJSGeometry, buildMaterialGroups, createMeshMaterial } from "../mesh-utils";
+import {
+  buildThreeJSGeometry,
+  buildMaterialGroups,
+  createMeshMaterial,
+} from "../shared/mesh-utils";
 import type { BinaryCache } from "./binary-cache";
 import { fetchBinaryCached } from "./binary-cache";
 

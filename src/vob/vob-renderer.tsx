@@ -11,13 +11,13 @@ import {
   shouldUseHelperVisual,
 } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 import {
   createStreamingState,
   shouldUpdateStreaming,
   getItemsToLoadUnload,
   disposeObject3D,
-} from "./distance-streaming";
+} from "../world/distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
 
 interface VobData {

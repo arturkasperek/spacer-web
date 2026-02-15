@@ -1,5 +1,5 @@
 import type { DaedalusVm, ZenKit } from "@kolarz3/zenkit";
-import { createVm, loadDaedalusScript } from "./vm-manager";
+import { createVm, loadDaedalusScript } from "../vm-manager";
 
 export type CameraModeDef = Readonly<{
   bestRange: number;

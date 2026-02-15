@@ -1,4 +1,4 @@
-import type { NpcData } from "../../types";
+import type { NpcData } from "../../shared/types";
 
 export const normalizeNameKey = (name: string): string => (name || "").trim().toUpperCase();
 

@@ -1,5 +1,5 @@
 import type { ModelScript, ZenKit } from "@kolarz3/zenkit";
-import type { NpcModelScriptsState } from "./npc/scripting/npc-model-scripts";
+import type { NpcModelScriptsState } from "../npc/scripting/npc-model-scripts";
 
 export type AnimationMeta = {
   name: string;

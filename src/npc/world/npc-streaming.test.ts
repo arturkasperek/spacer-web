@@ -1,7 +1,7 @@
 export {};
 
 type Aabb = import("./npc-routine-waybox").Aabb;
-type NpcData = import("../../types").NpcData;
+type NpcData = import("../../shared/types").NpcData;
 
 function aabbAround(x: number, y: number, z: number, half: number): Aabb {
   return {
@@ -41,7 +41,7 @@ describe("npc-streaming", () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
 
-    jest.doMock("../../distance-streaming", () => ({
+    jest.doMock("../../world/distance-streaming", () => ({
       disposeObject3D: (...args: any[]) => mockDisposeObject3D(...args),
       shouldUpdateStreaming: (...args: any[]) => mockShouldUpdateStreaming(...args),
     }));

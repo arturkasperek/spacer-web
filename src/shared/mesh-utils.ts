@@ -1,7 +1,7 @@
 // Mesh and geometry utility functions for loading and processing Gothic meshes
 import * as THREE from "three";
 import type { ZenKit, ProcessedMeshData } from "@kolarz3/zenkit";
-import { tgaNameToCompiledUrl } from "./vob-utils";
+import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 
 /**
  * Loads a compiled TEX file as a Three.js DataTexture

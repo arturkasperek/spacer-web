@@ -4,12 +4,12 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import type { World, ZenKit, Vob } from "@kolarz3/zenkit";
 
-jest.mock("./mesh-utils", () => ({
+jest.mock("../shared/mesh-utils", () => ({
   loadMeshCached: jest.fn(),
   buildThreeJSGeometryAndMaterials: jest.fn(),
 }));
 
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 
 // Mock VOBBoundingBox component
 jest.mock("./vob-bounding-box", () => ({

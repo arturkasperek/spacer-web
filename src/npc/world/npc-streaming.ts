@@ -5,8 +5,8 @@ import {
   disposeObject3D,
   shouldUpdateStreaming,
   type StreamingState,
-} from "../../distance-streaming";
-import type { NpcData } from "../../types";
+} from "../../world/distance-streaming";
+import type { NpcData } from "../../shared/types";
 import { isHeroNpcData, normalizeNameKey } from "../renderer/npc-renderer-utils";
 import { aabbIntersects, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
 import { createNpcMesh } from "../data/npc-utils";

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
 import { findActiveRoutineWaypoint } from "../data/npc-utils";
 import { createAabbAroundPoint, type Aabb } from "../world/npc-routine-waybox";
-import type { NpcData } from "../../types";
+import type { NpcData } from "../../shared/types";
 import { normalizeNameKey } from "./npc-renderer-utils";
 
 export function computeNpcsWithPositions({

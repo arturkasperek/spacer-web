@@ -8,7 +8,7 @@ import { buildSkeletonFromHierarchy } from "./skeleton";
 import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
 import { buildSoftSkinMeshCPU } from "./soft-skin";
 import { findHeadBoneIndex, loadHeadMesh } from "./head";
-import { disposeObject3D } from "../distance-streaming";
+import { disposeObject3D } from "../world/distance-streaming";
 
 export type CharacterCaches = {
   binary: BinaryCache;

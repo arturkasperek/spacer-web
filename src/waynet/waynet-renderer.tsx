@@ -2,15 +2,15 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, ZenKit, WayPointData, WayEdgeData } from "@kolarz3/zenkit";
-import { getMeshPath } from "./vob-utils";
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "./mesh-utils";
+import { getMeshPath } from "../vob/vob-utils";
+import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 import {
   createStreamingState,
   shouldUpdateStreaming,
   getItemsToLoadUnload,
   disposeObject3D,
-} from "./distance-streaming";
-import { VOBBoundingBox } from "./vob-bounding-box";
+} from "../world/distance-streaming";
+import { VOBBoundingBox } from "../vob/vob-bounding-box";
 
 interface WaynetRendererProps {
   world: World | null;

@@ -9,7 +9,7 @@ import { updateNpcEventManager } from "../combat/npc-em-runtime";
 import { getNpcModelScriptsState } from "../scripting/npc-model-scripts";
 import { NPC_RENDER_TUNING } from "../physics/npc-physics";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
-import type { NpcData } from "../../types";
+import type { NpcData } from "../../shared/types";
 import type { CharacterInstance } from "../../character/character-instance";
 import type { ManualKeysState } from "./hooks/use-npc-manual-control";
 import type { NpcAnimationRef } from "./hooks/use-npc-animation-state";

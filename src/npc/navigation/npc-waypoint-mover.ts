@@ -8,7 +8,7 @@ import {
   type WaynetEdge,
   type WaynetGraph,
   type WaynetWaypoint,
-} from "../../waynet-pathfinding";
+} from "../../waynet/waynet-pathfinding";
 import type { LocomotionMode } from "../physics/npc-locomotion";
 import { acquireFreepointForNpc } from "../world/npc-freepoints";
 

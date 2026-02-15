@@ -1,7 +1,7 @@
 // NPC utility functions for routine processing and mesh creation
 import * as THREE from "three";
-import type { NpcData, RoutineEntry } from "../../types";
-import { createTextSprite } from "../../mesh-utils";
+import type { NpcData, RoutineEntry } from "../../shared/types";
+import { createTextSprite } from "../../shared/mesh-utils";
 
 function createDynamicHudTextSprite(initialText: string): {
   sprite: THREE.Sprite;

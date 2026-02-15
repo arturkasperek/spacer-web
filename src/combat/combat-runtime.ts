@@ -1,5 +1,5 @@
 import type * as THREE from "three";
-import type { NpcData } from "../types";
+import type { NpcData } from "../shared/types";
 import type { CombatantSnapshot, CombatStats, MeleeAttackProfile, WeaponState } from "./types";
 import {
   applyDamageToState,

@@ -2,7 +2,7 @@ import { useMemo, type MutableRefObject } from "react";
 import * as THREE from "three";
 import type { CharacterCaches } from "../../../character/character-instance";
 import { getNpcModelScriptsState } from "../../scripting/npc-model-scripts";
-import type { ModelScriptRegistry } from "../../../model-script-registry";
+import type { ModelScriptRegistry } from "../../../shared/model-script-registry";
 
 export type NpcAnimationRef = {
   animationName: string;

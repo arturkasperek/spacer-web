@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toggleViewSetting, useViewSettings } from "./view-settings";
-import { toggleCameraSetting, useCameraSettings } from "./camera-settings";
+import { toggleCameraSetting, useCameraSettings } from "../camera/camera-settings";
 import { toggleUiSetting, useUiSettings } from "./ui-settings";
 
 export const TOP_MENU_HEIGHT = 26;

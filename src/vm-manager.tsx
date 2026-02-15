@@ -1,5 +1,5 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from "@kolarz3/zenkit";
-import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from "./types";
+import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from "./shared/types";
 import {
   getNpcWorldPosition,
   isFreepointAvailableForNpc,
@@ -11,14 +11,14 @@ import {
   removeNpcOverlayModelScript,
   setNpcBaseModelScript,
 } from "./npc/scripting/npc-model-scripts";
-import { normalizeMdsToScriptKey } from "./model-script-registry";
-import { getWorldTime } from "./world-time";
+import { normalizeMdsToScriptKey } from "./shared/model-script-registry";
+import { getWorldTime } from "./world/world-time";
 import { getNpcRoutineWaypointName } from "./npc/scripting/npc-routine-runtime";
-import { getWaynetWaypointPosition } from "./waynet-index";
+import { getWaynetWaypointPosition } from "./waynet/waynet-index";
 import { HERO_SYMBOL_NAME, normalizeNameKey } from "./npc/renderer/npc-renderer-utils";
 
 // Re-export types for consumers
-export type { NpcSpawnCallback } from "./types";
+export type { NpcSpawnCallback } from "./shared/types";
 
 export interface VmLoadResult {
   script: DaedalusScript;

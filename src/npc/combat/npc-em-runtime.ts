@@ -5,7 +5,7 @@ import type { CharacterInstance } from "../../character/character-instance";
 import type { LocomotionMode } from "../physics/npc-locomotion";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 import { __ensureNpcEmQueueState, type NpcEmMessage } from "./npc-em-queue";
-import type { AnimationMeta } from "../../model-script-registry";
+import type { AnimationMeta } from "../../shared/model-script-registry";
 
 export type NpcEmUpdateContext = {
   mover: WaypointMover | null;

@@ -7,10 +7,10 @@ import {
   type CharacterInstance,
 } from "../../character/character-instance";
 import { createCreatureCharacterInstance } from "../../character/creature-character";
-import { disposeObject3D } from "../../distance-streaming";
-import type { NpcData } from "../../types";
+import { disposeObject3D } from "../../world/distance-streaming";
+import type { NpcData } from "../../shared/types";
 import { getNpcModelScriptsState, setNpcBaseModelScript } from "../scripting/npc-model-scripts";
-import { ModelScriptRegistry } from "../../model-script-registry";
+import { ModelScriptRegistry } from "../../shared/model-script-registry";
 import { createHumanLocomotionController } from "../physics/npc-locomotion";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 

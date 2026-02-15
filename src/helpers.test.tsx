@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react";
-import { AxesHelper } from "./axes";
-import { SkyComponent } from "./sky";
+import { AxesHelper } from "./world/axes";
+import { SkyComponent } from "./world/sky";
 
 // Mock React Three Fiber hooks
 jest.mock("@react-three/fiber", () => ({

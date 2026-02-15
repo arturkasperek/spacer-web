@@ -6,7 +6,7 @@ import { loadAnimationSequence, evaluatePose } from "./animation";
 import { buildSkeletonFromHierarchy } from "./skeleton";
 import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
 import { buildSoftSkinMeshCPU } from "./soft-skin";
-import { disposeObject3D } from "../distance-streaming";
+import { disposeObject3D } from "../world/distance-streaming";
 
 function normalizeModelKey(input: string): string {
   return (input || "")

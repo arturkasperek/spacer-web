@@ -1,4 +1,4 @@
-import type { RoutineEntry } from "../../types";
+import type { RoutineEntry } from "../../shared/types";
 
 export type Aabb = {
   minX: number;

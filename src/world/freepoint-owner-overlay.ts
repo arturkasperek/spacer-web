@@ -3,8 +3,8 @@ import { disposeObject3D } from "./distance-streaming";
 import {
   getFreepointReservationsSnapshot,
   getFreepointSpotsSnapshot,
-} from "./npc/world/npc-freepoints";
-import { createTextSprite } from "./mesh-utils";
+} from "../npc/world/npc-freepoints";
+import { createTextSprite } from "../shared/mesh-utils";
 
 type FreepointOwnerOverlay = {
   update: (enabled: boolean) => void;

@@ -4,8 +4,8 @@ describe("npc-character-loader", () => {
   let THREE: typeof import("three");
   let mod: typeof import("./npc-character-loader");
 
-  type NpcData = import("../../types").NpcData;
-  type NpcVisual = import("../../types").NpcVisual;
+  type NpcData = import("../../shared/types").NpcData;
+  type NpcVisual = import("../../shared/types").NpcVisual;
 
   const mockCreateHumanoidCharacterInstance = jest.fn();
   const mockCreateCreatureCharacterInstance = jest.fn();
@@ -45,7 +45,7 @@ describe("npc-character-loader", () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
 
-    jest.doMock("../../distance-streaming", () => ({
+    jest.doMock("../../world/distance-streaming", () => ({
       disposeObject3D: (...args: any[]) => mockDisposeObject3D(...args),
     }));
 

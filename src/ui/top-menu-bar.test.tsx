@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TopMenuBar } from "./top-menu-bar";
 import { __resetViewSettingsForTests, getViewSettings } from "./view-settings";
-import { __resetCameraSettingsForTests, getCameraSettings } from "./camera-settings";
+import { __resetCameraSettingsForTests, getCameraSettings } from "../camera/camera-settings";
 import { __resetUiSettingsForTests, getUiSettings } from "./ui-settings";
 
 describe("TopMenuBar", () => {

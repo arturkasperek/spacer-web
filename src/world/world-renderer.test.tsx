@@ -43,7 +43,7 @@ describe("WorldRenderer", () => {
 
 describe("tgaNameToCompiledUrl", () => {
   // Import the helper function for testing
-  const { tgaNameToCompiledUrl } = require("./vob-utils");
+  const { tgaNameToCompiledUrl } = require("../vob/vob-utils");
 
   it("converts TGA filename to compiled TEX URL", () => {
     expect(tgaNameToCompiledUrl("test.TGA")).toBe("/TEXTURES/_COMPILED/TEST-C.TEX");

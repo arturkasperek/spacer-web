@@ -1,10 +1,10 @@
 import { useThree, useFrame } from "@react-three/fiber";
 import { useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import * as THREE from "three";
-import { getPlayerPose } from "./player-runtime";
+import { getPlayerPose } from "../player/player-runtime";
 import { getCameraSettings, useCameraSettings } from "./camera-settings";
 import { getCameraMode } from "./camera-daedalus";
-import { usePlayerInput } from "./player-input-context";
+import { usePlayerInput } from "../player/player-input-context";
 import { useRapier } from "@react-three/rapier";
 
 declare global {

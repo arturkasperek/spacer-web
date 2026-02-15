@@ -5,7 +5,7 @@ import { Line2 } from "three/examples/jsm/lines/Line2.js";
 import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
-import type { NpcData } from "../../types";
+import type { NpcData } from "../../shared/types";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
 type JumpType =
