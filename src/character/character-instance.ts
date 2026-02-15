@@ -412,26 +412,6 @@ export async function createHumanoidCharacterInstance(params: {
       const nextModel = (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
-      const isLowJumpName = (value: string | undefined) => (value || "").toUpperCase().includes("JUMPUPLOW");
-      const shouldLogLowJumpTrace =
-        isLowJumpName(name) || isLowJumpName(options?.next?.animationName) || isLowJumpName(currentAnimationName);
-      if (shouldLogLowJumpTrace) {
-        const npcInstanceIndex = (parent.userData as any)?.npcData?.instanceIndex;
-        console.log("[low-jump-anim-trace]", {
-          npcInstanceIndex: Number.isFinite(npcInstanceIndex) ? npcInstanceIndex : undefined,
-          pair: `${currentAnimationName || "<none>"} -> ${name}`,
-          current: currentAnimationName,
-          next: name,
-          model: nextModel,
-          loop: nextLoop,
-          resetTime,
-          blendInMs: options?.blendInMs,
-          blendOutMs: options?.blendOutMs,
-          nextAfterNonLoop: options?.next?.animationName,
-          nextBlendInMs: options?.next?.blendInMs,
-          nextBlendOutMs: options?.next?.blendOutMs,
-        });
-      }
 
       if (name.toUpperCase() === (currentAnimationName || "").toUpperCase() && nextModel === currentModelName) {
         currentLoop = nextLoop;
