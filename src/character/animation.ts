@@ -31,18 +31,22 @@ export async function preloadAnimationSequences(
   binaryCache: BinaryCache,
   animationCache: AnimationCache,
   baseName: string,
-  animationNames: string[]
+  animationNames: string[],
 ): Promise<void> {
   const unique = Array.from(
     new Set(
       (animationNames || [])
-        .map(s => (s || "").trim())
+        .map((s) => (s || "").trim())
         .filter(Boolean)
-        .map(s => s.toUpperCase())
-    )
+        .map((s) => s.toUpperCase()),
+    ),
   );
 
-  await Promise.allSettled(unique.map(name => loadAnimationSequence(zenKit, binaryCache, animationCache, baseName, name)));
+  await Promise.allSettled(
+    unique.map((name) =>
+      loadAnimationSequence(zenKit, binaryCache, animationCache, baseName, name),
+    ),
+  );
 }
 
 export async function loadAnimationSequence(
@@ -50,7 +54,7 @@ export async function loadAnimationSequence(
   binaryCache: BinaryCache,
   animationCache: AnimationCache,
   baseName: string,
-  animationName: string
+  animationName: string,
 ): Promise<AnimationSequence | null> {
   const cacheKey = `${baseName.toUpperCase()}:${animationName.toUpperCase()}`;
   const cached = animationCache.get(cacheKey);
@@ -87,7 +91,12 @@ export async function loadAnimationSequence(
       if (sample && sample.position && sample.rotation) {
         samples.push({
           position: { x: sample.position.x, y: sample.position.y, z: sample.position.z },
-          rotation: { x: sample.rotation.x, y: sample.rotation.y, z: sample.rotation.z, w: sample.rotation.w },
+          rotation: {
+            x: sample.rotation.x,
+            y: sample.rotation.y,
+            z: sample.rotation.z,
+            w: sample.rotation.w,
+          },
         });
       } else {
         samples.push({
@@ -112,11 +121,17 @@ export async function loadAnimationSequence(
 }
 
 export function evaluatePose(
-  skeleton: { nodes: Array<{ parent: number }>; bindLocal: THREE.Matrix4[]; animWorld: THREE.Matrix4[]; bones?: THREE.Bone[]; rootNodes?: number[] },
+  skeleton: {
+    nodes: Array<{ parent: number }>;
+    bindLocal: THREE.Matrix4[];
+    animWorld: THREE.Matrix4[];
+    bones?: THREE.Bone[];
+    rootNodes?: number[];
+  },
   sequence: AnimationSequence,
   nowMs: number,
   loop: boolean,
-  options?: EvaluatePoseOptions
+  options?: EvaluatePoseOptions,
 ): boolean {
   const nodeCount = skeleton.nodes.length;
   const nodeIndexCount = sequence.nodeIndex.length;
@@ -127,10 +142,15 @@ export function evaluatePose(
   const rootNodeIndex = options?.rootNodeIndex ?? skeleton.rootNodes?.[0] ?? 0;
   if (extractRootMotion && options?.outRootMotionPos) options.outRootMotionPos.set(0, 0, 0);
 
-  const timeMs = loop ? ((nowMs % sequence.totalTimeMs) + sequence.totalTimeMs) % sequence.totalTimeMs : Math.max(0, Math.min(sequence.totalTimeMs, nowMs));
+  const timeMs = loop
+    ? ((nowMs % sequence.totalTimeMs) + sequence.totalTimeMs) % sequence.totalTimeMs
+    : Math.max(0, Math.min(sequence.totalTimeMs, nowMs));
   const frameFloat = (timeMs / 1000.0) * sequence.fpsRate;
-  const frame0 = Math.max(0, Math.min(sequence.numFrames - 1, Math.floor(frameFloat))) % sequence.numFrames;
-  const frame1 = loop ? ((frame0 + 1) % sequence.numFrames) : Math.min(sequence.numFrames - 1, frame0 + 1);
+  const frame0 =
+    Math.max(0, Math.min(sequence.numFrames - 1, Math.floor(frameFloat))) % sequence.numFrames;
+  const frame1 = loop
+    ? (frame0 + 1) % sequence.numFrames
+    : Math.min(sequence.numFrames - 1, frame0 + 1);
   const t = frameFloat - Math.floor(frameFloat);
 
   const animLocal: THREE.Matrix4[] = new Array(nodeCount);
@@ -175,7 +195,7 @@ export function evaluatePose(
       animLocal[nodeId] = new THREE.Matrix4().compose(
         new THREE.Vector3(bindPos.x, y, bindPos.z),
         rot,
-        new THREE.Vector3(1, 1, 1)
+        new THREE.Vector3(1, 1, 1),
       );
     } else {
       animLocal[nodeId] = new THREE.Matrix4().compose(pos, rot, new THREE.Vector3(1, 1, 1));

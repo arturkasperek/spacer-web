@@ -85,4 +85,3 @@ export function __resetCameraSettingsForTests(): void {
   snapshot = defaultState;
   for (const l of listeners) l();
 }
-

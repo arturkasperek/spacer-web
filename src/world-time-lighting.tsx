@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { useWorldTime } from "./world-time.js";
 
 export function getWorldLightFactor(hour: number, minute: number): number {
-  const mins = ((hour % 24) + 24) % 24 * 60 + (((minute % 60) + 60) % 60);
+  const mins = (((hour % 24) + 24) % 24) * 60 + (((minute % 60) + 60) % 60);
   const dayFrac = mins / 1440;
   // Same elevation curve as sky.tsx (sun on horizon at 06:00/18:00).
   const elev = Math.sin((dayFrac - 0.25) * Math.PI * 2);
@@ -46,4 +46,3 @@ export function WorldTimeLighting() {
 
   return null;
 }
-

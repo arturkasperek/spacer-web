@@ -34,7 +34,10 @@ export function buildWaynetGraph(waypoints: WaynetWaypoint[], edges: WaynetEdge[
   return { waypoints, adjacency, nameToIndex };
 }
 
-export function findNearestWaypointIndex(graph: Pick<WaynetGraph, "waypoints">, pos: { x: number; y: number; z: number }): number {
+export function findNearestWaypointIndex(
+  graph: Pick<WaynetGraph, "waypoints">,
+  pos: { x: number; y: number; z: number },
+): number {
   let bestIdx = -1;
   let bestDist2 = Number.POSITIVE_INFINITY;
 
@@ -53,20 +56,30 @@ export function findNearestWaypointIndex(graph: Pick<WaynetGraph, "waypoints">, 
   return bestIdx;
 }
 
-export function findWaypointIndexByName(graph: Pick<WaynetGraph, "nameToIndex">, name: string): number {
+export function findWaypointIndexByName(
+  graph: Pick<WaynetGraph, "nameToIndex">,
+  name: string,
+): number {
   const key = (name || "").trim().toUpperCase();
   if (!key) return -1;
   return graph.nameToIndex.get(key) ?? -1;
 }
 
-function dist(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number {
+function dist(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   const dz = a.z - b.z;
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
-export function findRouteAStar(graph: WaynetGraph, startIndex: number, goalIndex: number): number[] {
+export function findRouteAStar(
+  graph: WaynetGraph,
+  startIndex: number,
+  goalIndex: number,
+): number[] {
   if (startIndex < 0 || goalIndex < 0) return [];
   if (startIndex >= graph.waypoints.length || goalIndex >= graph.waypoints.length) return [];
   if (startIndex === goalIndex) return [startIndex];
@@ -113,7 +126,9 @@ export function findRouteAStar(graph: WaynetGraph, startIndex: number, goalIndex
     const curPos = graph.waypoints[current].position;
 
     for (const neighbor of graph.adjacency[current] || []) {
-      const tentativeG = (gScore.get(current) ?? Number.POSITIVE_INFINITY) + dist(curPos, graph.waypoints[neighbor].position);
+      const tentativeG =
+        (gScore.get(current) ?? Number.POSITIVE_INFINITY) +
+        dist(curPos, graph.waypoints[neighbor].position);
       if (tentativeG < (gScore.get(neighbor) ?? Number.POSITIVE_INFINITY)) {
         cameFrom.set(neighbor, current);
         gScore.set(neighbor, tentativeG);
@@ -125,4 +140,3 @@ export function findRouteAStar(graph: WaynetGraph, startIndex: number, goalIndex
 
   return [];
 }
-

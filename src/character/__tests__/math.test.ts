@@ -5,12 +5,7 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
 
     const { buildSkeletonFromHierarchy } = require("../skeleton");
 
-    const identity = [
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ];
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
     const hierarchy = {
       rootTranslation: { x: 1, y: 2, z: 3 },
@@ -101,7 +96,10 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
     };
 
     const outRoot = new THREE.Vector3();
-    const ok = evaluatePose(skeleton, seq, 500, true, { extractRootMotion: true, outRootMotionPos: outRoot });
+    const ok = evaluatePose(skeleton, seq, 500, true, {
+      extractRootMotion: true,
+      outRootMotionPos: outRoot,
+    });
     expect(ok).toBe(true);
     expect(outRoot.x).toBeCloseTo(5);
     expect(outRoot.y).toBeCloseTo(0);
@@ -136,7 +134,10 @@ describe("character math (skeleton, animation, cpu skinning)", () => {
     };
 
     const outRoot = new THREE.Vector3();
-    const ok = evaluatePose(skeleton, seq, 500, true, { extractRootMotion: true, outRootMotionPos: outRoot });
+    const ok = evaluatePose(skeleton, seq, 500, true, {
+      extractRootMotion: true,
+      outRootMotionPos: outRoot,
+    });
     expect(ok).toBe(true);
     expect(outRoot.x).toBeCloseTo(5);
     expect(skeleton.animWorld[0].elements[13]).toBeCloseTo(80);

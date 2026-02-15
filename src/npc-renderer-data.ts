@@ -47,7 +47,11 @@ export function computeNpcsWithPositions({
     if (npcData.dailyRoutine && npcData.dailyRoutine.length > 0 && !routineWaybox) continue;
 
     // Priority 1: Check routine waypoint at current time (10:00)
-    const routineWaypoint = findActiveRoutineWaypoint(npcData.dailyRoutine, CURRENT_HOUR, CURRENT_MINUTE);
+    const routineWaypoint = findActiveRoutineWaypoint(
+      npcData.dailyRoutine,
+      CURRENT_HOUR,
+      CURRENT_MINUTE,
+    );
     if (routineWaypoint) {
       waypointName = routineWaypoint;
     } else {
@@ -85,7 +89,9 @@ export function computeNpcsWithPositions({
         waybox,
       });
     } else {
-      const source = routineWaypoint ? `routine waypoint \"${routineWaypoint}\"` : `spawnpoint \"${npcData.spawnpoint}\"`;
+      const source = routineWaypoint
+        ? `routine waypoint \"${routineWaypoint}\"`
+        : `spawnpoint \"${npcData.spawnpoint}\"`;
       console.warn(`⚠️ Could not find ${source} (waypoint or VOB) for NPC ${npcData.symbolName}`);
     }
   }

@@ -134,7 +134,7 @@ export async function buildSoftSkinMeshCPU(params: {
 
     triGroups.push({
       start: groupStart,
-      count: (vertexCursor - groupStart),
+      count: vertexCursor - groupStart,
       matIndex: currentMatIndex,
     });
     currentMatIndex++;

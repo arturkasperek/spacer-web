@@ -35,21 +35,30 @@ export type WaypointMover = {
     npcId: string,
     npcGroup: THREE.Group,
     targetWaypointName: string,
-    options?: Partial<WaypointMoveOptions>
+    options?: Partial<WaypointMoveOptions>,
   ) => boolean;
   startMoveToPosition: (
     npcId: string,
     npcGroup: THREE.Group,
     targetPos: THREE.Vector3,
-    options?: Partial<WaypointMoveOptions> & { finalQuat?: THREE.Quaternion }
+    options?: Partial<WaypointMoveOptions> & { finalQuat?: THREE.Quaternion },
   ) => boolean;
   startMoveToFreepoint: (
     npcId: string,
     npcGroup: THREE.Group,
     freepointName: string,
-    options?: Partial<WaypointMoveOptions> & { checkDistance?: boolean; dist?: number; holdMs?: number; arriveDistance?: number }
+    options?: Partial<WaypointMoveOptions> & {
+      checkDistance?: boolean;
+      dist?: number;
+      holdMs?: number;
+      arriveDistance?: number;
+    },
   ) => boolean;
-  update: (npcId: string, npcGroup: THREE.Group, deltaSeconds: number) => { moved: boolean; mode: LocomotionMode };
+  update: (
+    npcId: string,
+    npcGroup: THREE.Group,
+    deltaSeconds: number,
+  ) => { moved: boolean; mode: LocomotionMode };
   getMoveState: (npcId: string) => WaypointMoveState | null;
   clearForNpc: (npcId: string) => void;
   clear: () => void;
@@ -91,7 +100,10 @@ export function createWaypointMover(world: World): WaypointMover {
     let s = ud._npcTrafficRngState as number | undefined;
     if (typeof s !== "number") {
       const npcData = ud.npcData as { instanceIndex?: number } | undefined;
-      const base = typeof npcData?.instanceIndex === "number" ? (npcData.instanceIndex >>> 0) : hashStringToSeed(npcId);
+      const base =
+        typeof npcData?.instanceIndex === "number"
+          ? npcData.instanceIndex >>> 0
+          : hashStringToSeed(npcId);
       s = (base ^ 0x9e3779b9) >>> 0;
       if (s === 0) s = 0x6d2b79f5;
     }
@@ -111,8 +123,15 @@ export function createWaypointMover(world: World): WaypointMover {
     return null;
   };
 
-  const isOtherNpcNearWaypoint = (npcId: string, npcGroup: THREE.Group, waypoint: THREE.Vector3, radius: number): boolean => {
-    const colliders = (npcGroup.userData as any)._npcCollidersScratch as Array<{ id?: number; x: number; z: number }> | undefined;
+  const isOtherNpcNearWaypoint = (
+    npcId: string,
+    npcGroup: THREE.Group,
+    waypoint: THREE.Vector3,
+    radius: number,
+  ): boolean => {
+    const colliders = (npcGroup.userData as any)._npcCollidersScratch as
+      | Array<{ id?: number; x: number; z: number }>
+      | undefined;
     if (!colliders || colliders.length === 0) return false;
     const selfId = parseNpcInstanceIndex(npcId, npcGroup);
     const r2 = radius * radius;
@@ -167,13 +186,17 @@ export function createWaypointMover(world: World): WaypointMover {
       const graph = ensureWaynetGraph();
       if (!graph) return false;
 
-      const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
+      const startIndex = findNearestWaypointIndex(graph, {
+        x: npcGroup.position.x,
+        y: npcGroup.position.y,
+        z: npcGroup.position.z,
+      });
       const goalIndex = findWaypointIndexByName(graph, targetWaypointName);
       if (goalIndex < 0) return false;
       const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
       if (routeIdx.length < 2) return false;
 
-      const route = routeIdx.map(i => {
+      const route = routeIdx.map((i) => {
         const p = graph.waypoints[i].position;
         return new THREE.Vector3(p.x, p.y, p.z);
       });
@@ -196,13 +219,17 @@ export function createWaypointMover(world: World): WaypointMover {
       const graph = ensureWaynetGraph();
       if (!graph) return false;
 
-      const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
+      const startIndex = findNearestWaypointIndex(graph, {
+        x: npcGroup.position.x,
+        y: npcGroup.position.y,
+        z: npcGroup.position.z,
+      });
       const goalIndex = findNearestWaypointIndex(graph, targetPos);
       const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
 
       const route: THREE.Vector3[] =
         routeIdx.length > 0
-          ? routeIdx.map(i => {
+          ? routeIdx.map((i) => {
               const p = graph.waypoints[i].position;
               return new THREE.Vector3(p.x, p.y, p.z);
             })
@@ -244,15 +271,24 @@ export function createWaypointMover(world: World): WaypointMover {
       if (!spot) return false;
 
       const targetPos = new THREE.Vector3(spot.position.x, spot.position.y, spot.position.z);
-      const targetQuat = new THREE.Quaternion(spot.quaternion.x, spot.quaternion.y, spot.quaternion.z, spot.quaternion.w);
+      const targetQuat = new THREE.Quaternion(
+        spot.quaternion.x,
+        spot.quaternion.y,
+        spot.quaternion.z,
+        spot.quaternion.w,
+      );
 
-      const startIndex = findNearestWaypointIndex(graph, { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z });
+      const startIndex = findNearestWaypointIndex(graph, {
+        x: npcGroup.position.x,
+        y: npcGroup.position.y,
+        z: npcGroup.position.z,
+      });
       const goalIndex = findNearestWaypointIndex(graph, targetPos);
       const routeIdx = findRouteAStar(graph, startIndex, goalIndex);
 
       const route: THREE.Vector3[] =
         routeIdx.length > 0
-          ? routeIdx.map(i => {
+          ? routeIdx.map((i) => {
               const p = graph.waypoints[i].position;
               return new THREE.Vector3(p.x, p.y, p.z);
             })
@@ -306,7 +342,9 @@ export function createWaypointMover(world: World): WaypointMover {
 
         if (movedDuringSteer) {
           const r = nextRand01(npcId, npcGroup);
-          const waitMs = Math.floor(TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS));
+          const waitMs = Math.floor(
+            TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS),
+          );
           ud._npcTrafficWaitUntilMs = nowMs + waitMs;
           return { moved: false, mode: "idle" };
         }
@@ -323,12 +361,21 @@ export function createWaypointMover(world: World): WaypointMover {
       let remaining = Math.max(0, deltaSeconds);
       let moved = false;
 
-      const applyMoveXZ = (x: number, z: number, dt: number): { blocked: boolean; moved: boolean } => {
+      const applyMoveXZ = (
+        x: number,
+        z: number,
+        dt: number,
+      ): { blocked: boolean; moved: boolean } => {
         const beforeX = npcGroup.position.x;
         const beforeZ = npcGroup.position.z;
         let blocked = false;
         const constraint = (npcGroup.userData as any).moveConstraint as
-          | ((group: THREE.Group, desiredX: number, desiredZ: number, dt: number) => { blocked: boolean; moved: boolean } | boolean | void)
+          | ((
+              group: THREE.Group,
+              desiredX: number,
+              desiredZ: number,
+              dt: number,
+            ) => { blocked: boolean; moved: boolean } | boolean | void)
           | undefined;
         if (typeof constraint === "function") {
           const res = constraint(npcGroup, x, z, dt);
@@ -338,7 +385,9 @@ export function createWaypointMover(world: World): WaypointMover {
           npcGroup.position.x = x;
           npcGroup.position.z = z;
         }
-        const didMove = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+        const didMove =
+          Math.abs(npcGroup.position.x - beforeX) > 1e-6 ||
+          Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
         return { blocked, moved: didMove };
       };
 
@@ -365,7 +414,11 @@ export function createWaypointMover(world: World): WaypointMover {
         if (params.dt <= 0) return false;
         if (move.done) return false;
         if (steerYaw != null || steerRemainingSeconds > 0) return false;
-        if (typeof ud._npcTrafficSteerUntilMs === "number" && (ud._npcTrafficSteerUntilMs as number) > nowMs) return false;
+        if (
+          typeof ud._npcTrafficSteerUntilMs === "number" &&
+          (ud._npcTrafficSteerUntilMs as number) > nowMs
+        )
+          return false;
 
         const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
         if (npcBlocked) return false;
@@ -383,7 +436,9 @@ export function createWaypointMover(world: World): WaypointMover {
         const savedZ = npcGroup.position.z;
         const savedNpcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
 
-        const probeYaw = (yaw: number): { yaw: number; movedDist: number; blocked: boolean; progress: number } => {
+        const probeYaw = (
+          yaw: number,
+        ): { yaw: number; movedDist: number; blocked: boolean; progress: number } => {
           npcGroup.position.x = savedX;
           npcGroup.position.z = savedZ;
           (npcGroup.userData as any)._npcNpcBlocked = savedNpcBlocked;
@@ -404,7 +459,18 @@ export function createWaypointMover(world: World): WaypointMover {
         };
 
         const deg = (d: number) => (d * Math.PI) / 180;
-        const offsets = [0, deg(30), -deg(30), deg(60), -deg(60), deg(90), -deg(90), deg(120), -deg(120), Math.PI];
+        const offsets = [
+          0,
+          deg(30),
+          -deg(30),
+          deg(60),
+          -deg(60),
+          deg(90),
+          -deg(90),
+          deg(120),
+          -deg(120),
+          Math.PI,
+        ];
 
         let best: { yaw: number; score: number } | null = null;
         for (const off of offsets) {
@@ -412,7 +478,11 @@ export function createWaypointMover(world: World): WaypointMover {
           if (cand.movedDist <= 1e-4) continue;
           const blockedPenalty = cand.blocked ? 1000 : 0;
           // Prefer unblocked movement and forward progress, but allow temporary sideways/backward steps to get unstuck.
-          const score = blockedPenalty + Math.max(0, -cand.progress) * 0.25 - cand.progress + 0.05 * (stepDist - cand.movedDist);
+          const score =
+            blockedPenalty +
+            Math.max(0, -cand.progress) * 0.25 -
+            cand.progress +
+            0.05 * (stepDist - cand.movedDist);
           if (!best || score < best.score) best = { yaw: cand.yaw, score };
         }
 
@@ -433,7 +503,9 @@ export function createWaypointMover(world: World): WaypointMover {
         steerUntilActiveMs > nowMs &&
         Number.isFinite(steerYawActive);
       let steerYaw: number | null = steerActiveAtStart ? steerYawActive : null;
-      let steerRemainingSeconds = steerActiveAtStart ? Math.max(0, (steerUntilActiveMs! - nowMs) / 1000) : 0;
+      let steerRemainingSeconds = steerActiveAtStart
+        ? Math.max(0, (steerUntilActiveMs! - nowMs) / 1000)
+        : 0;
 
       for (let step = 0; step < MAX_STEPS && remaining > 0 && !move.done; step++) {
         // During deadlock escape steering we intentionally limit simulation to the remaining steer window,
@@ -493,9 +565,17 @@ export function createWaypointMover(world: World): WaypointMover {
         const maxStep = move.speed * dt;
 
         if (!isFinalTarget) {
-          const crowded = isOtherNpcNearWaypoint(npcId, npcGroup, target, INTERMEDIATE_WAYPOINT_CROWD_RADIUS);
+          const crowded = isOtherNpcNearWaypoint(
+            npcId,
+            npcGroup,
+            target,
+            INTERMEDIATE_WAYPOINT_CROWD_RADIUS,
+          );
           // Only allow "gate" behavior when another NPC is close to this waypoint (traffic).
-          if (crowded && dist <= Math.max(move.arriveDistance, INTERMEDIATE_WAYPOINT_CROWD_RADIUS)) {
+          if (
+            crowded &&
+            dist <= Math.max(move.arriveDistance, INTERMEDIATE_WAYPOINT_CROWD_RADIUS)
+          ) {
             move.nextIndex += 1;
             move.stuckSeconds = 0;
             move.finalGateSeconds = 0;
@@ -514,8 +594,12 @@ export function createWaypointMover(world: World): WaypointMover {
           if (shouldSnapIntermediate) {
             const r = applyMoveXZ(target.x, target.z, dt);
             moved = moved || r.moved;
-            if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
-            if (Math.abs(npcGroup.position.x - target.x) <= 1e-4 && Math.abs(npcGroup.position.z - target.z) <= 1e-4) {
+            if (r.moved)
+              npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+            if (
+              Math.abs(npcGroup.position.x - target.x) <= 1e-4 &&
+              Math.abs(npcGroup.position.z - target.z) <= 1e-4
+            ) {
               move.nextIndex += 1;
               move.stuckSeconds = 0;
               move.finalGateSeconds = 0;
@@ -554,8 +638,12 @@ export function createWaypointMover(world: World): WaypointMover {
         if (shouldSnapFinal) {
           const r = applyMoveXZ(target.x, target.z, dt);
           moved = moved || r.moved;
-          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
-          if (Math.abs(npcGroup.position.x - target.x) <= 1e-4 && Math.abs(npcGroup.position.z - target.z) <= 1e-4) {
+          if (r.moved)
+            npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+          if (
+            Math.abs(npcGroup.position.x - target.x) <= 1e-4 &&
+            Math.abs(npcGroup.position.z - target.z) <= 1e-4
+          ) {
             move.nextIndex += 1;
             move.stuckSeconds = 0;
             if (move.nextIndex >= move.route.length) {
@@ -585,7 +673,8 @@ export function createWaypointMover(world: World): WaypointMover {
           const nextZ = npcGroup.position.z + tmpToTargetHoriz.z * maxStep;
           const r = applyMoveXZ(nextX, nextZ, dt);
           moved = moved || r.moved;
-          if (r.moved) npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
+          if (r.moved)
+            npcGroup.userData.lastMoveDirXZ = { x: tmpToTargetHoriz.x, z: tmpToTargetHoriz.z };
           if (r.moved) move.stuckSeconds = 0;
           else {
             const npcBlocked = Boolean((npcGroup.userData as any)._npcNpcBlocked);
@@ -635,7 +724,11 @@ export function createWaypointMover(world: World): WaypointMover {
       }
 
       // If we consumed the whole steer window in one update tick (e.g. large delta), schedule the wait immediately.
-      if (steerYaw != null && steerRemainingSeconds <= 1e-9 && Boolean(ud._npcTrafficSteerPendingWait)) {
+      if (
+        steerYaw != null &&
+        steerRemainingSeconds <= 1e-9 &&
+        Boolean(ud._npcTrafficSteerPendingWait)
+      ) {
         const movedDuringSteer = Boolean(ud._npcTrafficSteerMoved);
         delete ud._npcTrafficSteerPendingWait;
         delete ud._npcTrafficSteerMoved;
@@ -645,7 +738,9 @@ export function createWaypointMover(world: World): WaypointMover {
 
         if (movedDuringSteer) {
           const r = nextRand01(npcId, npcGroup);
-          const waitMs = Math.floor(TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS));
+          const waitMs = Math.floor(
+            TRAFFIC_WAIT_MIN_MS + r * (TRAFFIC_WAIT_MAX_MS - TRAFFIC_WAIT_MIN_MS),
+          );
           const processedSeconds = Math.max(0, deltaSeconds - remaining);
           const endMs = nowMs + processedSeconds * 1000;
           ud._npcTrafficWaitUntilMs = endMs + waitMs;

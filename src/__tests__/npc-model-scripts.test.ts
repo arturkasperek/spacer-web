@@ -36,4 +36,3 @@ describe("npc-model-scripts", () => {
     expect(getNpcModelScriptsState(5).overlays).toEqual(["HUMANS_MILITIA"]);
   });
 });
-

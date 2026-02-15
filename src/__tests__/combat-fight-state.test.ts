@@ -33,4 +33,3 @@ describe("combat/fight-state", () => {
     expect(st.dead).toBe(true);
   });
 });
-

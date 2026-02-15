@@ -37,7 +37,7 @@ export function createStreamingState(): StreamingState {
 export function shouldUpdateStreaming(
   state: StreamingState,
   cameraPosition: THREE.Vector3 | undefined,
-  config: StreamingConfig
+  config: StreamingConfig,
 ): { shouldUpdate: boolean; cameraPos: THREE.Vector3 } {
   const camPos = cameraPosition || new THREE.Vector3(0, 0, 0);
   const updateInterval = config.updateInterval ?? 10;
@@ -68,7 +68,7 @@ export function getItemsToLoadUnload<T extends StreamableItem>(
   items: T[],
   cameraPos: THREE.Vector3,
   config: StreamingConfig,
-  loadedItems: Map<string, THREE.Object3D>
+  loadedItems: Map<string, THREE.Object3D>,
 ): { toLoad: T[]; toUnload: string[] } {
   const toLoad: T[] = [];
   const toUnload: string[] = [];
@@ -107,4 +107,3 @@ export function disposeObject3D(object: THREE.Object3D): void {
 
   // Note: materials are cached and shared, don't dispose them
 }
-

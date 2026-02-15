@@ -1,14 +1,23 @@
 import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
-import type { World, ZenKit } from '@kolarz3/zenkit';
+import type { World, ZenKit } from "@kolarz3/zenkit";
 import { useRapier } from "@react-three/rapier";
-import { loadVm, type NpcSpawnCallback } from './vm-manager';
+import { loadVm, type NpcSpawnCallback } from "./vm-manager";
 import { loadCameraModes } from "./camera-daedalus";
-import { buildThreeJSGeometry, buildMaterialGroups, loadCompiledTexAsDataTexture } from './mesh-utils';
-import { tgaNameToCompiledUrl } from './vob-utils';
+import {
+  buildThreeJSGeometry,
+  buildMaterialGroups,
+  loadCompiledTexAsDataTexture,
+} from "./mesh-utils";
+import { tgaNameToCompiledUrl } from "./vob-utils";
 
 // World Renderer Component - loads ZenKit and renders world mesh
-function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }: Readonly<{
+function WorldRenderer({
+  worldPath,
+  onLoadingStatus,
+  onWorldLoaded,
+  onNpcSpawn,
+}: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
   onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
@@ -17,9 +26,10 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
   const { world: rapierWorld, rapier } = useRapier();
   const meshRef = useRef<THREE.Mesh>(null);
   const [worldMesh, setWorldMesh] = useState<THREE.Mesh | null>(null);
-  const [worldColliderData, setWorldColliderData] = useState<{ vertices: Float32Array; indices: Uint32Array } | null>(
-    null
-  );
+  const [worldColliderData, setWorldColliderData] = useState<{
+    vertices: Float32Array;
+    indices: Uint32Array;
+  } | null>(null);
   const hasLoadedRef = useRef(false);
   const rapierColliderRef = useRef<any>(null);
 
@@ -58,10 +68,10 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
 
     const loadWorld = async () => {
       try {
-        onLoadingStatus('Loading ZenKit...');
+        onLoadingStatus("Loading ZenKit...");
 
         // Import ZenKit WebAssembly module
-        const zenkitModule = await import('@kolarz3/zenkit');
+        const zenkitModule = await import("@kolarz3/zenkit");
         const ZenKitModule = zenkitModule.default as unknown as () => Promise<ZenKit>;
         const zenKit = await ZenKitModule();
 
@@ -83,14 +93,14 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         const arrayBuffer = await response.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
 
-        onLoadingStatus('Processing world data...');
+        onLoadingStatus("Processing world data...");
 
         // Create world and load
         const world = zenKit.createWorld();
         const success = world.loadFromArray(uint8Array);
 
         if (!success || !world.isLoaded) {
-          throw new Error(world.getLastError() || 'Unknown loading error');
+          throw new Error(world.getLastError() || "Unknown loading error");
         }
 
         // Notify parent component that world is loaded
@@ -98,7 +108,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
           onWorldLoaded(world, zenKit);
         }
 
-        onLoadingStatus('Processing mesh data...');
+        onLoadingStatus("Processing mesh data...");
 
         // Get the world mesh - world.mesh directly exposes getProcessedMeshData()
         const processed = world.mesh.getProcessedMeshData();
@@ -107,7 +117,9 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         const idxCount = processed.indices.size();
         const matCount = processed.materials.size();
 
-        console.log(`World loaded: ${vertCount/8} vertices, ${idxCount/3} triangles, ${matCount} materials`);
+        console.log(
+          `World loaded: ${vertCount / 8} vertices, ${idxCount / 3} triangles, ${matCount} materials`,
+        );
 
         // Build Three.js geometry using shared utility
         const geometry = buildThreeJSGeometry(processed);
@@ -119,10 +131,10 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         for (let mi = 0; mi < matCount; mi++) {
           const mat = processed.materials.get(mi) as any;
           const material = new THREE.MeshBasicMaterial({
-            color: 0xFFFFFF, // WHITE - don't tint the texture!
+            color: 0xffffff, // WHITE - don't tint the texture!
             side: THREE.DoubleSide,
             transparent: false, // Disable transparency for alpha-tested materials
-            alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
+            alphaTest: 0.5, // Use proper alpha test threshold like OpenGothic
           });
           materialArray.push(material);
 
@@ -135,14 +147,16 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
           // Load texture asynchronously using shared utility
           if (texName && texName.length) {
             const textureUrl = tgaNameToCompiledUrl(texName);
-            loadCompiledTexAsDataTexture(textureUrl, zenKit).then(tex => {
-              if (tex && materialArray[mi]) {
-                materialArray[mi].map = tex;
-                materialArray[mi].needsUpdate = true;
-              }
-            }).catch(() => {
-              console.warn(`Failed to load texture: ${texName}`);
-            });
+            loadCompiledTexAsDataTexture(textureUrl, zenKit)
+              .then((tex) => {
+                if (tex && materialArray[mi]) {
+                  materialArray[mi].map = tex;
+                  materialArray[mi].needsUpdate = true;
+                }
+              })
+              .catch(() => {
+                console.warn(`Failed to load texture: ${texName}`);
+              });
           }
         }
 
@@ -153,7 +167,7 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
 
         // Create mesh with materials array
         const threeMesh = new THREE.Mesh(geometry, materialArray);
-        threeMesh.name = 'WORLD_MESH';
+        threeMesh.name = "WORLD_MESH";
         threeMesh.scale.x = -1; // Fix mirrored world
 
         // Store per-triangle material IDs to allow collision filtering (ZenGin `noCollDet` materials).
@@ -220,18 +234,22 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
         }
 
         setWorldMesh(threeMesh);
-        onLoadingStatus('World loaded successfully!');
+        onLoadingStatus("World loaded successfully!");
 
         // Load VM script and call startup function, but only after the world (and thus waypoints/VOBs) is loaded.
         // This also ensures `onWorldLoaded` can set any global world references used by VM externals.
-        onLoadingStatus('Loading VM script...');
+        onLoadingStatus("Loading VM script...");
         try {
           const resolveHeroSpawnpoint = (): string => {
             try {
               // Prefer zCVobStartpoint (player start) if ZenKit exposes it.
               // Fallback to NW_XARDAS_START (used by scripts) and finally START.
               const startpoints = (world as any)?.getStartpoints?.();
-              if (startpoints && typeof startpoints.size === "function" && typeof startpoints.get === "function") {
+              if (
+                startpoints &&
+                typeof startpoints.size === "function" &&
+                typeof startpoints.get === "function"
+              ) {
                 const n = Number(startpoints.size());
                 if (Number.isFinite(n) && n > 0) {
                   const sp0 = startpoints.get(0);
@@ -248,18 +266,23 @@ function WorldRenderer({ worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn }
             }
             return "START";
           };
-          await loadVm(zenKit, '/SCRIPTS/_COMPILED/GOTHIC.DAT', 'startup_newworld', onNpcSpawn, resolveHeroSpawnpoint());
+          await loadVm(
+            zenKit,
+            "/SCRIPTS/_COMPILED/GOTHIC.DAT",
+            "startup_newworld",
+            onNpcSpawn,
+            resolveHeroSpawnpoint(),
+          );
           await cameraModesPromise;
-          console.log('VM loaded successfully');
-          onLoadingStatus('VM loaded');
+          console.log("VM loaded successfully");
+          onLoadingStatus("VM loaded");
         } catch (vmError) {
-          console.warn('Failed to load VM script:', vmError);
+          console.warn("Failed to load VM script:", vmError);
           onLoadingStatus(`VM loading failed: ${(vmError as Error).message}`);
           // Continue with world rendering even if VM fails
         }
-
       } catch (error) {
-        console.error('Failed to load world:', error);
+        console.error("Failed to load world:", error);
         onLoadingStatus(`Error: ${(error as Error).message}`);
         hasLoadedRef.current = false;
       }

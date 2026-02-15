@@ -10,9 +10,9 @@
  * </BoundingBox>
  */
 
-import { useRef, useMemo } from 'react';
-import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import { useRef, useMemo } from "react";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
 
 interface BoundingBoxProps {
   children: React.ReactNode;
@@ -24,8 +24,8 @@ interface BoundingBoxProps {
 export function BoundingBox({
   children,
   visible = true,
-  color = '#ffffff',
-  lineWidth = 1
+  color = "#ffffff",
+  lineWidth = 1,
 }: BoundingBoxProps) {
   const groupRef = useRef<THREE.Group>(null);
   const boxRef = useRef<THREE.LineSegments>(null);
@@ -41,7 +41,7 @@ export function BoundingBox({
     if (groupRef.current && boxRef.current && visible) {
       // Compute bounding box of children, excluding the bounding box itself
       const box = new THREE.Box3();
-      
+
       groupRef.current.children.forEach((child) => {
         if (child !== boxRef.current) {
           box.expandByObject(child);
@@ -64,12 +64,7 @@ export function BoundingBox({
       {children}
       {visible && (
         <lineSegments ref={boxRef} geometry={boxGeometry}>
-          <lineBasicMaterial
-            color={color}
-            linewidth={lineWidth}
-            transparent
-            opacity={0.8}
-          />
+          <lineBasicMaterial color={color} linewidth={lineWidth} transparent opacity={0.8} />
         </lineSegments>
       )}
     </group>

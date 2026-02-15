@@ -3,7 +3,14 @@ export {};
 type Aabb = import("../npc-routine-waybox").Aabb;
 
 function aabbAround(x: number, y: number, z: number, half: number): Aabb {
-  return { minX: x - half, minY: y - half, minZ: z - half, maxX: x + half, maxY: y + half, maxZ: z + half };
+  return {
+    minX: x - half,
+    minY: y - half,
+    minZ: z - half,
+    maxX: x + half,
+    maxY: y + half,
+    maxZ: z + half,
+  };
 }
 
 describe("npc-renderer-data", () => {
@@ -158,4 +165,3 @@ describe("npc-renderer-data", () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 });
-

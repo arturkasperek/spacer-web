@@ -33,7 +33,8 @@ describe("fetchBinaryCached", () => {
       arrayBuffer: async () => new ArrayBuffer(0),
     });
 
-    await expect(fetchBinaryCached("/missing.bin", cache)).rejects.toThrow("Failed to fetch /missing.bin: 404 Not Found");
+    await expect(fetchBinaryCached("/missing.bin", cache)).rejects.toThrow(
+      "Failed to fetch /missing.bin: 404 Not Found",
+    );
   });
 });
-

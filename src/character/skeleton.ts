@@ -91,7 +91,7 @@ export function buildSkeletonFromHierarchy(hierarchy: any): Skeleton {
     }
   }
 
-  const animWorld = bindWorld.map(m => m.clone());
+  const animWorld = bindWorld.map((m) => m.clone());
 
   return { nodes, rootNodes, bones, rootTr, bindLocal, bindWorld, animWorld };
 }

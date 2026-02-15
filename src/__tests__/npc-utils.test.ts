@@ -1,7 +1,9 @@
 import { findActiveRoutineEntry, findActiveRoutineWaypoint } from "../npc-utils";
 import type { RoutineEntry } from "../types";
 
-const r = (p: Partial<RoutineEntry> & Pick<RoutineEntry, "start_h" | "stop_h" | "state" | "waypoint">): RoutineEntry => ({
+const r = (
+  p: Partial<RoutineEntry> & Pick<RoutineEntry, "start_h" | "stop_h" | "state" | "waypoint">,
+): RoutineEntry => ({
   start_h: p.start_h,
   start_m: p.start_m,
   stop_h: p.stop_h,
@@ -54,4 +56,3 @@ describe("npc-utils routines", () => {
 });
 
 export {};
-

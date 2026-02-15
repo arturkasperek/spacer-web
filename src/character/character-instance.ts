@@ -38,7 +38,7 @@ export type CharacterInstance = {
         blendInMs?: number;
         blendOutMs?: number;
       };
-    }
+    },
   ) => void;
   dispose: () => void;
 };
@@ -55,7 +55,7 @@ export function __blendAnimWorld(
     quat1: THREE.Quaternion;
     scale0: THREE.Vector3;
     scale1: THREE.Vector3;
-  }
+  },
 ): THREE.Matrix4[] {
   const count = Math.min(prevWorld.length, currWorld.length);
   if (count === 0) return outWorld;
@@ -132,7 +132,9 @@ export async function createHumanoidCharacterInstance(params: {
 
   try {
     const mdhPath = `/ANIMS/_COMPILED/HUMANS.MDH`;
-    const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0").replace(/\.(ASC|MDM|MDH|MDL)$/i, "").toUpperCase();
+    const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0")
+      .replace(/\.(ASC|MDM|MDH|MDL)$/i, "")
+      .toUpperCase();
     if (!normalizedBodyMesh.startsWith("HUM_")) {
       return null;
     }
@@ -179,9 +181,7 @@ export async function createHumanoidCharacterInstance(params: {
         textureOverride: (name: string) => {
           const upper = (name || "").toUpperCase();
           if (!upper.includes("BODY")) return name;
-          return upper
-            .replace(/_V\d+/g, `_V${bodyTex}`)
-            .replace(/_C\d+/g, `_C${skin}`);
+          return upper.replace(/_V\d+/g, `_V${bodyTex}`).replace(/_C\d+/g, `_C${skin}`);
         },
       });
 
@@ -190,9 +190,9 @@ export async function createHumanoidCharacterInstance(params: {
     }
 
     // Try to load and attach head mesh (MMB) to the head bone
-    const nodeNames = skeleton.nodes.map(n => n.name);
+    const nodeNames = skeleton.nodes.map((n) => n.name);
     const headNodeIndex = findHeadBoneIndex(nodeNames);
-    const requestedHeadName = headMesh ? headMesh.trim() : '';
+    const requestedHeadName = headMesh ? headMesh.trim() : "";
     if (headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
       const headMesh = await loadHeadMesh({
         zenKit,
@@ -234,13 +234,17 @@ export async function createHumanoidCharacterInstance(params: {
     const box = new THREE.Box3().setFromObject(group);
     const center = box.getCenter(new THREE.Vector3());
     const offsetWorld =
-      align === "ground"
-        ? new THREE.Vector3(center.x, box.min.y, center.z)
-        : center.clone();
+      align === "ground" ? new THREE.Vector3(center.x, box.min.y, center.z) : center.clone();
     const offsetLocal = group.worldToLocal(offsetWorld.clone());
     group.position.sub(offsetLocal);
 
-    const sequence = await loadAnimationSequence(zenKit, caches.binary, caches.animations, "HUMANS", animationName);
+    const sequence = await loadAnimationSequence(
+      zenKit,
+      caches.binary,
+      caches.animations,
+      "HUMANS",
+      animationName,
+    );
     let currentSequence = sequence;
     let currentAnimationName = animationName;
     let currentModelName = "HUMANS";
@@ -248,29 +252,25 @@ export async function createHumanoidCharacterInstance(params: {
     let currentTimeMs = 0;
     let globalTimeMs = 0;
     const failedAnis = new Set<string>();
-    let pendingLoad:
-      | {
-          modelName: string;
-          name: string;
-          loop: boolean;
-          resetTime: boolean;
-          fallbackNames?: string[];
-          blendInMs?: number;
-          blendOutMs?: number;
-        }
-      | null = null;
+    let pendingLoad: {
+      modelName: string;
+      name: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+      blendInMs?: number;
+      blendOutMs?: number;
+    } | null = null;
     let loadingPromise: Promise<void> | null = null;
-    let nextAfterNonLoop:
-      | {
-          animationName: string;
-          modelName: string;
-          loop: boolean;
-          resetTime: boolean;
-          fallbackNames?: string[];
-          blendInMs?: number;
-          blendOutMs?: number;
-        }
-      | null = null;
+    let nextAfterNonLoop: {
+      animationName: string;
+      modelName: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+      blendInMs?: number;
+      blendOutMs?: number;
+    } | null = null;
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
     const rootMotionDelta = new THREE.Vector3();
@@ -289,7 +289,10 @@ export async function createHumanoidCharacterInstance(params: {
     const tmpScale1 = new THREE.Vector3();
     const tmpMat = new THREE.Matrix4();
 
-    const startBlendFromCurrentPose = (blendMs: number, meta?: { name?: string; model?: string }) => {
+    const startBlendFromCurrentPose = (
+      blendMs: number,
+      meta?: { name?: string; model?: string },
+    ) => {
       const dur = Math.max(0, blendMs);
       if (dur <= 0) {
         blendFromWorld = null;
@@ -301,7 +304,7 @@ export async function createHumanoidCharacterInstance(params: {
         blendDurationMs = 0;
         return;
       }
-      blendFromWorld = skeleton.animWorld.map(m => m.clone());
+      blendFromWorld = skeleton.animWorld.map((m) => m.clone());
       blendStartMs = globalTimeMs;
       blendDurationMs = dur;
       void meta;
@@ -358,7 +361,13 @@ export async function createHumanoidCharacterInstance(params: {
           for (const cand of candidates) {
             const key = cand.toUpperCase();
             if (failedAnis.has(key)) continue;
-            const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, next.modelName, cand);
+            const seq = await loadAnimationSequence(
+              zenKit,
+              caches.binary,
+              caches.animations,
+              next.modelName,
+              cand,
+            );
             if (seq) {
               loaded = { seq, name: cand };
               break;
@@ -409,11 +418,15 @@ export async function createHumanoidCharacterInstance(params: {
     const setAnimation: CharacterInstance["setAnimation"] = (nextName, options) => {
       const name = (nextName || "").trim();
       if (!name) return;
-      const nextModel = (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const nextModel =
+        (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
 
-      if (name.toUpperCase() === (currentAnimationName || "").toUpperCase() && nextModel === currentModelName) {
+      if (
+        name.toUpperCase() === (currentAnimationName || "").toUpperCase() &&
+        nextModel === currentModelName
+      ) {
         currentLoop = nextLoop;
         if (resetTime) currentTimeMs = 0;
         if (currentLoop) nextAfterNonLoop = null;
@@ -423,7 +436,8 @@ export async function createHumanoidCharacterInstance(params: {
       if (!nextLoop && options?.next) {
         nextAfterNonLoop = {
           animationName: options.next.animationName,
-          modelName: (options.next.modelName || nextModel || "HUMANS").trim().toUpperCase() || "HUMANS",
+          modelName:
+            (options.next.modelName || nextModel || "HUMANS").trim().toUpperCase() || "HUMANS",
           loop: options.next.loop ?? true,
           resetTime: options.next.resetTime ?? true,
           fallbackNames: options.next.fallbackNames,
@@ -517,7 +531,11 @@ export async function createHumanoidCharacterInstance(params: {
           }
         }
 
-        root.userData.__rootMotionDelta = { x: rootMotionDelta.x, y: rootMotionDelta.y, z: rootMotionDelta.z };
+        root.userData.__rootMotionDelta = {
+          x: rootMotionDelta.x,
+          y: rootMotionDelta.y,
+          z: rootMotionDelta.z,
+        };
       } else {
         root.userData.__rootMotionDelta = { x: 0, y: 0, z: 0 };
       }

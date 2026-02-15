@@ -19,7 +19,8 @@ const DEFAULT_START_DAY = 0;
 const DEFAULT_START_HOUR = 10;
 const DEFAULT_START_MIN = 0;
 
-let worldTimeMs = (DEFAULT_START_HOUR % 24) * WLD_TICKSPERHOUR + (DEFAULT_START_MIN % 60) * WLD_TICKSPERMIN;
+let worldTimeMs =
+  (DEFAULT_START_HOUR % 24) * WLD_TICKSPERHOUR + (DEFAULT_START_MIN % 60) * WLD_TICKSPERMIN;
 let day = DEFAULT_START_DAY;
 let accMs = 0;
 
@@ -111,7 +112,9 @@ export function useWorldTime(): WorldTimeState {
 
 export function __resetWorldTimeForTests(): void {
   day = DEFAULT_START_DAY;
-  worldTimeMs = (DEFAULT_START_HOUR % 24) * WLD_TICKSPERHOUR + Math.round(((DEFAULT_START_MIN % 60) * WLD_TICKSPERHOUR) / 60);
+  worldTimeMs =
+    (DEFAULT_START_HOUR % 24) * WLD_TICKSPERHOUR +
+    Math.round(((DEFAULT_START_MIN % 60) * WLD_TICKSPERHOUR) / 60);
   accMs = 0;
   snapshot = computeSnapshot();
   lastPublishedKey = `${day}:${snapshot.hour * 60 + snapshot.minute}`;

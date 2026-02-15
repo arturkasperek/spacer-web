@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
-import { useThree } from '@react-three/fiber';
-import * as THREE from 'three';
-import type { Vob, WayPointData } from '@kolarz3/zenkit';
-import type { NpcData } from './types';
+import { useEffect } from "react";
+import { useThree } from "@react-three/fiber";
+import * as THREE from "three";
+import type { Vob, WayPointData } from "@kolarz3/zenkit";
+import type { NpcData } from "./types";
 
 interface VobClickHandlerProps {
   onVobClick?: (vob: Vob) => void;
@@ -37,7 +37,7 @@ export function VobClickHandler({ onVobClick, onWaypointClick, onNpcClick }: Vob
       // Find the first intersected object that has a VOB reference
       for (const intersect of intersects) {
         let obj: THREE.Object3D | null = intersect.object;
-        
+
         // Traverse up the object hierarchy to find VOB reference
         while (obj) {
           if (obj.userData.vob) {
@@ -60,10 +60,10 @@ export function VobClickHandler({ onVobClick, onWaypointClick, onNpcClick }: Vob
       }
     };
 
-    gl.domElement.addEventListener('click', handleClick);
-    
+    gl.domElement.addEventListener("click", handleClick);
+
     return () => {
-      gl.domElement.removeEventListener('click', handleClick);
+      gl.domElement.removeEventListener("click", handleClick);
     };
   }, [camera, scene, gl, onVobClick, onWaypointClick, onNpcClick]);
 

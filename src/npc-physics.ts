@@ -8,7 +8,13 @@ import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collisi
 import type { NpcData } from "./types";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
-type JumpType = "jump_forward" | "jump_up_low" | "jump_up_mid" | "jump_up_high" | "climb_up" | "blocked";
+type JumpType =
+  | "jump_forward"
+  | "jump_up_low"
+  | "jump_up_mid"
+  | "jump_up_high"
+  | "climb_up"
+  | "blocked";
 type JumpDecision = {
   type: JumpType;
   reason: string;
@@ -170,93 +176,94 @@ export function useNpcPhysics({
   const { world: rapierWorld, rapier } = useRapier();
 
   const kccConfig = useMemo(() => {
-  		    const getMaxSlopeDeg = () => NPC_RENDER_TUNING.maxSlopeDeg;
+    const getMaxSlopeDeg = () => NPC_RENDER_TUNING.maxSlopeDeg;
 
-  	    const getGroundStickSpeed = () => NPC_RENDER_TUNING.groundStickSpeed;
+    const getGroundStickSpeed = () => NPC_RENDER_TUNING.groundStickSpeed;
 
-  	    const getGroundStickMaxDistance = () => NPC_RENDER_TUNING.groundStickMaxDistance;
+    const getGroundStickMaxDistance = () => NPC_RENDER_TUNING.groundStickMaxDistance;
 
-  	    const getGroundSnapDownEps = () => NPC_RENDER_TUNING.groundSnapDownEps;
+    const getGroundSnapDownEps = () => NPC_RENDER_TUNING.groundSnapDownEps;
 
-  	    const getGroundRecoverDistance = () => NPC_RENDER_TUNING.groundRecoverDistance;
+    const getGroundRecoverDistance = () => NPC_RENDER_TUNING.groundRecoverDistance;
 
-  		    const getGroundRecoverRayStartAbove = () => NPC_RENDER_TUNING.groundRecoverRayStartAbove;
+    const getGroundRecoverRayStartAbove = () => NPC_RENDER_TUNING.groundRecoverRayStartAbove;
 
-  		    const getGroundRecoverMaxDrop = () => NPC_RENDER_TUNING.groundRecoverMaxDrop;
+    const getGroundRecoverMaxDrop = () => NPC_RENDER_TUNING.groundRecoverMaxDrop;
 
-  		    const getSlopeSpeedCompEnabled = () => NPC_RENDER_TUNING.slopeSpeedCompEnabled;
+    const getSlopeSpeedCompEnabled = () => NPC_RENDER_TUNING.slopeSpeedCompEnabled;
 
-  	    const getSlopeSpeedCompMaxFactor = () => NPC_RENDER_TUNING.slopeSpeedCompMaxFactor;
+    const getSlopeSpeedCompMaxFactor = () => NPC_RENDER_TUNING.slopeSpeedCompMaxFactor;
 
-  	    const getSlideBlockUphillEnabled = () => NPC_RENDER_TUNING.slideBlockUphillEnabled;
+    const getSlideBlockUphillEnabled = () => NPC_RENDER_TUNING.slideBlockUphillEnabled;
 
-  	    const getSlideAccel = () => NPC_RENDER_TUNING.slideAccel;
+    const getSlideAccel = () => NPC_RENDER_TUNING.slideAccel;
 
-  	    const getSlideMaxSpeed = () => NPC_RENDER_TUNING.slideMaxSpeed;
+    const getSlideMaxSpeed = () => NPC_RENDER_TUNING.slideMaxSpeed;
 
     const getSlideInitialSpeed = () => NPC_RENDER_TUNING.slideInitialSpeed;
     const getSlideEntryDelaySeconds = () => NPC_RENDER_TUNING.slideEntryDelaySeconds;
 
-  	    const getSlideToFallDeg = () => NPC_RENDER_TUNING.slideToFallDeg;
+    const getSlideToFallDeg = () => NPC_RENDER_TUNING.slideToFallDeg;
 
-  		    const getFallSlidePushSpeed = () => NPC_RENDER_TUNING.fallSlidePushSpeed;
+    const getFallSlidePushSpeed = () => NPC_RENDER_TUNING.fallSlidePushSpeed;
 
-  			    const getFallSlidePushMaxPerFrame = () => NPC_RENDER_TUNING.fallSlidePushMaxPerFrame;
+    const getFallSlidePushMaxPerFrame = () => NPC_RENDER_TUNING.fallSlidePushMaxPerFrame;
 
     const getFallWallPushDurationSeconds = () => NPC_RENDER_TUNING.fallWallPushDurationSeconds;
 
     const getFallDownHeight = () => NPC_RENDER_TUNING.fallDownHeight;
     const getFallEntryDelaySeconds = () => NPC_RENDER_TUNING.fallEntryDelaySeconds;
-  const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
-  const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
-  const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
-  const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
-  const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
-  const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
-  const getJumpUpForwardBoost = () => NPC_RENDER_TUNING.jumpUpForwardBoost;
-  const getJumpUpUseLedgeDir = () => NPC_RENDER_TUNING.jumpUpUseLedgeDir;
-  const getJumpUpTeleportOnStart = () => NPC_RENDER_TUNING.jumpUpTeleportOnStart;
-  const getJumpUpTeleportSkipKccMs = () => NPC_RENDER_TUNING.jumpUpTeleportSkipKccMs;
-  const getJumpUpAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpAssistDelaySeconds;
-  const getJumpUpAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpAssistDurationSeconds;
-  const getJumpUpLowAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpLowAssistDelaySeconds;
-  const getJumpUpLowAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpLowAssistDurationSeconds;
-  const getJumpUpHighAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpHighAssistDelaySeconds;
-  const getJumpUpHighAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpHighAssistDurationSeconds;
-  const getJumpUpAssistArcHeight = () => NPC_RENDER_TUNING.jumpUpAssistArcHeight;
+    const getJumpSpeed = () => NPC_RENDER_TUNING.jumpSpeed;
+    const getJumpForwardSpeed = () => NPC_RENDER_TUNING.jumpForwardSpeed;
+    const getJumpGraceSeconds = () => NPC_RENDER_TUNING.jumpGraceSeconds;
+    const getJumpGraceMinDistDown = () => NPC_RENDER_TUNING.jumpGraceMinDistDown;
+    const getJumpForwardMinScale = () => NPC_RENDER_TUNING.jumpForwardMinScale;
+    const getJumpForwardEasePower = () => NPC_RENDER_TUNING.jumpForwardEasePower;
+    const getJumpUpForwardBoost = () => NPC_RENDER_TUNING.jumpUpForwardBoost;
+    const getJumpUpUseLedgeDir = () => NPC_RENDER_TUNING.jumpUpUseLedgeDir;
+    const getJumpUpTeleportOnStart = () => NPC_RENDER_TUNING.jumpUpTeleportOnStart;
+    const getJumpUpTeleportSkipKccMs = () => NPC_RENDER_TUNING.jumpUpTeleportSkipKccMs;
+    const getJumpUpAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpAssistDelaySeconds;
+    const getJumpUpAssistDurationSeconds = () => NPC_RENDER_TUNING.jumpUpAssistDurationSeconds;
+    const getJumpUpLowAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpLowAssistDelaySeconds;
+    const getJumpUpLowAssistDurationSeconds = () =>
+      NPC_RENDER_TUNING.jumpUpLowAssistDurationSeconds;
+    const getJumpUpHighAssistDelaySeconds = () => NPC_RENDER_TUNING.jumpUpHighAssistDelaySeconds;
+    const getJumpUpHighAssistDurationSeconds = () =>
+      NPC_RENDER_TUNING.jumpUpHighAssistDurationSeconds;
+    const getJumpUpAssistArcHeight = () => NPC_RENDER_TUNING.jumpUpAssistArcHeight;
 
-  		    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
+    const getSlideToFallGraceSeconds = () => NPC_RENDER_TUNING.slideToFallGraceSeconds;
 
-  			    const getSlideExitGraceSeconds = () => NPC_RENDER_TUNING.slideExitGraceSeconds;
+    const getSlideExitGraceSeconds = () => NPC_RENDER_TUNING.slideExitGraceSeconds;
 
     const getSlideEntryBlockEnabled = () => NPC_RENDER_TUNING.slideEntryBlockEnabled;
 
     const getSlideEntryBlockDeg = () => NPC_RENDER_TUNING.slideEntryBlockDeg;
 
+    const getVisualSmoothEnabled = () => NPC_RENDER_TUNING.visualSmoothEnabled;
 
-  			    const getVisualSmoothEnabled = () => NPC_RENDER_TUNING.visualSmoothEnabled;
+    const getVisualSmoothHalfLifeUp = () => NPC_RENDER_TUNING.visualSmoothHalfLifeUp;
 
-  		    const getVisualSmoothHalfLifeUp = () => NPC_RENDER_TUNING.visualSmoothHalfLifeUp;
+    const getVisualSmoothHalfLifeDown = () => NPC_RENDER_TUNING.visualSmoothHalfLifeDown;
 
-  		    const getVisualSmoothHalfLifeDown = () => NPC_RENDER_TUNING.visualSmoothHalfLifeDown;
+    const getVisualSmoothMaxDown = () => NPC_RENDER_TUNING.visualSmoothMaxDown;
 
-  		    const getVisualSmoothMaxDown = () => NPC_RENDER_TUNING.visualSmoothMaxDown;
+    const getVisualSmoothMaxUp = () => NPC_RENDER_TUNING.visualSmoothMaxUp;
 
-  		    const getVisualSmoothMaxUp = () => NPC_RENDER_TUNING.visualSmoothMaxUp;
-
-  	    const walkDeg = getMaxSlopeDeg();
-  	    return {
-  	      radius: NPC_RENDER_TUNING.radius,
-  	      capsuleHeight: NPC_RENDER_TUNING.capsuleHeight,
-  	      stepHeight: NPC_RENDER_TUNING.stepHeight,
+    const walkDeg = getMaxSlopeDeg();
+    return {
+      radius: NPC_RENDER_TUNING.radius,
+      capsuleHeight: NPC_RENDER_TUNING.capsuleHeight,
+      stepHeight: NPC_RENDER_TUNING.stepHeight,
       // Slopes:
       // - climb if slope <= maxSlopeClimbAngle
       // - slide if slope > minSlopeSlideAngle
-  	      maxSlopeClimbAngle: THREE.MathUtils.degToRad(walkDeg),
-  	      minSlopeSlideAngle: THREE.MathUtils.degToRad(walkDeg),
-  	      // Gravity tuning (ZenGin-like defaults).
-  	      gravity: NPC_RENDER_TUNING.gravity,
-  	      maxFallSpeed: NPC_RENDER_TUNING.maxFallSpeed,
+      maxSlopeClimbAngle: THREE.MathUtils.degToRad(walkDeg),
+      minSlopeSlideAngle: THREE.MathUtils.degToRad(walkDeg),
+      // Gravity tuning (ZenGin-like defaults).
+      gravity: NPC_RENDER_TUNING.gravity,
+      maxFallSpeed: NPC_RENDER_TUNING.maxFallSpeed,
       // How fast we "stick" down while grounded (helps when going downhill on ramps/stairs).
       // Units: distance units per second (Gothic scale is ~cm).
       groundStickSpeed: getGroundStickSpeed(),
@@ -265,12 +272,12 @@ export function useNpcPhysics({
       // A tiny always-on downward component while grounded to let Rapier's snap-to-ground work
       // even when moving with `desired.y = 0` (required by the KCC docs).
       groundSnapDownEps: getGroundSnapDownEps(),
-  	      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
-  	      groundRecoverDistance: getGroundRecoverDistance(),
-  	      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
-  		      groundRecoverMaxDrop: getGroundRecoverMaxDrop(),
-  		      // Small clearance to avoid visual ground intersection.
-  		      groundClearance: NPC_RENDER_TUNING.groundClearance,
+      // Recovery snap when we briefly lose `computedGrounded()` on edges while going downhill.
+      groundRecoverDistance: getGroundRecoverDistance(),
+      groundRecoverRayStartAbove: getGroundRecoverRayStartAbove(),
+      groundRecoverMaxDrop: getGroundRecoverMaxDrop(),
+      // Small clearance to avoid visual ground intersection.
+      groundClearance: NPC_RENDER_TUNING.groundClearance,
 
       // Counter-act KCC's horizontal slowdown when climbing slopes/steps.
       slopeSpeedCompEnabled: getSlopeSpeedCompEnabled(),
@@ -329,16 +336,16 @@ export function useNpcPhysics({
       jumpDecisionMidMaxHeight: NPC_RENDER_TUNING.jumpDecisionMidMaxHeight,
       jumpDecisionHighMaxHeight: NPC_RENDER_TUNING.jumpDecisionHighMaxHeight,
 
-  			      // State hysteresis.
-  		      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
-  		      slideExitGraceSeconds: getSlideExitGraceSeconds(),
+      // State hysteresis.
+      slideToFallGraceSeconds: getSlideToFallGraceSeconds(),
+      slideExitGraceSeconds: getSlideExitGraceSeconds(),
       slideEntryBlockEnabled: getSlideEntryBlockEnabled(),
       slideEntryBlockAngle: THREE.MathUtils.degToRad(getSlideEntryBlockDeg()),
 
-  		      // Visual-only smoothing (applied to a child group so physics stays exact).
-  		      visualSmoothEnabled: getVisualSmoothEnabled(),
-  		      visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
-  	      visualSmoothHalfLifeDown: getVisualSmoothHalfLifeDown(),
+      // Visual-only smoothing (applied to a child group so physics stays exact).
+      visualSmoothEnabled: getVisualSmoothEnabled(),
+      visualSmoothHalfLifeUp: getVisualSmoothHalfLifeUp(),
+      visualSmoothHalfLifeDown: getVisualSmoothHalfLifeDown(),
       visualSmoothMaxDown: getVisualSmoothMaxDown(),
       visualSmoothMaxUp: getVisualSmoothMaxUp(),
     };
@@ -369,7 +376,8 @@ export function useNpcPhysics({
     let smoothY = ud._visSmoothY as number | undefined;
     if (typeof smoothY !== "number" || !Number.isFinite(smoothY)) smoothY = targetY;
 
-    const halfLife = targetY > smoothY ? kccConfig.visualSmoothHalfLifeUp : kccConfig.visualSmoothHalfLifeDown;
+    const halfLife =
+      targetY > smoothY ? kccConfig.visualSmoothHalfLifeUp : kccConfig.visualSmoothHalfLifeDown;
     if (halfLife > 0 && dt > 0) {
       const alpha = 1 - Math.pow(2, -dt / halfLife);
       smoothY = smoothY + (targetY - smoothY) * alpha;
@@ -397,14 +405,15 @@ export function useNpcPhysics({
     width: number,
     startWorld: THREE.Vector3,
     endWorld: THREE.Vector3,
-    visible: boolean
+    visible: boolean,
   ) => {
     if (npcGroup.userData == null) npcGroup.userData = {};
     let line = npcGroup.userData[key] as Line2 | undefined;
     if (!line) {
       const geometry = new LineGeometry();
       const material = new LineMaterial({ color, linewidth: width, depthTest: false });
-      if (typeof window !== "undefined") material.resolution.set(window.innerWidth, window.innerHeight);
+      if (typeof window !== "undefined")
+        material.resolution.set(window.innerWidth, window.innerHeight);
       line = new Line2(geometry, material);
       line.frustumCulled = false;
       line.visible = false;
@@ -418,10 +427,14 @@ export function useNpcPhysics({
       const mat = line.material as LineMaterial;
       mat.resolution.set(window.innerWidth, window.innerHeight);
     }
-    const start = ((npcGroup.userData._kccProbeStart as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccProbeStart = new THREE.Vector3())).copy(
-      startWorld
-    );
-    const end = ((npcGroup.userData._kccProbeEnd as THREE.Vector3 | undefined) ?? (npcGroup.userData._kccProbeEnd = new THREE.Vector3())).copy(endWorld);
+    const start = (
+      (npcGroup.userData._kccProbeStart as THREE.Vector3 | undefined) ??
+      (npcGroup.userData._kccProbeStart = new THREE.Vector3())
+    ).copy(startWorld);
+    const end = (
+      (npcGroup.userData._kccProbeEnd as THREE.Vector3 | undefined) ??
+      (npcGroup.userData._kccProbeEnd = new THREE.Vector3())
+    ).copy(endWorld);
     npcGroup.worldToLocal(start);
     npcGroup.worldToLocal(end);
     (line.geometry as LineGeometry).setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
@@ -434,7 +447,7 @@ export function useNpcPhysics({
     color: number,
     radius: number,
     position: THREE.Vector3,
-    visible: boolean
+    visible: boolean,
   ) => {
     if (npcGroup.userData == null) npcGroup.userData = {};
     let mesh = npcGroup.userData[key] as THREE.Mesh | undefined;
@@ -470,7 +483,7 @@ export function useNpcPhysics({
     radius: number,
     height: number,
     color: number,
-    visible: boolean
+    visible: boolean,
   ) => {
     if (npcGroup.userData == null) npcGroup.userData = {};
     let wire = npcGroup.userData._kccCapsuleWire as THREE.LineSegments | undefined;
@@ -507,7 +520,11 @@ export function useNpcPhysics({
     hit: boolean;
   };
 
-  const updateNpcDebugJumpScanRays = (npcGroup: THREE.Group, rays: JumpDebugRay[], visible: boolean) => {
+  const updateNpcDebugJumpScanRays = (
+    npcGroup: THREE.Group,
+    rays: JumpDebugRay[],
+    visible: boolean,
+  ) => {
     if (npcGroup.userData == null) npcGroup.userData = {};
     let group = npcGroup.userData._kccJumpScanRayGroup as THREE.Group | undefined;
     let pool = npcGroup.userData._kccJumpScanRayPool as Line2[] | undefined;
@@ -530,7 +547,8 @@ export function useNpcPhysics({
       if (line) return line;
       const geometry = new LineGeometry();
       const material = new LineMaterial({ color: 0x2ddf2d, linewidth: 2, depthTest: false });
-      if (typeof window !== "undefined") material.resolution.set(window.innerWidth, window.innerHeight);
+      if (typeof window !== "undefined")
+        material.resolution.set(window.innerWidth, window.innerHeight);
       line = new Line2(geometry, material);
       line.frustumCulled = false;
       line.visible = false;
@@ -567,7 +585,7 @@ export function useNpcPhysics({
       ceilingY: number;
     },
     reports: JumpScanReport[],
-    bestLedge: LedgeCandidate | null
+    bestLedge: LedgeCandidate | null,
   ): JumpDecision => {
     if (!reports.length) {
       return {
@@ -588,10 +606,15 @@ export function useNpcPhysics({
     const highestHit = hitCount > 0 ? hitReports[0] : null;
     const obstacleDistance =
       bestLedge?.obstacleDistance ??
-      (highestHit != null ? Math.hypot(highestHit.end.x - highestHit.start.x, highestHit.end.z - highestHit.start.z) : null);
+      (highestHit != null
+        ? Math.hypot(highestHit.end.x - highestHit.start.x, highestHit.end.z - highestHit.start.z)
+        : null);
     const obstacleMin = kccConfig.jumpDecisionObstacleMinDist;
     const obstacleMax = kccConfig.jumpDecisionObstacleMaxDist;
-    const obstacleInRange = obstacleDistance != null && obstacleDistance >= obstacleMin && obstacleDistance <= obstacleMax;
+    const obstacleInRange =
+      obstacleDistance != null &&
+      obstacleDistance >= obstacleMin &&
+      obstacleDistance <= obstacleMax;
     const ceilingClearance = range.ceilingY - (range.floorY + kccConfig.capsuleHeight);
     const hasCeilingSpace = ceilingClearance >= kccConfig.jumpDecisionCeilingClearanceMin;
 
@@ -657,7 +680,10 @@ export function useNpcPhysics({
     if (!obstacleInRange) {
       return {
         type: "jump_forward",
-        reason: obstacleDistance != null && obstacleDistance < obstacleMin ? "obstacle_too_close" : "obstacle_too_far",
+        reason:
+          obstacleDistance != null && obstacleDistance < obstacleMin
+            ? "obstacle_too_close"
+            : "obstacle_too_far",
         canJump: true,
         ledgeHeight,
         obstacleDistance,
@@ -720,22 +746,22 @@ export function useNpcPhysics({
     };
   };
 
+  useEffect(() => {
+    if (!rapierWorld) return;
+    if (!rapier) return;
 
-  	  useEffect(() => {
-  	    if (!rapierWorld) return;
-  	    if (!rapier) return;
-
-  	    const controller = rapierWorld.createCharacterController(NPC_RENDER_TUNING.controllerOffset);
-  	    controller.setSlideEnabled(true);
-  	    controller.setMaxSlopeClimbAngle(kccConfig.maxSlopeClimbAngle);
-  	    controller.setMinSlopeSlideAngle(kccConfig.minSlopeSlideAngle);
+    const controller = rapierWorld.createCharacterController(NPC_RENDER_TUNING.controllerOffset);
+    controller.setSlideEnabled(true);
+    controller.setMaxSlopeClimbAngle(kccConfig.maxSlopeClimbAngle);
+    controller.setMinSlopeSlideAngle(kccConfig.minSlopeSlideAngle);
 
     const minWidth = Math.max(1, kccConfig.radius * 0.5);
     controller.enableAutostep(kccConfig.stepHeight, minWidth, false);
 
-  	    const snap = NPC_RENDER_TUNING.controllerSnapDistance;
-  	    if (snap > 0) controller.enableSnapToGround(snap);
-  	    else if (typeof (controller as any).disableSnapToGround === "function") (controller as any).disableSnapToGround();
+    const snap = NPC_RENDER_TUNING.controllerSnapDistance;
+    if (snap > 0) controller.enableSnapToGround(snap);
+    else if (typeof (controller as any).disableSnapToGround === "function")
+      (controller as any).disableSnapToGround();
 
     controller.setApplyImpulsesToDynamicBodies(false);
     controller.setCharacterMass(1);
@@ -749,7 +775,14 @@ export function useNpcPhysics({
       }
       if (kccRef.current === controller) kccRef.current = null;
     };
-  }, [rapierWorld, rapier, kccConfig.maxSlopeClimbAngle, kccConfig.minSlopeSlideAngle, kccConfig.radius, kccConfig.stepHeight]);
+  }, [
+    rapierWorld,
+    rapier,
+    kccConfig.maxSlopeClimbAngle,
+    kccConfig.minSlopeSlideAngle,
+    kccConfig.radius,
+    kccConfig.stepHeight,
+  ]);
 
   const ensureNpcKccCollider = (npcGroup: THREE.Object3D) => {
     if (!rapierWorld || !rapier) return null;
@@ -801,7 +834,12 @@ export function useNpcPhysics({
     delete ud._kccColliderHandle;
   };
 
-  const applyMoveConstraint = (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number): MoveConstraintResult => {
+  const applyMoveConstraint = (
+    npcGroup: THREE.Group,
+    desiredX: number,
+    desiredZ: number,
+    dt: number,
+  ): MoveConstraintResult => {
     // Dynamic NPC-vs-NPC collision (XZ only): prevent passing through other loaded NPCs.
     // This runs before the world collision solver so we don't "push into walls" while clamping to other NPCs.
     {
@@ -815,11 +853,13 @@ export function useNpcPhysics({
       // Use a slightly smaller radius for NPC-vs-NPC than for NPC-vs-world so characters can get closer.
       const selfRadius = kccConfig.radius * 0.6;
       const selfY = npcGroup.position.y;
-      const colliders: NpcCircleCollider[] = (npcGroup.userData._npcCollidersScratch as NpcCircleCollider[] | undefined) ?? [];
+      const colliders: NpcCircleCollider[] =
+        (npcGroup.userData._npcCollidersScratch as NpcCircleCollider[] | undefined) ?? [];
       colliders.length = 0;
       npcGroup.userData._npcCollidersScratch = colliders;
 
-      let pool: NpcCircleCollider[] = (npcGroup.userData._npcColliderPool as NpcCircleCollider[] | undefined) ?? [];
+      let pool: NpcCircleCollider[] =
+        (npcGroup.userData._npcColliderPool as NpcCircleCollider[] | undefined) ?? [];
       npcGroup.userData._npcColliderPool = pool;
       let poolIdx = 0;
 
@@ -909,7 +949,10 @@ export function useNpcPhysics({
             // Keep the sidestep gentle; the main forward movement is still towards the waypoint.
             const step = Math.min(selfRadius * 0.9, 180 * dt);
             const fwd = Math.min(origDist, 40 * dt);
-            const a = runConstraint(startX + dirX * fwd + perpX * step, startZ + dirZ * fwd + perpZ * step);
+            const a = runConstraint(
+              startX + dirX * fwd + perpX * step,
+              startZ + dirZ * fwd + perpZ * step,
+            );
             if (!a.blocked) return a;
             // If forward+side is blocked, try pure lateral separation (useful for head-on deadlocks).
             return runConstraint(startX + perpX * step, startZ + perpZ * step);
@@ -928,7 +971,8 @@ export function useNpcPhysics({
               npcGroup.userData._npcNpcBlocked = false;
               npcGroup.userData.avoidSide = -side;
             } else {
-              const deadlockStreak = (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
+              const deadlockStreak =
+                (npcGroup.userData._npcDeadlockStreak as number | undefined) ?? 0;
               // Start more aggressive resolution a bit earlier than the logging threshold.
               // In practice, small oscillations can keep resetting the streak before 0.35s while the group remains stuck.
               const deadlocked = deadlockStreak >= 0.25;
@@ -943,8 +987,15 @@ export function useNpcPhysics({
                 const stepDist = origDist;
                 const radii = [stepDist];
 
-                let best: { x: number; z: number; score: number; yaw: number; radius: number; progress: number; clearance: number } | null =
-                  null;
+                let best: {
+                  x: number;
+                  z: number;
+                  score: number;
+                  yaw: number;
+                  radius: number;
+                  progress: number;
+                  clearance: number;
+                } | null = null;
 
                 const scoreCandidate = (x: number, z: number) => {
                   const distToDesired = Math.hypot(x - origDesiredX, z - origDesiredZ);
@@ -978,7 +1029,15 @@ export function useNpcPhysics({
                     // Discard candidates that would still end up in penetration after constraints (very rare, but safe).
                     if (s.clearance < -0.05) continue;
                     if (!best || s.score > best.score) {
-                      best = { x: c.x, z: c.z, score: s.score, yaw, radius: r, progress: s.progress, clearance: s.clearance };
+                      best = {
+                        x: c.x,
+                        z: c.z,
+                        score: s.score,
+                        yaw,
+                        radius: r,
+                        progress: s.progress,
+                        clearance: s.clearance,
+                      };
                     }
                   }
                 }
@@ -992,7 +1051,8 @@ export function useNpcPhysics({
                   // then wait a bit to help clear traffic jams. The mover handles the actual steering and waiting.
                   {
                     const nowMs = Date.now();
-                    const steerUntil = (npcGroup.userData._npcTrafficSteerUntilMs as number | undefined) ?? 0;
+                    const steerUntil =
+                      (npcGroup.userData._npcTrafficSteerUntilMs as number | undefined) ?? 0;
                     if (!(steerUntil > nowMs)) {
                       npcGroup.userData._npcTrafficSteerYaw = best.yaw;
                       npcGroup.userData._npcTrafficSteerUntilMs = nowMs + 500;
@@ -1016,7 +1076,9 @@ export function useNpcPhysics({
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
-      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      const moved =
+        Math.abs(npcGroup.position.x - beforeX) > 1e-6 ||
+        Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
       updateNpcVisualSmoothing(npcGroup, Math.min(Math.max(dt, 0), 0.05));
       npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
@@ -1028,23 +1090,25 @@ export function useNpcPhysics({
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
-      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      const moved =
+        Math.abs(npcGroup.position.x - beforeX) > 1e-6 ||
+        Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
       updateNpcVisualSmoothing(npcGroup, Math.min(Math.max(dt, 0), 0.05));
       npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
 
-  		    const dtClamped = Math.min(Math.max(dt, 0), 0.05);
-  		    // Hysteresis: reduce flicker around slide thresholds.
-  		    const SLIDE_TO_FALL_GRACE_S = kccConfig.slideToFallGraceSeconds;
-  		    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
-  			    const FALL_WALL_PUSH_DURATION_S = kccConfig.fallWallPushDurationSeconds;
-  			    const fromX = npcGroup.position.x;
-  			    const fromY = npcGroup.position.y;
-  			    const fromZ = npcGroup.position.z;
-  			    let dx = desiredX - fromX;
-  			    let dz = desiredZ - fromZ;
-  			    let desiredDistXZ = Math.hypot(dx, dz);
+    const dtClamped = Math.min(Math.max(dt, 0), 0.05);
+    // Hysteresis: reduce flicker around slide thresholds.
+    const SLIDE_TO_FALL_GRACE_S = kccConfig.slideToFallGraceSeconds;
+    const SLIDE_EXIT_GRACE_S = kccConfig.slideExitGraceSeconds;
+    const FALL_WALL_PUSH_DURATION_S = kccConfig.fallWallPushDurationSeconds;
+    const fromX = npcGroup.position.x;
+    const fromY = npcGroup.position.y;
+    const fromZ = npcGroup.position.z;
+    let dx = desiredX - fromX;
+    let dz = desiredZ - fromZ;
+    let desiredDistXZ = Math.hypot(dx, dz);
 
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
@@ -1060,268 +1124,284 @@ export function useNpcPhysics({
       desiredDistXZ = 0;
     }
 
-  	    // While in the initial fallDown phase, ignore steering/movement input (ZenGin-like: no air-control during "crouch").
-  	    // We still allow physics reactions like wall pushback and gravity.
-  	    if (wasFalling) {
-  	      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
-  	      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
-        const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
-  	      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
-        if (skipFallDownPhase) {
-          inFallDownPhase = false;
-          if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
-        }
-  	      if (inFallDownPhase && desiredDistXZ > 1e-6) {
-  	        desiredX = fromX;
-  	        desiredZ = fromZ;
-  	        dx = 0;
-  	        dz = 0;
-  	        desiredDistXZ = 0;
-  	      }
-  	    }
-  let vy = (ud._kccVy as number | undefined) ?? 0;
-  let didJumpThisFrame = false;
-  let jumpUpInitial = 0;
-  const nowMs = Date.now();
-  const prevJumpActive = Boolean((ud as any)._kccJumpActivePrev);
-  let jumpActive = Boolean((ud as any)._kccJumpActive);
-  const jumpForceUntilMs = (ud as any)._kccJumpForceActiveUntilMs as number | undefined;
-  const jumpForceActive = jumpActive && typeof jumpForceUntilMs === "number" && nowMs < jumpForceUntilMs;
-  const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-  const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
-  const minAirMsConfig = 0;
-  const minAirMsOverride = (ud as any)._kccJumpMinAirMs as number | undefined;
-  const minAirMs =
-    typeof minAirMsOverride === "number" && Number.isFinite(minAirMsOverride) && minAirMsOverride > 0
-      ? minAirMsOverride
-      : minAirMsConfig;
-  const isDescending = vy <= 0;
-  const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
-  const airForMs =
-    typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs) ? Math.max(0, nowMs - jumpStartMs) : 0;
-  const canEndByGround = isDescending && airForMs >= minAirMs;
-  const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
-  const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
-  const probeDownVal =
-    typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
-  const canEndByProbe = isDescending && airForMs >= minAirMs;
-  const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
-  const graceActive = Boolean((ud as any)._kccJumpGraceActive);
-  const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
+    // While in the initial fallDown phase, ignore steering/movement input (ZenGin-like: no air-control during "crouch").
+    // We still allow physics reactions like wall pushback and gravity.
+    if (wasFalling) {
+      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
+      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
+      const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
+      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+      if (skipFallDownPhase) {
+        inFallDownPhase = false;
+        if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
+      }
+      if (inFallDownPhase && desiredDistXZ > 1e-6) {
+        desiredX = fromX;
+        desiredZ = fromZ;
+        dx = 0;
+        dz = 0;
+        desiredDistXZ = 0;
+      }
+    }
+    let vy = (ud._kccVy as number | undefined) ?? 0;
+    let didJumpThisFrame = false;
+    let jumpUpInitial = 0;
+    const nowMs = Date.now();
+    const prevJumpActive = Boolean((ud as any)._kccJumpActivePrev);
+    let jumpActive = Boolean((ud as any)._kccJumpActive);
+    const jumpForceUntilMs = (ud as any)._kccJumpForceActiveUntilMs as number | undefined;
+    const jumpForceActive =
+      jumpActive && typeof jumpForceUntilMs === "number" && nowMs < jumpForceUntilMs;
+    const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+    const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
+    const minAirMsConfig = 0;
+    const minAirMsOverride = (ud as any)._kccJumpMinAirMs as number | undefined;
+    const minAirMs =
+      typeof minAirMsOverride === "number" &&
+      Number.isFinite(minAirMsOverride) &&
+      minAirMsOverride > 0
+        ? minAirMsOverride
+        : minAirMsConfig;
+    const isDescending = vy <= 0;
+    const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
+    const airForMs =
+      typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs)
+        ? Math.max(0, nowMs - jumpStartMs)
+        : 0;
+    const canEndByGround = isDescending && airForMs >= minAirMs;
+    const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
+    const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
+    const probeDownVal =
+      typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
+    const canEndByProbe = isDescending && airForMs >= minAirMs;
+    const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
+    const graceActive = Boolean((ud as any)._kccJumpGraceActive);
+    const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
 
-  if (jumpForceActive) {
-    (ud as any)._kccJumpGraceActive = false;
-  } else if (jumpActive && graceActive) {
-    if (shouldEndByProbe || (canEndByGround && groundedNow)) {
+    if (jumpForceActive) {
       (ud as any)._kccJumpGraceActive = false;
-      (ud as any)._kccJumpActive = false;
-      if (shouldEndByProbe) {
-        (ud as any)._kccJumpEndByProbeAtMs = nowMs;
-        (ud as any)._kccJumpEndByProbePending = true;
+    } else if (jumpActive && graceActive) {
+      if (shouldEndByProbe || (canEndByGround && groundedNow)) {
+        (ud as any)._kccJumpGraceActive = false;
+        (ud as any)._kccJumpActive = false;
+        if (shouldEndByProbe) {
+          (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+          (ud as any)._kccJumpEndByProbePending = true;
+        }
+        jumpActive = false;
+      } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
+        (ud as any)._kccJumpGraceActive = false;
+        (ud as any)._kccJumpActive = false;
+        if (!groundedNow) {
+          (ud as any)._kccSkipFallDownPhase = true;
+        }
+        jumpActive = false;
       }
-      jumpActive = false;
-    } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
+    } else if (jumpActive) {
+      const canStartGrace =
+        graceMs > 0 && canEndByProbe && (probeDownVal == null || probeDownVal >= graceMinDown);
+      if (canStartGrace) {
+        (ud as any)._kccJumpGraceActive = true;
+        (ud as any)._kccJumpGraceStartMs = nowMs;
+        (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
+      } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
+        (ud as any)._kccJumpActive = false;
+        if (shouldEndByProbe) {
+          (ud as any)._kccJumpEndByProbeAtMs = nowMs;
+          (ud as any)._kccJumpEndByProbePending = true;
+        }
+        jumpActive = false;
+      }
+    }
+    if (!jumpActive) {
       (ud as any)._kccJumpGraceActive = false;
-      (ud as any)._kccJumpActive = false;
-      if (!groundedNow) {
-        (ud as any)._kccSkipFallDownPhase = true;
+      (ud as any)._kccJumpGraceUntilMs = undefined;
+      (ud as any)._kccJumpGraceStartMs = undefined;
+      if (groundedNow) {
+        (ud as any)._kccJumpBlockUntilMs = undefined;
       }
-      jumpActive = false;
     }
-  } else if (jumpActive) {
-    const canStartGrace =
-      graceMs > 0 &&
-      canEndByProbe &&
-      (probeDownVal == null || probeDownVal >= graceMinDown);
-    if (canStartGrace) {
-      (ud as any)._kccJumpGraceActive = true;
-      (ud as any)._kccJumpGraceStartMs = nowMs;
-      (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
-    } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
-      (ud as any)._kccJumpActive = false;
-      if (shouldEndByProbe) {
-        (ud as any)._kccJumpEndByProbeAtMs = nowMs;
-        (ud as any)._kccJumpEndByProbePending = true;
+    // no-op
+    if (prevJumpActive && !jumpActive) {
+      (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 200;
+      (ud as any)._kccJumpDecisionFrozen = null;
+      (ud as any)._kccJumpLedgeFrozen = null;
+      (ud as any)._kccJumpTeleportSkipKccUntilMs = undefined;
+      (ud as any)._kccJumpForceActiveUntilMs = undefined;
+    }
+    (ud as any)._kccJumpActivePrev = jumpActive;
+    const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
+    const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
+    const jumpReq = (ud as any)._kccJumpRequest as
+      | { atMs: number; jumpType?: JumpType }
+      | undefined;
+    if (jumpReq && wasStableGrounded && !jumpActive && !jumpBlocked) {
+      (ud as any)._kccJumpRequest = undefined;
+      (ud as any)._kccJumpAtMs = jumpReq.atMs;
+      (ud as any)._kccJumpType = jumpReq.jumpType ?? "jump_forward";
+      const jumpTypeNow = (ud as any)._kccJumpType as JumpType | undefined;
+      const isJumpUp =
+        jumpTypeNow === "jump_up_low" ||
+        jumpTypeNow === "jump_up_mid" ||
+        jumpTypeNow === "jump_up_high" ||
+        jumpTypeNow === "climb_up";
+      const skipJumpSpeed = isJumpUp && kccConfig.jumpUpTeleportOnStart;
+      if (!skipJumpSpeed) {
+        jumpUpInitial = kccConfig.jumpSpeed;
+        vy = Math.max(vy, jumpUpInitial);
       }
-      jumpActive = false;
+      (ud as any)._kccJumpActive = true;
+      (ud as any)._kccJumpMinAirMs = undefined;
+      const forward =
+        (ud._kccForwardDir as THREE.Vector3 | undefined) ??
+        (ud._kccForwardDir = new THREE.Vector3());
+      npcGroup.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+      else forward.normalize();
+      (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
+      (ud as any)._kccJumpUpRemainder = 0;
+      (ud as any)._kccJumpDecisionFrozen = (ud as any)._kccJumpDecision ?? null;
+      (ud as any)._kccJumpLedgeFrozen = (ud as any)._kccLedgeBest ?? null;
+      if (isJumpUp && kccConfig.jumpUpTeleportOnStart) {
+        const frozen = (ud as any)._kccJumpLedgeFrozen as
+          | { point?: { x: number; y: number; z: number } | null }
+          | null
+          | undefined;
+        const lp = frozen?.point;
+        if (lp) {
+          const isJumpUpLow = jumpTypeNow === "jump_up_low";
+          const isJumpUpHigh = jumpTypeNow === "jump_up_high";
+          const assistDelaySeconds = isJumpUpLow
+            ? (kccConfig.jumpUpLowAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
+            : isJumpUpHigh
+              ? (kccConfig.jumpUpHighAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
+              : kccConfig.jumpUpAssistDelaySeconds;
+          const assistDurationSeconds = isJumpUpLow
+            ? (kccConfig.jumpUpLowAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
+            : isJumpUpHigh
+              ? (kccConfig.jumpUpHighAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
+              : kccConfig.jumpUpAssistDurationSeconds;
+          const delayS = Math.max(0, assistDelaySeconds ?? 0);
+          const delayMs = delayS * 1000;
+          const durS = Math.max(0.1, assistDurationSeconds ?? 0.28);
+          const durMs = durS * 1000;
+          const arc = Math.max(0, kccConfig.jumpUpAssistArcHeight ?? 0);
+          const assistStart = nowMs + delayMs;
+          const assistEnd = assistStart + durMs;
+          (ud as any)._kccJumpAssist = {
+            start: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+            end: { x: lp.x, y: lp.y, z: lp.z },
+            startMs: assistStart,
+            endMs: assistEnd,
+            arc,
+          };
+          (ud as any)._kccJumpForceActiveUntilMs = assistEnd;
+          if (
+            typeof kccConfig.jumpUpTeleportSkipKccMs === "number" &&
+            kccConfig.jumpUpTeleportSkipKccMs > 0
+          ) {
+            (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(
+              nowMs + kccConfig.jumpUpTeleportSkipKccMs,
+              assistEnd,
+            );
+          } else {
+            (ud as any)._kccJumpTeleportSkipKccUntilMs = assistEnd;
+          }
+        }
+      }
+      didJumpThisFrame = true;
     }
-  }
-  if (!jumpActive) {
-    (ud as any)._kccJumpGraceActive = false;
-    (ud as any)._kccJumpGraceUntilMs = undefined;
-    (ud as any)._kccJumpGraceStartMs = undefined;
-    if (groundedNow) {
-      (ud as any)._kccJumpBlockUntilMs = undefined;
-    }
-  }
-  // no-op
-  if (prevJumpActive && !jumpActive) {
-    (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 200;
-    (ud as any)._kccJumpDecisionFrozen = null;
-    (ud as any)._kccJumpLedgeFrozen = null;
-    (ud as any)._kccJumpTeleportSkipKccUntilMs = undefined;
-    (ud as any)._kccJumpForceActiveUntilMs = undefined;
-  }
-  (ud as any)._kccJumpActivePrev = jumpActive;
-  const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
-  const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
-  const jumpReq = (ud as any)._kccJumpRequest as { atMs: number; jumpType?: JumpType } | undefined;
-  if (jumpReq && wasStableGrounded && !jumpActive && !jumpBlocked) {
-    (ud as any)._kccJumpRequest = undefined;
-    (ud as any)._kccJumpAtMs = jumpReq.atMs;
-    (ud as any)._kccJumpType = jumpReq.jumpType ?? "jump_forward";
+    const jumpForwardScale = 1;
     const jumpTypeNow = (ud as any)._kccJumpType as JumpType | undefined;
-    const isJumpUp =
+    const isJumpUpNow =
       jumpTypeNow === "jump_up_low" ||
       jumpTypeNow === "jump_up_mid" ||
       jumpTypeNow === "jump_up_high" ||
       jumpTypeNow === "climb_up";
-    const skipJumpSpeed = isJumpUp && kccConfig.jumpUpTeleportOnStart;
-    if (!skipJumpSpeed) {
-      jumpUpInitial = kccConfig.jumpSpeed;
-      vy = Math.max(vy, jumpUpInitial);
+    const jumpSkipKccUntilMs = (ud as any)._kccJumpTeleportSkipKccUntilMs as number | undefined;
+    const jumpSkipKccActive =
+      jumpActive &&
+      isJumpUpNow &&
+      typeof jumpSkipKccUntilMs === "number" &&
+      nowMs < jumpSkipKccUntilMs;
+    if (jumpSkipKccActive) {
+      // During jump-up assist, ignore KCC XZ response to prevent side-wall pushback.
+      desiredX = fromX;
+      desiredZ = fromZ;
+      dx = 0;
+      dz = 0;
+      desiredDistXZ = 0;
     }
-    (ud as any)._kccJumpActive = true;
-    (ud as any)._kccJumpMinAirMs = undefined;
-    const forward =
-      (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
-    npcGroup.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
-    else forward.normalize();
-    (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
-    (ud as any)._kccJumpUpRemainder = 0;
-    (ud as any)._kccJumpDecisionFrozen = (ud as any)._kccJumpDecision ?? null;
-    (ud as any)._kccJumpLedgeFrozen = (ud as any)._kccLedgeBest ?? null;
-    if (isJumpUp && kccConfig.jumpUpTeleportOnStart) {
-      const frozen = (ud as any)._kccJumpLedgeFrozen as
+    // During jump: allow only sideways input (no forward/back steering).
+    if (jumpActive) {
+      const forward =
+        (ud._kccJumpForwardDir as THREE.Vector3 | undefined) ??
+        (ud._kccJumpForwardDir = new THREE.Vector3());
+      npcGroup.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+      else forward.normalize();
+
+      const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
+      const jumpType = (ud as any)._kccJumpType as JumpType | undefined;
+      const isJumpUp =
+        jumpType === "jump_up_low" ||
+        jumpType === "jump_up_mid" ||
+        jumpType === "jump_up_high" ||
+        jumpType === "climb_up";
+      const frozenLedge = (ud as any)._kccJumpLedgeFrozen as
         | { point?: { x: number; y: number; z: number } | null }
         | null
         | undefined;
-      const lp = frozen?.point;
-      if (lp) {
-        const isJumpUpLow = jumpTypeNow === "jump_up_low";
-        const isJumpUpHigh = jumpTypeNow === "jump_up_high";
-        const assistDelaySeconds = isJumpUpLow
-          ? (kccConfig.jumpUpLowAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
-          : isJumpUpHigh
-            ? (kccConfig.jumpUpHighAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
-            : kccConfig.jumpUpAssistDelaySeconds;
-        const assistDurationSeconds = isJumpUpLow
-          ? (kccConfig.jumpUpLowAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
-          : isJumpUpHigh
-            ? (kccConfig.jumpUpHighAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
-            : kccConfig.jumpUpAssistDurationSeconds;
-        const delayS = Math.max(0, assistDelaySeconds ?? 0);
-        const delayMs = delayS * 1000;
-        const durS = Math.max(0.1, assistDurationSeconds ?? 0.28);
-        const durMs = durS * 1000;
-        const arc = Math.max(0, kccConfig.jumpUpAssistArcHeight ?? 0);
-        const assistStart = nowMs + delayMs;
-        const assistEnd = assistStart + durMs;
-        (ud as any)._kccJumpAssist = {
-          start: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
-          end: { x: lp.x, y: lp.y, z: lp.z },
-          startMs: assistStart,
-          endMs: assistEnd,
-          arc,
-        };
-        (ud as any)._kccJumpForceActiveUntilMs = assistEnd;
-        if (typeof kccConfig.jumpUpTeleportSkipKccMs === "number" && kccConfig.jumpUpTeleportSkipKccMs > 0) {
-          (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(nowMs + kccConfig.jumpUpTeleportSkipKccMs, assistEnd);
+      const useLedgeDir = Boolean(kccConfig.jumpUpUseLedgeDir && isJumpUp && frozenLedge?.point);
+      if (useLedgeDir && frozenLedge?.point) {
+        const dxL = frozenLedge.point.x - npcGroup.position.x;
+        const dzL = frozenLedge.point.z - npcGroup.position.z;
+        const len = Math.hypot(dxL, dzL);
+        if (len > 1e-6) {
+          const lx = dxL / len;
+          const lz = dzL / len;
+          if (jumpDir) {
+            jumpDir.x = lx;
+            jumpDir.z = lz;
+          } else {
+            (ud as any)._kccJumpDir = { x: lx, z: lz };
+          }
+        } else if (jumpDir) {
+          jumpDir.x = forward.x;
+          jumpDir.z = forward.z;
         } else {
-          (ud as any)._kccJumpTeleportSkipKccUntilMs = assistEnd;
+          (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
         }
-      }
-    }
-    didJumpThisFrame = true;
-  }
-  const jumpForwardScale = 1;
-  const jumpTypeNow = (ud as any)._kccJumpType as JumpType | undefined;
-  const isJumpUpNow =
-    jumpTypeNow === "jump_up_low" ||
-    jumpTypeNow === "jump_up_mid" ||
-    jumpTypeNow === "jump_up_high" ||
-    jumpTypeNow === "climb_up";
-  const jumpSkipKccUntilMs = (ud as any)._kccJumpTeleportSkipKccUntilMs as number | undefined;
-  const jumpSkipKccActive =
-    jumpActive &&
-    isJumpUpNow &&
-    typeof jumpSkipKccUntilMs === "number" &&
-    nowMs < jumpSkipKccUntilMs;
-  if (jumpSkipKccActive) {
-    // During jump-up assist, ignore KCC XZ response to prevent side-wall pushback.
-    desiredX = fromX;
-    desiredZ = fromZ;
-    dx = 0;
-    dz = 0;
-    desiredDistXZ = 0;
-  }
-  // During jump: allow only sideways input (no forward/back steering).
-  if (jumpActive) {
-    const forward =
-      (ud._kccJumpForwardDir as THREE.Vector3 | undefined) ?? (ud._kccJumpForwardDir = new THREE.Vector3());
-    npcGroup.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
-    else forward.normalize();
-
-    const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
-    const jumpType = (ud as any)._kccJumpType as JumpType | undefined;
-    const isJumpUp =
-      jumpType === "jump_up_low" || jumpType === "jump_up_mid" || jumpType === "jump_up_high" || jumpType === "climb_up";
-    const frozenLedge = (ud as any)._kccJumpLedgeFrozen as
-      | { point?: { x: number; y: number; z: number } | null }
-      | null
-      | undefined;
-    const useLedgeDir = Boolean(kccConfig.jumpUpUseLedgeDir && isJumpUp && frozenLedge?.point);
-    if (useLedgeDir && frozenLedge?.point) {
-      const dxL = frozenLedge.point.x - npcGroup.position.x;
-      const dzL = frozenLedge.point.z - npcGroup.position.z;
-      const len = Math.hypot(dxL, dzL);
-      if (len > 1e-6) {
-        const lx = dxL / len;
-        const lz = dzL / len;
+      } else {
+        // Always follow current facing direction while jumping.
         if (jumpDir) {
-          jumpDir.x = lx;
-          jumpDir.z = lz;
+          jumpDir.x = forward.x;
+          jumpDir.z = forward.z;
         } else {
-          (ud as any)._kccJumpDir = { x: lx, z: lz };
+          (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
         }
-      } else if (jumpDir) {
-        jumpDir.x = forward.x;
-        jumpDir.z = forward.z;
-      } else {
-        (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
       }
-    } else {
-      // Always follow current facing direction while jumping.
-      if (jumpDir) {
-        jumpDir.x = forward.x;
-        jumpDir.z = forward.z;
-      } else {
-        (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
+
+      if (desiredDistXZ > 1e-6) {
+        const rightX = forward.z;
+        const rightZ = -forward.x;
+        const inputRight = dx * rightX + dz * rightZ;
+        dx = rightX * inputRight;
+        dz = rightZ * inputRight;
+        desiredX = fromX + dx;
+        desiredZ = fromZ + dz;
+        desiredDistXZ = Math.hypot(dx, dz);
       }
     }
 
-    if (desiredDistXZ > 1e-6) {
-      const rightX = forward.z;
-      const rightZ = -forward.x;
-      const inputRight = dx * rightX + dz * rightZ;
-      dx = rightX * inputRight;
-      dz = rightZ * inputRight;
-      desiredX = fromX + dx;
-      desiredZ = fromZ + dz;
-      desiredDistXZ = Math.hypot(dx, dz);
-    }
-  }
+    // no-op
 
-  // no-op
-
-  let slideSpeedApplied: number | null = null;
-  let slideTooSteep = false;
-  let fallSlidePush: { x: number; z: number } | null = null;
-  let fallWallPushDbg: any = null;
+    let slideSpeedApplied: number | null = null;
+    let slideTooSteep = false;
+    let fallSlidePush: { x: number; z: number } | null = null;
+    let fallWallPushDbg: any = null;
 
     // Stuck resolver for sliding/falling: if we haven't moved ~10 units in 3s, push up and sideways.
     const isSlidingNow = Boolean(ud.isSliding);
@@ -1329,7 +1409,8 @@ export function useNpcPhysics({
     if ((wasSliding || wasFalling || isSlidingNow || isFallingNow) && dtClamped > 0) {
       const pos = npcGroup.position;
       const ref =
-        (ud._kccStuckRef as THREE.Vector3 | undefined) ?? (ud._kccStuckRef = new THREE.Vector3(pos.x, pos.y, pos.z));
+        (ud._kccStuckRef as THREE.Vector3 | undefined) ??
+        (ud._kccStuckRef = new THREE.Vector3(pos.x, pos.y, pos.z));
       let stuckFor = (ud._kccStuckFor as number | undefined) ?? 0;
       const dist = Math.hypot(pos.x - ref.x, pos.y - ref.y, pos.z - ref.z);
       if (dist > 10) {
@@ -1355,7 +1436,13 @@ export function useNpcPhysics({
       }
 
       const intervalMs = (ud as any)._kccStuckBurstIntervalMs as number | undefined;
-      if (burstUntil != null && burstRemaining && intervalMs && burstNextAt != null && nowMs <= burstUntil) {
+      if (
+        burstUntil != null &&
+        burstRemaining &&
+        intervalMs &&
+        burstNextAt != null &&
+        nowMs <= burstUntil
+      ) {
         if (nowMs >= burstNextAt) {
           (ud as any)._kccStuckBurstNextAtMs = burstNextAt + intervalMs;
           (ud as any)._kccStuckBurstRemaining = burstRemaining - 1;
@@ -1367,7 +1454,9 @@ export function useNpcPhysics({
           const burstStartY = (ud as any)._kccStuckBurstStartY as number | undefined;
           const maxRise = 250;
           const capY =
-            typeof burstStartY === "number" && Number.isFinite(burstStartY) ? burstStartY + maxRise : pos.y + maxRise;
+            typeof burstStartY === "number" && Number.isFinite(burstStartY)
+              ? burstStartY + maxRise
+              : pos.y + maxRise;
           const maxVy = dtClamped > 0 ? (capY - pos.y) / dtClamped : 0;
           if (maxVy > 0) {
             vy = Math.max(vy, Math.min(pushUp, maxVy));
@@ -1390,7 +1479,7 @@ export function useNpcPhysics({
                   pushSpeed,
                   pushUp,
                   burstRemaining: burstRemaining - 1,
-                })
+                }),
             );
           }
         }
@@ -1429,48 +1518,64 @@ export function useNpcPhysics({
       ud._slideBlockedAlong = 0;
     }
 
-  	    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
-  	    let dy = vy * dtClamped;
-  	    let stickDown = 0;
+    // Small downward component helps snap-to-ground and keeps the character "glued" to slopes/steps.
+    let dy = vy * dtClamped;
+    let stickDown = 0;
     if (wasStableGrounded && !didJumpThisFrame && !jumpActive) {
       const snapDown = kccConfig.groundSnapDownEps;
       if (snapDown > 0 && dy > -snapDown) dy = -snapDown;
 
-  	      // Extra "stick" helps keep contact when going downhill on ramps/stairs.
-  	      // Avoid applying it when moving uphill, because that can slow climbing or prevent autostep from triggering.
-  	      if (!wasSliding) {
-  	        const stickMax = Math.min(kccConfig.groundStickSpeed * dtClamped, kccConfig.groundStickMaxDistance);
-  	        if (desiredDistXZ < 1e-3) {
-  	          stickDown = stickMax;
-  	        } else {
-  	          const n =
-  	            (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
-  	            ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
-  	          const ny = n?.y ?? 0;
-  	          if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.2 && ny < 0.999) {
-  	            const clampedNy = Math.max(-1, Math.min(1, ny));
-  	            const slopeAngle = Math.acos(clampedNy);
-  	            if (slopeAngle > THREE.MathUtils.degToRad(8)) {
-  	              // Downhill direction is the gravity vector projected onto the ground plane.
-  	              let sx = clampedNy * n.x;
-  	              let sz = clampedNy * n.z;
-  	              const sLen = Math.hypot(sx, sz);
-  	              if (sLen > 1e-6) {
-  	                sx /= sLen;
-  	                sz /= sLen;
-  	                const along = dx * sx + dz * sz; // >0 means moving downhill; <0 means uphill
-  	                if (along > 1e-6) stickDown = stickMax;
-  	              }
-  	            }
-  	          }
-  	        }
-  	        if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
-  	      }
-  	    }
+      // Extra "stick" helps keep contact when going downhill on ramps/stairs.
+      // Avoid applying it when moving uphill, because that can slow climbing or prevent autostep from triggering.
+      if (!wasSliding) {
+        const stickMax = Math.min(
+          kccConfig.groundStickSpeed * dtClamped,
+          kccConfig.groundStickMaxDistance,
+        );
+        if (desiredDistXZ < 1e-3) {
+          stickDown = stickMax;
+        } else {
+          const n =
+            (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
+            ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
+          const ny = n?.y ?? 0;
+          if (
+            n &&
+            Number.isFinite(n.x) &&
+            Number.isFinite(ny) &&
+            Number.isFinite(n.z) &&
+            ny > 0.2 &&
+            ny < 0.999
+          ) {
+            const clampedNy = Math.max(-1, Math.min(1, ny));
+            const slopeAngle = Math.acos(clampedNy);
+            if (slopeAngle > THREE.MathUtils.degToRad(8)) {
+              // Downhill direction is the gravity vector projected onto the ground plane.
+              let sx = clampedNy * n.x;
+              let sz = clampedNy * n.z;
+              const sLen = Math.hypot(sx, sz);
+              if (sLen > 1e-6) {
+                sx /= sLen;
+                sz /= sLen;
+                const along = dx * sx + dz * sz; // >0 means moving downhill; <0 means uphill
+                if (along > 1e-6) stickDown = stickMax;
+              }
+            }
+          }
+        }
+        if (stickDown > 0 && dy > -stickDown) dy = -stickDown;
+      }
+    }
 
     // If grounded and moving, project the desired move onto the ground plane.
     // This preserves the intended XZ heading and avoids lateral drift on slopes.
-    if (wasStableGrounded && !wasSliding && !didJumpThisFrame && !jumpActive && desiredDistXZ > 1e-6) {
+    if (
+      wasStableGrounded &&
+      !wasSliding &&
+      !didJumpThisFrame &&
+      !jumpActive &&
+      desiredDistXZ > 1e-6
+    ) {
       const n =
         (ud._kccGroundNormal as { x: number; y: number; z: number } | undefined) ??
         ((ud as any)._kccFloorProbeNormal as { x: number; y: number; z: number } | undefined);
@@ -1482,41 +1587,53 @@ export function useNpcPhysics({
     }
 
     // Apply jump forward impulse while the jump window is active.
-  if (jumpActive) {
-    // Parabolic jump: no per-frame vertical boost.
-    const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
-    if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
-      const graceActive = Boolean((ud as any)._kccJumpGraceActive);
-      const jumpType = (ud as any)._kccJumpType as JumpType | undefined;
-      const isJumpUp =
-        jumpType === "jump_up_low" || jumpType === "jump_up_mid" || jumpType === "jump_up_high" || jumpType === "climb_up";
-      if (jumpSkipKccActive) {
-        // During teleport-skip, do not apply forward impulse.
-        // Keep dx/dz as-is.
-      } else {
-      const fwd = kccConfig.jumpForwardSpeed * jumpForwardScale * (isJumpUp ? kccConfig.jumpUpForwardBoost : 1);
-      if (!graceActive) {
-        (ud as any)._kccJumpLastFwd = { x: jumpDir.x * fwd, z: jumpDir.z * fwd };
-        dx += jumpDir.x * fwd * dtClamped;
-        dz += jumpDir.z * fwd * dtClamped;
-      } else {
-        const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
-        const baseX = last?.x ?? jumpDir.x * fwd;
-        const baseZ = last?.z ?? jumpDir.z * fwd;
-        (ud as any)._kccJumpLastFwd = { x: baseX, z: baseZ };
-        dx += baseX * dtClamped;
-        dz += baseZ * dtClamped;
-      }
-      desiredX = fromX + dx;
-      desiredZ = fromZ + dz;
-      desiredDistXZ = Math.hypot(dx, dz);
+    if (jumpActive) {
+      // Parabolic jump: no per-frame vertical boost.
+      const jumpDir = (ud as any)._kccJumpDir as { x: number; z: number } | undefined;
+      if (jumpDir && Number.isFinite(jumpDir.x) && Number.isFinite(jumpDir.z)) {
+        const graceActive = Boolean((ud as any)._kccJumpGraceActive);
+        const jumpType = (ud as any)._kccJumpType as JumpType | undefined;
+        const isJumpUp =
+          jumpType === "jump_up_low" ||
+          jumpType === "jump_up_mid" ||
+          jumpType === "jump_up_high" ||
+          jumpType === "climb_up";
+        if (jumpSkipKccActive) {
+          // During teleport-skip, do not apply forward impulse.
+          // Keep dx/dz as-is.
+        } else {
+          const fwd =
+            kccConfig.jumpForwardSpeed *
+            jumpForwardScale *
+            (isJumpUp ? kccConfig.jumpUpForwardBoost : 1);
+          if (!graceActive) {
+            (ud as any)._kccJumpLastFwd = { x: jumpDir.x * fwd, z: jumpDir.z * fwd };
+            dx += jumpDir.x * fwd * dtClamped;
+            dz += jumpDir.z * fwd * dtClamped;
+          } else {
+            const last = (ud as any)._kccJumpLastFwd as { x: number; z: number } | undefined;
+            const baseX = last?.x ?? jumpDir.x * fwd;
+            const baseZ = last?.z ?? jumpDir.z * fwd;
+            (ud as any)._kccJumpLastFwd = { x: baseX, z: baseZ };
+            dx += baseX * dtClamped;
+            dz += baseZ * dtClamped;
+          }
+          desiredX = fromX + dx;
+          desiredZ = fromZ + dz;
+          desiredDistXZ = Math.hypot(dx, dz);
+        }
       }
     }
-  }
 
     // Jump-up assist: smoothly pull to ledge instead of teleporting.
     const assist = (ud as any)._kccJumpAssist as
-      | { start: { x: number; y: number; z: number }; end: { x: number; y: number; z: number }; startMs: number; endMs: number; arc: number }
+      | {
+          start: { x: number; y: number; z: number };
+          end: { x: number; y: number; z: number };
+          startMs: number;
+          endMs: number;
+          arc: number;
+        }
       | undefined;
     if (assist && nowMs < assist.startMs) {
       // Pre-assist delay: hold position while the "prepare" animation plays.
@@ -1574,7 +1691,7 @@ export function useNpcPhysics({
         (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 150;
         (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(
           (ud as any)._kccJumpTeleportSkipKccUntilMs ?? 0,
-          nowMs + 80
+          nowMs + 80,
         );
         (ud as any)._kccJumpAssist = undefined;
         (ud as any)._kccJumpAssistActive = false;
@@ -1587,22 +1704,30 @@ export function useNpcPhysics({
     // Rapier's built-in "sliding" is mostly a trajectory adjustment; without us feeding some
     // slope-based motion, the character may drift down very steep slopes too slowly.
     if (wasSliding) {
-  	      const n = ud._kccGroundNormal as { x: number; y: number; z: number } | undefined;
-  	      const ny = n?.y ?? 0;
-  	      if (n && Number.isFinite(n.x) && Number.isFinite(ny) && Number.isFinite(n.z) && ny > 0.02 && ny < 0.999) {
-  	        const clampedNy = Math.max(-1, Math.min(1, ny));
-  	        const slopeAngle = Math.acos(clampedNy);
-  	        slideTooSteep = slopeAngle > kccConfig.slideToFallAngle + 1e-3;
-  	        // If we have only briefly entered the "too steep" zone, keep treating it as sliding for a moment.
-  	        const prevSlideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
-  	        const slideToFallGraceActive = slideTooSteep && prevSlideToFallFor < SLIDE_TO_FALL_GRACE_S;
-  	        if (slideToFallGraceActive) slideTooSteep = false;
+      const n = ud._kccGroundNormal as { x: number; y: number; z: number } | undefined;
+      const ny = n?.y ?? 0;
+      if (
+        n &&
+        Number.isFinite(n.x) &&
+        Number.isFinite(ny) &&
+        Number.isFinite(n.z) &&
+        ny > 0.02 &&
+        ny < 0.999
+      ) {
+        const clampedNy = Math.max(-1, Math.min(1, ny));
+        const slopeAngle = Math.acos(clampedNy);
+        slideTooSteep = slopeAngle > kccConfig.slideToFallAngle + 1e-3;
+        // If we have only briefly entered the "too steep" zone, keep treating it as sliding for a moment.
+        const prevSlideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
+        const slideToFallGraceActive = slideTooSteep && prevSlideToFallFor < SLIDE_TO_FALL_GRACE_S;
+        if (slideToFallGraceActive) slideTooSteep = false;
 
-  	        const sin = Math.sqrt(Math.max(0, 1 - clampedNy * clampedNy));
-  	        const accel = kccConfig.slideAccel * sin;
+        const sin = Math.sqrt(Math.max(0, 1 - clampedNy * clampedNy));
+        const accel = kccConfig.slideAccel * sin;
 
-  	        let slideSpeed = (ud._kccSlideSpeed as number | undefined) ?? kccConfig.slideInitialSpeed;
-        if (!Number.isFinite(slideSpeed) || slideSpeed < 0) slideSpeed = kccConfig.slideInitialSpeed;
+        let slideSpeed = (ud._kccSlideSpeed as number | undefined) ?? kccConfig.slideInitialSpeed;
+        if (!Number.isFinite(slideSpeed) || slideSpeed < 0)
+          slideSpeed = kccConfig.slideInitialSpeed;
 
         if (!slideTooSteep) {
           slideSpeed = Math.max(slideSpeed, kccConfig.slideInitialSpeed);
@@ -1627,75 +1752,76 @@ export function useNpcPhysics({
             desiredDistXZ = Math.hypot(dx, dz);
             slideSpeedApplied = slideSpeed;
           }
-    } else {
-      ud._kccSlideSpeed = 0;
-    }
+        } else {
+          ud._kccSlideSpeed = 0;
+        }
       } else {
         ud._kccSlideSpeed = 0;
       }
-  	    } else {
-  	      ud._kccSlideSpeed = 0;
-  	    }
+    } else {
+      ud._kccSlideSpeed = 0;
+    }
 
-  		    // Smooth fall->wall pushback: distribute a single push "impulse" over a fixed duration,
-  		    // so it doesn't look like a teleport even with high `npcFallSlidePushSpeed`.
-  		    const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
-  		    const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
-  		    const fallWallPushDir = ud._kccFallWallPushDir as { x: number; z: number } | undefined;
-  			    if (
-  			      FALL_WALL_PUSH_DURATION_S > 0 &&
-  			      fallWallPushTotalDist > 1e-6 &&
-  			      fallWallPushDir &&
-  			      Number.isFinite(fallWallPushDir.x) &&
-  			      Number.isFinite(fallWallPushDir.z)
-  			    ) {
-  		      const t0 = Math.max(0, Math.min(FALL_WALL_PUSH_DURATION_S, fallWallPushT));
-  		      const t1 = Math.min(FALL_WALL_PUSH_DURATION_S, t0 + dtClamped);
-  		      const u0 = t0 / FALL_WALL_PUSH_DURATION_S;
-  		      const u1 = t1 / FALL_WALL_PUSH_DURATION_S;
-  		      const s0 = u0 * u0 * (3 - 2 * u0); // smoothstep
-  		      const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep
-  			      const pushDistRaw = (s1 - s0) * fallWallPushTotalDist;
-  			      let pushDist = pushDistRaw;
-  			      if (kccConfig.fallSlidePushMaxPerFrame > 0) pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
+    // Smooth fall->wall pushback: distribute a single push "impulse" over a fixed duration,
+    // so it doesn't look like a teleport even with high `npcFallSlidePushSpeed`.
+    const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
+    const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
+    const fallWallPushDir = ud._kccFallWallPushDir as { x: number; z: number } | undefined;
+    if (
+      FALL_WALL_PUSH_DURATION_S > 0 &&
+      fallWallPushTotalDist > 1e-6 &&
+      fallWallPushDir &&
+      Number.isFinite(fallWallPushDir.x) &&
+      Number.isFinite(fallWallPushDir.z)
+    ) {
+      const t0 = Math.max(0, Math.min(FALL_WALL_PUSH_DURATION_S, fallWallPushT));
+      const t1 = Math.min(FALL_WALL_PUSH_DURATION_S, t0 + dtClamped);
+      const u0 = t0 / FALL_WALL_PUSH_DURATION_S;
+      const u1 = t1 / FALL_WALL_PUSH_DURATION_S;
+      const s0 = u0 * u0 * (3 - 2 * u0); // smoothstep
+      const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep
+      const pushDistRaw = (s1 - s0) * fallWallPushTotalDist;
+      let pushDist = pushDistRaw;
+      if (kccConfig.fallSlidePushMaxPerFrame > 0)
+        pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
 
-  			      if (pushDist > 1e-6) {
-  			        const pushX = fallWallPushDir.x * pushDist;
-  			        const pushZ = fallWallPushDir.z * pushDist;
-  		        dx += pushX;
-  		        dz += pushZ;
-  		        desiredX = fromX + dx;
-  		        desiredZ = fromZ + dz;
-  			        desiredDistXZ = Math.hypot(dx, dz);
-  			        fallSlidePush = { x: pushX, z: pushZ };
-  			        fallWallPushDbg = {
-  			          phase: "tick",
-  			          duration: FALL_WALL_PUSH_DURATION_S,
-  			          t0,
-  			          t1,
-  			          u0,
-  			          u1,
-  			          s0,
-  			          s1,
-  			          pushDistRaw,
-  			          pushDist,
-  			          pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-  			          push: { x: pushX, z: pushZ },
-  			          totalDist: fallWallPushTotalDist,
-  			        };
-  			      }
+      if (pushDist > 1e-6) {
+        const pushX = fallWallPushDir.x * pushDist;
+        const pushZ = fallWallPushDir.z * pushDist;
+        dx += pushX;
+        dz += pushZ;
+        desiredX = fromX + dx;
+        desiredZ = fromZ + dz;
+        desiredDistXZ = Math.hypot(dx, dz);
+        fallSlidePush = { x: pushX, z: pushZ };
+        fallWallPushDbg = {
+          phase: "tick",
+          duration: FALL_WALL_PUSH_DURATION_S,
+          t0,
+          t1,
+          u0,
+          u1,
+          s0,
+          s1,
+          pushDistRaw,
+          pushDist,
+          pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+          push: { x: pushX, z: pushZ },
+          totalDist: fallWallPushTotalDist,
+        };
+      }
 
-  		      ud._kccFallWallPushT = t1;
-  		      if (!(t1 < FALL_WALL_PUSH_DURATION_S - 1e-6)) {
-  		        ud._kccFallWallPushT = 0;
-  		        ud._kccFallWallPushTotalDist = 0;
-  		        ud._kccFallWallPushDir = undefined;
-  		      }
-  		    }
+      ud._kccFallWallPushT = t1;
+      if (!(t1 < FALL_WALL_PUSH_DURATION_S - 1e-6)) {
+        ud._kccFallWallPushT = 0;
+        ud._kccFallWallPushTotalDist = 0;
+        ud._kccFallWallPushDir = undefined;
+      }
+    }
 
-  	    try {
-  	      const WORLD_MEMBERSHIP = 0x0001;
-  	      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+    try {
+      const WORLD_MEMBERSHIP = 0x0001;
+      const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
 
       const computeBestGroundNormal = () => {
         let best: { x: number; y: number; z: number } | null = null;
@@ -1742,7 +1868,12 @@ export function useNpcPhysics({
       let bestGroundNormal: { x: number; y: number; z: number } | null = null;
       let bestGroundNy: number | null = null;
       if (!jumpSkipKccActive) {
-        controller.computeColliderMovement(collider, { x: dx, y: dy, z: dz }, rapier.QueryFilterFlags.EXCLUDE_SENSORS, filterGroups);
+        controller.computeColliderMovement(
+          collider,
+          { x: dx, y: dy, z: dz },
+          rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+          filterGroups,
+        );
         move = controller.computedMovement();
         try {
           bestGroundNormal = computeBestGroundNormal();
@@ -1773,7 +1904,7 @@ export function useNpcPhysics({
               collider,
               { x: dx * boostFactor, y: dy, z: dz * boostFactor },
               rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-              filterGroups
+              filterGroups,
             );
             move = controller.computedMovement();
             try {
@@ -1787,201 +1918,225 @@ export function useNpcPhysics({
         }
       }
 
-  				      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
-  				      // Instead, start a short pushback transition (fixed duration) and keep falling.
-  				      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-  				      const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
-  				      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
-  				      const isFallWallPushActive =
-  				        FALL_WALL_PUSH_DURATION_S > 0 && fallWallPushTotalDist > 1e-6 && fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
-  				      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
-  				      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
-                const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
-  				      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
-                if (skipFallDownPhase) {
-                  inFallDownPhase = false;
-                  if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
-                }
-  				      const fallSlidePushSpeedBase = kccConfig.fallSlidePushSpeed;
-  				      const fallSlidePushSpeedEffective = inFallDownPhase ? fallSlidePushSpeedBase * 0.4 : fallSlidePushSpeedBase;
-  				      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && fallSlidePushSpeedEffective > 0) {
-  				        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
-  				        if (pushN) {
-  				          ud._kccFallWallPushDir = { x: pushN.x, z: pushN.z };
-  				          const seedDt = Math.min(dtClamped, 1 / 60);
-  				          const totalDist = fallSlidePushSpeedEffective * seedDt;
-  				          ud._kccFallWallPushTotalDist = totalDist;
+      // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
+      // Instead, start a short pushback transition (fixed duration) and keep falling.
+      const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+      const fallWallPushT = (ud._kccFallWallPushT as number | undefined) ?? 0;
+      const fallWallPushTotalDist = (ud._kccFallWallPushTotalDist as number | undefined) ?? 0;
+      const isFallWallPushActive =
+        FALL_WALL_PUSH_DURATION_S > 0 &&
+        fallWallPushTotalDist > 1e-6 &&
+        fallWallPushT < FALL_WALL_PUSH_DURATION_S - 1e-6;
+      const fallDownHeight = kccConfig.fallDownHeight ?? 0;
+      const fallDownDistY = (ud._fallDownDistY as number | undefined) ?? 0;
+      const skipFallDownPhase = Boolean((ud as any)._kccSkipFallDownPhase);
+      let inFallDownPhase = fallDownHeight > 1e-6 && fallDownDistY < fallDownHeight - 1e-6;
+      if (skipFallDownPhase) {
+        inFallDownPhase = false;
+        if (fallDownHeight > 0) (ud as any)._kccFallDownDistY = fallDownHeight + 1;
+      }
+      const fallSlidePushSpeedBase = kccConfig.fallSlidePushSpeed;
+      const fallSlidePushSpeedEffective = inFallDownPhase
+        ? fallSlidePushSpeedBase * 0.4
+        : fallSlidePushSpeedBase;
+      if (!isFallWallPushActive && wasFalling && dy < -1e-3 && fallSlidePushSpeedEffective > 0) {
+        const pushN = computeBestSteepNormalXZ(minWalkNy - 1e-3);
+        if (pushN) {
+          ud._kccFallWallPushDir = { x: pushN.x, z: pushN.z };
+          const seedDt = Math.min(dtClamped, 1 / 60);
+          const totalDist = fallSlidePushSpeedEffective * seedDt;
+          ud._kccFallWallPushTotalDist = totalDist;
 
-  			          const u1 = Math.max(0, Math.min(1, dtClamped / FALL_WALL_PUSH_DURATION_S));
-  			          const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep(0->u1)
-  			          const pushDistRaw = s1 * totalDist;
-  			          let pushDist = pushDistRaw;
-  			          if (kccConfig.fallSlidePushMaxPerFrame > 0) pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
-  			          const pushX = pushN.x * pushDist;
-  			          const pushZ = pushN.z * pushDist;
+          const u1 = Math.max(0, Math.min(1, dtClamped / FALL_WALL_PUSH_DURATION_S));
+          const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep(0->u1)
+          const pushDistRaw = s1 * totalDist;
+          let pushDist = pushDistRaw;
+          if (kccConfig.fallSlidePushMaxPerFrame > 0)
+            pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
+          const pushX = pushN.x * pushDist;
+          const pushZ = pushN.z * pushDist;
 
-  			          // Apply the first step immediately (same frame) and recompute movement.
-  			          dx += pushX;
-  			          dz += pushZ;
-  		          desiredX = fromX + dx;
-  		          desiredZ = fromZ + dz;
-  		          desiredDistXZ = Math.hypot(dx, dz);
+          // Apply the first step immediately (same frame) and recompute movement.
+          dx += pushX;
+          dz += pushZ;
+          desiredX = fromX + dx;
+          desiredZ = fromZ + dz;
+          desiredDistXZ = Math.hypot(dx, dz);
 
-  		          controller.computeColliderMovement(
-  		            collider,
-  		            { x: dx, y: dy, z: dz },
-  		            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-  		            filterGroups
-  		          );
-  		          move = controller.computedMovement();
-              try {
-                bestGroundNormal = computeBestGroundNormal();
-                bestGroundNy = bestGroundNormal?.y ?? null;
-              } catch {
-                // ignore
-              }
-              fallSlidePush = { x: pushX, z: pushZ };
-  				          fallWallPushDbg = {
-  				            phase: "start",
-  				            duration: FALL_WALL_PUSH_DURATION_S,
-  				            u1,
-  				            s1,
-  				            seedDt,
-  				            pushDistRaw,
-  				            pushDist,
-  				            pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-  				            push: { x: pushX, z: pushZ },
-  				            totalDist,
-  				          };
-  				          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
+          controller.computeColliderMovement(
+            collider,
+            { x: dx, y: dy, z: dz },
+            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+            filterGroups,
+          );
+          move = controller.computedMovement();
+          try {
+            bestGroundNormal = computeBestGroundNormal();
+            bestGroundNy = bestGroundNormal?.y ?? null;
+          } catch {
+            // ignore
+          }
+          fallSlidePush = { x: pushX, z: pushZ };
+          fallWallPushDbg = {
+            phase: "start",
+            duration: FALL_WALL_PUSH_DURATION_S,
+            u1,
+            s1,
+            seedDt,
+            pushDistRaw,
+            pushDist,
+            pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+            push: { x: pushX, z: pushZ },
+            totalDist,
+          };
+          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
 
-  				          // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
-  				          try {
-  				            const nowMs = Date.now();
-  			            const lastAt = (ud as any)._fallSlidePushLogAtMs as number | undefined;
-  			            if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
-  			              (ud as any)._fallSlidePushLogAtMs = nowMs;
-  			              const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
-  			              console.log(
-  			                "[NPCFallSlidePushJSON]" +
-  			                  JSON.stringify({
-  			                    t: nowMs,
-  				                    npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
-  				                    npcPos: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
-  				                    push: { x: pushX, z: pushZ },
-  				                    pushSpeed: fallSlidePushSpeedBase,
-  				                    pushSpeedEffective: fallSlidePushSpeedEffective,
-  				                    fallDownDistY,
-  				                    fallPhase: inFallDownPhase ? "fallDown" : "fall",
-  				                    pushTotalDist: totalDist,
-  				                    pushDistRaw,
-  				                    pushDist,
-  				                    pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-  				                    duration: FALL_WALL_PUSH_DURATION_S,
-  				                    seedDt,
-  			                    u1,
-  			                    s1,
-  			                    dt: dtClamped,
-  			                  })
-  			              );
-  			            }
-  		          } catch {
-  		            // ignore
-  		          }
-  		        }
-  		      }
+          // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
+          try {
+            const nowMs = Date.now();
+            const lastAt = (ud as any)._fallSlidePushLogAtMs as number | undefined;
+            if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+              (ud as any)._fallSlidePushLogAtMs = nowMs;
+              const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+              console.log(
+                "[NPCFallSlidePushJSON]" +
+                  JSON.stringify({
+                    t: nowMs,
+                    npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+                    npcPos: {
+                      x: npcGroup.position.x,
+                      y: npcGroup.position.y,
+                      z: npcGroup.position.z,
+                    },
+                    push: { x: pushX, z: pushZ },
+                    pushSpeed: fallSlidePushSpeedBase,
+                    pushSpeedEffective: fallSlidePushSpeedEffective,
+                    fallDownDistY,
+                    fallPhase: inFallDownPhase ? "fallDown" : "fall",
+                    pushTotalDist: totalDist,
+                    pushDistRaw,
+                    pushDist,
+                    pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
+                    duration: FALL_WALL_PUSH_DURATION_S,
+                    seedDt,
+                    u1,
+                    s1,
+                    dt: dtClamped,
+                  }),
+              );
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
 
-  	      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
+      const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
       const cur = collider.translation();
       const prevTranslation = { x: cur.x, y: cur.y, z: cur.z };
       const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
       collider.setTranslation(next);
       npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
 
-      const rawGroundedNow = jumpSkipKccActive ? false : Boolean(controller.computedGrounded?.() ?? false);
+      const rawGroundedNow = jumpSkipKccActive
+        ? false
+        : Boolean(controller.computedGrounded?.() ?? false);
       ud._kccGrounded = rawGroundedNow;
 
-  	      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
-  	      ud._kccGroundNy = bestGroundNy;
-  	      ud._kccGroundNormal = bestGroundNormal;
+      // `bestGroundNy` is computed from the KCC collisions to classify steep slopes.
+      ud._kccGroundNy = bestGroundNy;
+      ud._kccGroundNormal = bestGroundNormal;
 
-  		      let tooSteepToStandNow = false;
-  		      let slopeAngleNow: number | null = null;
-  				      // If we're touching a wall while moving downhill, KCC may report a steep "ground" normal from a small
-  				      // triangle near the wall base and incorrectly switch into falling/sliding. Prefer a downward floor-probe
-  				      // when collisions don't provide a walkable normal.
-  				      let floorProbeNy: number | null = null;
-  				      let floorProbeNormal: { x: number; y: number; z: number } | null = null;
-  				      let floorProbeSrc: string | null = null;
-  				      if (rawGroundedNow && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
-  				        const needsProbe = bestGroundNy == null || (Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-6);
-  				        if (needsProbe) {
-  				          try {
-  				            const WORLD_MEMBERSHIP = 0x0001;
-  				            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-  				            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
-  				            const feetY = npcGroup.position.y;
-  				            const startAbove = kccConfig.groundRecoverRayStartAbove;
-  				            const maxToi = startAbove + kccConfig.groundRecoverDistance;
-  				            const tryProbe = (x: number, z: number): { ny: number; n: { x: number; y: number; z: number } } | null => {
-  				              const ray = new rapier.Ray({ x, y: feetY + startAbove, z }, { x: 0, y: -1, z: 0 });
-  				              const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
-  				              if (!hit) return null;
-  				              const nx = hit.normal?.x ?? 0;
-  				              const ny = hit.normal?.y ?? 0;
-  				              const nz = hit.normal?.z ?? 0;
-  				              if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) return null;
-  				              if (!(ny >= minWalkNy)) return null;
-  				              const p = ray.pointAt(hit.timeOfImpact);
-  				              const deltaDownToHit = feetY - p.y;
-  				              if (deltaDownToHit < -1e-3 || deltaDownToHit > kccConfig.groundRecoverDistance + 1e-3) return null;
-  				              return { ny, n: { x: nx, y: ny, z: nz } };
-  				            };
+      let tooSteepToStandNow = false;
+      let slopeAngleNow: number | null = null;
+      // If we're touching a wall while moving downhill, KCC may report a steep "ground" normal from a small
+      // triangle near the wall base and incorrectly switch into falling/sliding. Prefer a downward floor-probe
+      // when collisions don't provide a walkable normal.
+      let floorProbeNy: number | null = null;
+      let floorProbeNormal: { x: number; y: number; z: number } | null = null;
+      let floorProbeSrc: string | null = null;
+      if (rawGroundedNow && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
+        const needsProbe =
+          bestGroundNy == null ||
+          (Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-6);
+        if (needsProbe) {
+          try {
+            const WORLD_MEMBERSHIP = 0x0001;
+            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+            const feetY = npcGroup.position.y;
+            const startAbove = kccConfig.groundRecoverRayStartAbove;
+            const maxToi = startAbove + kccConfig.groundRecoverDistance;
+            const tryProbe = (
+              x: number,
+              z: number,
+            ): { ny: number; n: { x: number; y: number; z: number } } | null => {
+              const ray = new rapier.Ray({ x, y: feetY + startAbove, z }, { x: 0, y: -1, z: 0 });
+              const hit = rapierWorld.castRayAndGetNormal(
+                ray,
+                maxToi,
+                true,
+                filterFlags,
+                filterGroups,
+                collider,
+              );
+              if (!hit) return null;
+              const nx = hit.normal?.x ?? 0;
+              const ny = hit.normal?.y ?? 0;
+              const nz = hit.normal?.z ?? 0;
+              if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) return null;
+              if (!(ny >= minWalkNy)) return null;
+              const p = ray.pointAt(hit.timeOfImpact);
+              const deltaDownToHit = feetY - p.y;
+              if (deltaDownToHit < -1e-3 || deltaDownToHit > kccConfig.groundRecoverDistance + 1e-3)
+                return null;
+              return { ny, n: { x: nx, y: ny, z: nz } };
+            };
 
-  				            const baseX = npcGroup.position.x;
-  				            const baseZ = npcGroup.position.z;
+            const baseX = npcGroup.position.x;
+            const baseZ = npcGroup.position.z;
 
-  				            const hitCenter = tryProbe(baseX, baseZ);
-  				            if (hitCenter != null) {
-  				              floorProbeNy = hitCenter.ny;
-  				              floorProbeNormal = hitCenter.n;
-  				              floorProbeSrc = "center";
-  				            } else {
-  				              // If we are grounded but the center-ray misses walkable ground, we might be "wedged" against a wall
-  				              // while walking downhill. Probe slightly around the capsule using the steepest contact direction.
-  				              const steepDir = computeBestSteepNormalXZ(minWalkNy);
-  				              if (steepDir) {
-  				                let align = 1;
-  				                if (desiredDistXZ > 1e-3) {
-  				                  const dirX = dx / desiredDistXZ;
-  				                  const dirZ = dz / desiredDistXZ;
-  				                  align = Math.abs(dirX * steepDir.x + dirZ * steepDir.z);
-  				                }
+            const hitCenter = tryProbe(baseX, baseZ);
+            if (hitCenter != null) {
+              floorProbeNy = hitCenter.ny;
+              floorProbeNormal = hitCenter.n;
+              floorProbeSrc = "center";
+            } else {
+              // If we are grounded but the center-ray misses walkable ground, we might be "wedged" against a wall
+              // while walking downhill. Probe slightly around the capsule using the steepest contact direction.
+              const steepDir = computeBestSteepNormalXZ(minWalkNy);
+              if (steepDir) {
+                let align = 1;
+                if (desiredDistXZ > 1e-3) {
+                  const dirX = dx / desiredDistXZ;
+                  const dirZ = dz / desiredDistXZ;
+                  align = Math.abs(dirX * steepDir.x + dirZ * steepDir.z);
+                }
 
-  				                // Only do the extra probes when the movement direction aligns with a steep contact (likely a wall hit).
-  				                if (align > 0.35) {
-  				                  const off = Math.max(2, kccConfig.radius * 0.85);
-  				                  const hitA = tryProbe(baseX + steepDir.x * off, baseZ + steepDir.z * off);
-  				                  const hitB = tryProbe(baseX - steepDir.x * off, baseZ - steepDir.z * off);
-  				                  if (hitA != null || hitB != null) {
-  				                    if (hitA != null && (hitB == null || hitA.ny >= hitB.ny)) {
-  				                      floorProbeNy = hitA.ny;
-  				                      floorProbeNormal = hitA.n;
-  				                      floorProbeSrc = "+steep";
-  				                    } else if (hitB != null) {
-  				                      floorProbeNy = hitB.ny;
-  				                      floorProbeNormal = hitB.n;
-  				                      floorProbeSrc = "-steep";
-  				                    }
-  				                  }
-  				                }
-  				              }
-  				            }
-  				          } catch {
-  				            // ignore
-  				          }
-  				        }
-  				      }
+                // Only do the extra probes when the movement direction aligns with a steep contact (likely a wall hit).
+                if (align > 0.35) {
+                  const off = Math.max(2, kccConfig.radius * 0.85);
+                  const hitA = tryProbe(baseX + steepDir.x * off, baseZ + steepDir.z * off);
+                  const hitB = tryProbe(baseX - steepDir.x * off, baseZ - steepDir.z * off);
+                  if (hitA != null || hitB != null) {
+                    if (hitA != null && (hitB == null || hitA.ny >= hitB.ny)) {
+                      floorProbeNy = hitA.ny;
+                      floorProbeNormal = hitA.n;
+                      floorProbeSrc = "+steep";
+                    } else if (hitB != null) {
+                      floorProbeNy = hitB.ny;
+                      floorProbeNormal = hitB.n;
+                      floorProbeSrc = "-steep";
+                    }
+                  }
+                }
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
 
       let effectiveGroundNy = floorProbeNy ?? bestGroundNy;
       (ud as any)._kccGroundNyEffective = effectiveGroundNy;
@@ -1993,7 +2148,12 @@ export function useNpcPhysics({
           (ud as any)._kccGroundNyFallback = probeNy;
         }
       }
-      if (effectiveGroundNy == null && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
+      if (
+        effectiveGroundNy == null &&
+        rapierWorld &&
+        rapier &&
+        kccConfig.groundRecoverDistance > 0
+      ) {
         // Fallback: raycast down to recover a ground normal when KCC provides none.
         try {
           const WORLD_MEMBERSHIP = 0x0001;
@@ -2004,9 +2164,16 @@ export function useNpcPhysics({
           const maxToi = startAbove + kccConfig.groundRecoverDistance;
           const ray = new rapier.Ray(
             { x: npcGroup.position.x, y: feetY + startAbove, z: npcGroup.position.z },
-            { x: 0, y: -1, z: 0 }
+            { x: 0, y: -1, z: 0 },
           );
-          const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+          const hit = rapierWorld.castRayAndGetNormal(
+            ray,
+            maxToi,
+            true,
+            filterFlags,
+            filterGroups,
+            collider,
+          );
           if (hit) {
             const ny = hit.normal?.y ?? null;
             if (typeof ny === "number" && Number.isFinite(ny)) {
@@ -2032,7 +2199,8 @@ export function useNpcPhysics({
       if (rapierWorld && rapier) {
         try {
           const forward =
-            (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
+            (ud._kccForwardDir as THREE.Vector3 | undefined) ??
+            (ud._kccForwardDir = new THREE.Vector3());
           npcGroup.getWorldDirection(forward);
           forward.y = 0;
           if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
@@ -2048,7 +2216,14 @@ export function useNpcPhysics({
           const WORLD_MEMBERSHIP = 0x0001;
           const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
           const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
-          const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+          const hit = rapierWorld.castRayAndGetNormal(
+            ray,
+            maxToi,
+            true,
+            filterFlags,
+            filterGroups,
+            collider,
+          );
           const hitPoint = hit ? ray.pointAt(hit.timeOfImpact) : null;
           const hitNy = hit?.normal?.y ?? null;
           const hitNx = hit?.normal?.x ?? null;
@@ -2071,22 +2246,60 @@ export function useNpcPhysics({
             const endV = new THREE.Vector3(ox, endY, oz);
             updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, startV, endV, true);
           } else if (isHero) {
-            updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccGroundProbeLine",
+              0x2dff2d,
+              3,
+              new THREE.Vector3(),
+              new THREE.Vector3(),
+              false,
+            );
           } else {
-            updateNpcDebugRayLine(npcGroup, "_kccGroundProbeLine", 0x2dff2d, 3, new THREE.Vector3(), new THREE.Vector3(), false);
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccGroundProbeLine",
+              0x2dff2d,
+              3,
+              new THREE.Vector3(),
+              new THREE.Vector3(),
+              false,
+            );
           }
 
           // ZenGin-like ledge scan Y-range at the probe origin:
           // - scan down to find local floor
           // - scan up to find ceiling
           // - clamp usable jump-up interval by both limits
-          const downRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: -1, z: 0 });
-          const upRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: 1, z: 0 });
-          const downHit = rapierWorld.castRayAndGetNormal(downRay, kccConfig.ledgeScanDownRange, true, filterFlags, filterGroups, collider);
-          const upHit = rapierWorld.castRayAndGetNormal(upRay, kccConfig.ledgeScanUpRange, true, filterFlags, filterGroups, collider);
+          const downRay = new rapier.Ray(
+            { x: ox, y: npcGroup.position.y, z: oz },
+            { x: 0, y: -1, z: 0 },
+          );
+          const upRay = new rapier.Ray(
+            { x: ox, y: npcGroup.position.y, z: oz },
+            { x: 0, y: 1, z: 0 },
+          );
+          const downHit = rapierWorld.castRayAndGetNormal(
+            downRay,
+            kccConfig.ledgeScanDownRange,
+            true,
+            filterFlags,
+            filterGroups,
+            collider,
+          );
+          const upHit = rapierWorld.castRayAndGetNormal(
+            upRay,
+            kccConfig.ledgeScanUpRange,
+            true,
+            filterFlags,
+            filterGroups,
+            collider,
+          );
 
           const floorY = downHit ? downRay.pointAt(downHit.timeOfImpact).y : npcGroup.position.y;
-          const ceilingY = upHit ? upRay.pointAt(upHit.timeOfImpact).y : npcGroup.position.y + kccConfig.ledgeScanUpRange;
+          const ceilingY = upHit
+            ? upRay.pointAt(upHit.timeOfImpact).y
+            : npcGroup.position.y + kccConfig.ledgeScanUpRange;
           const modelHeight = kccConfig.capsuleHeight;
           const jumpTopTargetY = floorY + kccConfig.jumpUpHeight * 0.95 + modelHeight;
           const maxTopY = Math.min(jumpTopTargetY, ceilingY);
@@ -2111,12 +2324,24 @@ export function useNpcPhysics({
             const len = d.length();
             if (len <= 1e-6) return null;
             d.multiplyScalar(1 / len);
-            const ray = new rapier.Ray({ x: origin.x, y: origin.y, z: origin.z }, { x: d.x, y: d.y, z: d.z });
-            const cast = rapierWorld.castRayAndGetNormal(ray, maxDist, true, filterFlags, filterGroups, collider);
+            const ray = new rapier.Ray(
+              { x: origin.x, y: origin.y, z: origin.z },
+              { x: d.x, y: d.y, z: d.z },
+            );
+            const cast = rapierWorld.castRayAndGetNormal(
+              ray,
+              maxDist,
+              true,
+              filterFlags,
+              filterGroups,
+              collider,
+            );
             if (!cast) return null;
             const p = ray.pointAt(cast.timeOfImpact);
             const point = new THREE.Vector3(p.x, p.y, p.z);
-            const n = cast.normal ? new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z) : null;
+            const n = cast.normal
+              ? new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z)
+              : null;
             if (n && n.lengthSq() >= 1e-6) n.normalize();
             const handle = (cast as any)?.collider?.handle;
             return {
@@ -2133,16 +2358,33 @@ export function useNpcPhysics({
             const cached = reports.get(k);
             if (cached) return cached;
             const start = new THREE.Vector3(scanBaseX, y, scanBaseZ);
-            const ray = new rapier.Ray({ x: start.x, y: start.y, z: start.z }, { x: forward.x, y: 0, z: forward.z });
-            const cast = rapierWorld.castRayAndGetNormal(ray, scanLen, true, filterFlags, filterGroups, collider);
+            const ray = new rapier.Ray(
+              { x: start.x, y: start.y, z: start.z },
+              { x: forward.x, y: 0, z: forward.z },
+            );
+            const cast = rapierWorld.castRayAndGetNormal(
+              ray,
+              scanLen,
+              true,
+              filterFlags,
+              filterGroups,
+              collider,
+            );
             let hit = false;
             let hitColliderHandle: number | null = null;
             let hitPoint: THREE.Vector3 | null = null;
             let hitNormal: THREE.Vector3 | null = null;
-            let end = new THREE.Vector3(start.x + forward.x * scanLen, start.y, start.z + forward.z * scanLen);
+            let end = new THREE.Vector3(
+              start.x + forward.x * scanLen,
+              start.y,
+              start.z + forward.z * scanLen,
+            );
             if (cast) {
               const p = ray.pointAt(cast.timeOfImpact);
-              const d2 = (p.x - start.x) * (p.x - start.x) + (p.y - start.y) * (p.y - start.y) + (p.z - start.z) * (p.z - start.z);
+              const d2 =
+                (p.x - start.x) * (p.x - start.x) +
+                (p.y - start.y) * (p.y - start.y) +
+                (p.z - start.z) * (p.z - start.z);
               if (d2 >= scanStepBack * scanStepBack) {
                 hit = true;
                 end = new THREE.Vector3(p.x, p.y, p.z);
@@ -2163,10 +2405,17 @@ export function useNpcPhysics({
             return rep;
           };
 
-          const evaluateLedgeCandidate = (upper: JumpScanReport, lower: JumpScanReport): LedgeCandidate | null => {
+          const evaluateLedgeCandidate = (
+            upper: JumpScanReport,
+            lower: JumpScanReport,
+          ): LedgeCandidate | null => {
             if (!lower.hit || !lower.hitPoint || !lower.hitNormal) return reject("lower_no_hit");
 
-            if (upper.hit && upper.hitPoint && lower.hitNormal.dot(upper.hitPoint.clone().sub(lower.hitPoint)) > 0) {
+            if (
+              upper.hit &&
+              upper.hitPoint &&
+              lower.hitNormal.dot(upper.hitPoint.clone().sub(lower.hitPoint)) > 0
+            ) {
               return reject("concave_edge");
             }
 
@@ -2174,30 +2423,41 @@ export function useNpcPhysics({
             if (Math.abs(lowerNy) > 0.99) return reject("lower_flat");
 
             const groundAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanGroundAngleDeg);
-            if (Math.abs(Math.acos(clamp(lowerNy, -1, 1))) < groundAngleRad) return reject("lower_ground_angle");
+            if (Math.abs(Math.acos(clamp(lowerNy, -1, 1))) < groundAngleRad)
+              return reject("lower_ground_angle");
 
             const lowerHitNormalProj = new THREE.Vector3(-lower.hitNormal.x, 0, -lower.hitNormal.z);
             if (lowerHitNormalProj.lengthSq() < 1e-6) return reject("lower_proj_zero");
             lowerHitNormalProj.normalize();
 
-            const wallHeadingAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanWallHeadingAngleDeg);
-            const wallHorizAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanWallHorizAngleDeg);
+            const wallHeadingAngleRad = THREE.MathUtils.degToRad(
+              kccConfig.ledgeScanWallHeadingAngleDeg,
+            );
+            const wallHorizAngleRad = THREE.MathUtils.degToRad(
+              kccConfig.ledgeScanWallHorizAngleDeg,
+            );
             const headingAngle = Math.acos(clamp(lowerHitNormalProj.dot(forward), -1, 1));
             if (headingAngle >= wallHeadingAngleRad) return reject("wall_heading_angle");
-            if (Math.abs(Math.asin(clamp(lowerNy, -1, 1))) >= wallHorizAngleRad) return reject("wall_horiz_angle");
+            if (Math.abs(Math.asin(clamp(lowerNy, -1, 1))) >= wallHorizAngleRad)
+              return reject("wall_horiz_angle");
 
             const forwardNormal = forward.clone();
             const div = forwardNormal.dot(lower.hitNormal);
             if (div > -0.01) return reject("lower_div_too_small");
 
             const lowerToUpper = upper.start.clone().sub(lower.start);
-            lowerToUpper.sub(forwardNormal.clone().multiplyScalar(lowerToUpper.dot(lower.hitNormal) / div));
+            lowerToUpper.sub(
+              forwardNormal.clone().multiplyScalar(lowerToUpper.dot(lower.hitNormal) / div),
+            );
             const lowerToUpperLen = lowerToUpper.length();
             if (lowerToUpperLen <= 1e-3) return reject("lower_to_upper_short");
 
             const stepForward = kccConfig.ledgeScanStepForward;
-            let rayStart = lower.hitPoint.clone().sub(forwardNormal.clone().multiplyScalar(scanStepBack));
-            if (castRayHit(rayStart, lowerToUpper, lowerToUpperLen)) return reject("step_up_blocked");
+            let rayStart = lower.hitPoint
+              .clone()
+              .sub(forwardNormal.clone().multiplyScalar(scanStepBack));
+            if (castRayHit(rayStart, lowerToUpper, lowerToUpperLen))
+              return reject("step_up_blocked");
 
             rayStart = rayStart
               .clone()
@@ -2206,8 +2466,17 @@ export function useNpcPhysics({
 
             let upperHitPoint: THREE.Vector3;
             let upperHitNormal: THREE.Vector3;
-            if (!upper.hit || !upper.hitPoint || !upper.hitNormal || rayStart.clone().sub(upper.hitPoint).dot(upper.hitNormal) > 0) {
-              const downHit = castRayHit(rayStart, lowerToUpper.clone().multiplyScalar(-1), lowerToUpperLen);
+            if (
+              !upper.hit ||
+              !upper.hitPoint ||
+              !upper.hitNormal ||
+              rayStart.clone().sub(upper.hitPoint).dot(upper.hitNormal) > 0
+            ) {
+              const downHit = castRayHit(
+                rayStart,
+                lowerToUpper.clone().multiplyScalar(-1),
+                lowerToUpperLen,
+              );
               if (!downHit || !downHit.normal) return reject("upper_down_no_hit");
               upperHitPoint = downHit.point;
               upperHitNormal = downHit.normal;
@@ -2223,7 +2492,13 @@ export function useNpcPhysics({
 
             const ledgePoint = lower.hitPoint
               .clone()
-              .add(lowerToUpper.clone().multiplyScalar(upperHitPoint.clone().sub(lower.hitPoint).dot(upperHitNormal) / div2));
+              .add(
+                lowerToUpper
+                  .clone()
+                  .multiplyScalar(
+                    upperHitPoint.clone().sub(lower.hitPoint).dot(upperHitNormal) / div2,
+                  ),
+              );
 
             let value = 1;
             const vobPos = new THREE.Vector3(ox, npcGroup.position.y, oz);
@@ -2234,13 +2509,19 @@ export function useNpcPhysics({
               if (reachHit) value *= 0.001;
             }
 
-            const cont = forwardNormal.clone().sub(upperHitNormal.clone().multiplyScalar(forwardNormal.dot(upperHitNormal)));
+            const cont = forwardNormal
+              .clone()
+              .sub(upperHitNormal.clone().multiplyScalar(forwardNormal.dot(upperHitNormal)));
             if (cont.lengthSq() < 1e-6) return reject("cont_zero");
             cont.normalize();
 
             const moveForward = kccConfig.ledgeScanMoveForward;
             let maxMoveForward = moveForward;
-            const contHit = castRayHit(ledgePoint.clone().add(new THREE.Vector3(0, 1, 0)), cont, moveForward + 10);
+            const contHit = castRayHit(
+              ledgePoint.clone().add(new THREE.Vector3(0, 1, 0)),
+              cont,
+              moveForward + 10,
+            );
             if (contHit) {
               maxMoveForward = ledgePoint.distanceTo(contHit.point) - 10;
             }
@@ -2251,12 +2532,13 @@ export function useNpcPhysics({
               .clone()
               .add(cont.clone().multiplyScalar(maxMoveForward * 0.5))
               .add(new THREE.Vector3(0, 1, 0));
-            const spaceCheckHeight = kccConfig.capsuleHeight * kccConfig.ledgeScanSpaceCheckHeightFactor;
+            const spaceCheckHeight =
+              kccConfig.capsuleHeight * kccConfig.ledgeScanSpaceCheckHeightFactor;
             const spaceHit = castRayHit(spaceCheck, new THREE.Vector3(0, 1, 0), spaceCheckHeight);
             if (spaceHit) return reject("space_blocked");
 
             const maxLen = kccConfig.jumpUpHeight * 1.5;
-            let distValue = 1 - (toLedge.lengthSq() / (maxLen * maxLen));
+            let distValue = 1 - toLedge.lengthSq() / (maxLen * maxLen);
             if (distValue < 0) distValue = 0;
             const orValue = lowerHitNormalProj.dot(forwardNormal);
             const edgeValue = 0.5 * (1 - lower.hitNormal.dot(upperHitNormal));
@@ -2264,7 +2546,9 @@ export function useNpcPhysics({
             value *= distValue * orValue * edgeValue * spaceValue;
 
             const ledgeHeight = ledgePoint.y - floorY;
-            const obstacleDistance = lower.hitPoint ? Math.hypot(lower.hitPoint.x - lower.start.x, lower.hitPoint.z - lower.start.z) : null;
+            const obstacleDistance = lower.hitPoint
+              ? Math.hypot(lower.hitPoint.x - lower.start.x, lower.hitPoint.z - lower.start.z)
+              : null;
 
             return {
               value,
@@ -2292,7 +2576,8 @@ export function useNpcPhysics({
             }
           };
 
-          const jumpScanStartYOffset = kccConfig.capsuleHeight * Math.max(0, kccConfig.jumpScanStartYOffsetFactor ?? 0);
+          const jumpScanStartYOffset =
+            kccConfig.capsuleHeight * Math.max(0, kccConfig.jumpScanStartYOffsetFactor ?? 0);
           const scanStartY = Math.min(rangeTopY, floorY + jumpScanStartYOffset);
           const upper = makeReport(rangeTopY);
           const lower = makeReport(scanStartY);
@@ -2314,7 +2599,7 @@ export function useNpcPhysics({
               ceilingY,
             },
             sortedReports,
-            bestLedge
+            bestLedge,
           );
 
           (ud as any)._kccLedgeScanRange = {
@@ -2333,9 +2618,21 @@ export function useNpcPhysics({
           if (!jumpActive) {
             (ud as any)._kccLedgeBest = bestLedge
               ? {
-                  point: { x: bestLedge.ledgePoint.x, y: bestLedge.ledgePoint.y, z: bestLedge.ledgePoint.z },
-                  normal: { x: bestLedge.ledgeNormal.x, y: bestLedge.ledgeNormal.y, z: bestLedge.ledgeNormal.z },
-                  cont: { x: bestLedge.ledgeCont.x, y: bestLedge.ledgeCont.y, z: bestLedge.ledgeCont.z },
+                  point: {
+                    x: bestLedge.ledgePoint.x,
+                    y: bestLedge.ledgePoint.y,
+                    z: bestLedge.ledgePoint.z,
+                  },
+                  normal: {
+                    x: bestLedge.ledgeNormal.x,
+                    y: bestLedge.ledgeNormal.y,
+                    z: bestLedge.ledgeNormal.z,
+                  },
+                  cont: {
+                    x: bestLedge.ledgeCont.x,
+                    y: bestLedge.ledgeCont.y,
+                    z: bestLedge.ledgeCont.z,
+                  },
                   value: bestLedge.value,
                   ledgeHeight: bestLedge.ledgeHeight,
                   maxMoveForward: bestLedge.maxMoveForward,
@@ -2351,9 +2648,21 @@ export function useNpcPhysics({
             (jumpActive ? ((ud as any)._kccJumpLedgeFrozen as any) : (ud as any)._kccLedgeBest) ??
             (bestLedge
               ? {
-                  point: { x: bestLedge.ledgePoint.x, y: bestLedge.ledgePoint.y, z: bestLedge.ledgePoint.z },
-                  normal: { x: bestLedge.ledgeNormal.x, y: bestLedge.ledgeNormal.y, z: bestLedge.ledgeNormal.z },
-                  cont: { x: bestLedge.ledgeCont.x, y: bestLedge.ledgeCont.y, z: bestLedge.ledgeCont.z },
+                  point: {
+                    x: bestLedge.ledgePoint.x,
+                    y: bestLedge.ledgePoint.y,
+                    z: bestLedge.ledgePoint.z,
+                  },
+                  normal: {
+                    x: bestLedge.ledgeNormal.x,
+                    y: bestLedge.ledgeNormal.y,
+                    z: bestLedge.ledgeNormal.z,
+                  },
+                  cont: {
+                    x: bestLedge.ledgeCont.x,
+                    y: bestLedge.ledgeCont.y,
+                    z: bestLedge.ledgeCont.z,
+                  },
                   maxMoveForward: bestLedge.maxMoveForward,
                 }
               : null);
@@ -2361,14 +2670,26 @@ export function useNpcPhysics({
           if (isHero && showJumpDebugRange) {
             const startV = new THREE.Vector3(ox, scanStartY, oz);
             const endV = new THREE.Vector3(ox, rangeTopY, oz);
-            updateNpcDebugRayLine(npcGroup, "_kccLedgeScanRangeLine", 0x22ccff, 5, startV, endV, true);
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccLedgeScanRangeLine",
+              0x22ccff,
+              5,
+              startV,
+              endV,
+              true,
+            );
             updateNpcDebugJumpScanRays(
               npcGroup,
               sortedReports.map((r) => ({ start: r.start, end: r.end, hit: r.hit })),
-              true
+              true,
             );
             if (debugLedge && debugLedge.point) {
-              const p = new THREE.Vector3(debugLedge.point.x, debugLedge.point.y, debugLedge.point.z);
+              const p = new THREE.Vector3(
+                debugLedge.point.x,
+                debugLedge.point.y,
+                debugLedge.point.z,
+              );
               const n = debugLedge.normal
                 ? new THREE.Vector3(debugLedge.normal.x, debugLedge.normal.y, debugLedge.normal.z)
                 : new THREE.Vector3(0, 1, 0);
@@ -2376,14 +2697,55 @@ export function useNpcPhysics({
                 ? new THREE.Vector3(debugLedge.cont.x, debugLedge.cont.y, debugLedge.cont.z)
                 : new THREE.Vector3(0, 0, 1);
               const normalEnd = p.clone().add(n.multiplyScalar(35));
-              const contEnd = p.clone().add(c.multiplyScalar(Math.max(0, debugLedge.maxMoveForward ?? 0)));
+              const contEnd = p
+                .clone()
+                .add(c.multiplyScalar(Math.max(0, debugLedge.maxMoveForward ?? 0)));
               updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, p, true);
-              updateNpcDebugRayLine(npcGroup, "_kccLedgeBestNormalLine", 0xff8a00, 3, p, normalEnd, true);
-              updateNpcDebugRayLine(npcGroup, "_kccLedgeBestForwardLine", 0x00c8ff, 3, p, contEnd, true);
+              updateNpcDebugRayLine(
+                npcGroup,
+                "_kccLedgeBestNormalLine",
+                0xff8a00,
+                3,
+                p,
+                normalEnd,
+                true,
+              );
+              updateNpcDebugRayLine(
+                npcGroup,
+                "_kccLedgeBestForwardLine",
+                0x00c8ff,
+                3,
+                p,
+                contEnd,
+                true,
+              );
             } else {
-              updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, new THREE.Vector3(), false);
-              updateNpcDebugRayLine(npcGroup, "_kccLedgeBestNormalLine", 0xff8a00, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-              updateNpcDebugRayLine(npcGroup, "_kccLedgeBestForwardLine", 0x00c8ff, 3, new THREE.Vector3(), new THREE.Vector3(), false);
+              updateNpcDebugPoint(
+                npcGroup,
+                "_kccLedgeBestPoint",
+                0xfff200,
+                4,
+                new THREE.Vector3(),
+                false,
+              );
+              updateNpcDebugRayLine(
+                npcGroup,
+                "_kccLedgeBestNormalLine",
+                0xff8a00,
+                3,
+                new THREE.Vector3(),
+                new THREE.Vector3(),
+                false,
+              );
+              updateNpcDebugRayLine(
+                npcGroup,
+                "_kccLedgeBestForwardLine",
+                0x00c8ff,
+                3,
+                new THREE.Vector3(),
+                new THREE.Vector3(),
+                false,
+              );
             }
           } else {
             updateNpcDebugRayLine(
@@ -2393,12 +2755,35 @@ export function useNpcPhysics({
               5,
               new THREE.Vector3(),
               new THREE.Vector3(),
-              false
+              false,
             );
             updateNpcDebugJumpScanRays(npcGroup, [], false);
-            updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, new THREE.Vector3(), false);
-            updateNpcDebugRayLine(npcGroup, "_kccLedgeBestNormalLine", 0xff8a00, 3, new THREE.Vector3(), new THREE.Vector3(), false);
-            updateNpcDebugRayLine(npcGroup, "_kccLedgeBestForwardLine", 0x00c8ff, 3, new THREE.Vector3(), new THREE.Vector3(), false);
+            updateNpcDebugPoint(
+              npcGroup,
+              "_kccLedgeBestPoint",
+              0xfff200,
+              4,
+              new THREE.Vector3(),
+              false,
+            );
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccLedgeBestNormalLine",
+              0xff8a00,
+              3,
+              new THREE.Vector3(),
+              new THREE.Vector3(),
+              false,
+            );
+            updateNpcDebugRayLine(
+              npcGroup,
+              "_kccLedgeBestForwardLine",
+              0x00c8ff,
+              3,
+              new THREE.Vector3(),
+              new THREE.Vector3(),
+              false,
+            );
           }
         } catch {
           // ignore
@@ -2407,57 +2792,72 @@ export function useNpcPhysics({
 
       // Debug: render KCC capsule wireframe for hero.
       if (showKccCapsule && playerGroupRef.current === npcGroup) {
-        const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
+        const capsuleHeight =
+          (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
         updateNpcDebugCapsuleWire(npcGroup, kccConfig.radius, capsuleHeight, 0xffd400, true);
       } else {
-        updateNpcDebugCapsuleWire(npcGroup, kccConfig.radius, kccConfig.capsuleHeight, 0xffd400, false);
+        updateNpcDebugCapsuleWire(
+          npcGroup,
+          kccConfig.radius,
+          kccConfig.capsuleHeight,
+          0xffd400,
+          false,
+        );
       }
 
-  			      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
-  			      // Emits at most once per ~200ms per NPC, and only when a push is being applied.
-  			      if (fallSlidePush != null) {
-  			        try {
-  			          const nowMs = Date.now();
-  			          const lastAt = (ud as any)._fallWallPushDbgLogAtMs as number | undefined;
-  			          if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
-  			            (ud as any)._fallWallPushDbgLogAtMs = nowMs;
-  			            const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
-  			            const moved = { x: next.x - prevTranslation.x, y: next.y - prevTranslation.y, z: next.z - prevTranslation.z };
-  			            console.log(
-  			              "[NPCFallWallPushDbgJSON]" +
-  			                JSON.stringify({
-  			                  t: nowMs,
-  			                  npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
-  			                  frame: physicsFrameRef.current,
-  			                  phase: fallWallPushDbg?.phase ?? null,
-  			                  duration: fallWallPushDbg?.duration ?? null,
-  			                  push: fallSlidePush,
-  				                  pushMeta: fallWallPushDbg,
-  				                  desired: { x: dx, y: dy, z: dz },
-  				                  kccMove: { x: move.x, y: move.y, z: move.z },
-  				                  translationPrev: prevTranslation,
-  				                  translationNext: next,
-  				                  moved,
-  				                  rawGroundedNow,
-  				                  vy: (ud as any)._kccVy ?? null,
-  				                  bestGroundNy,
-  				                  slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
-  				                  maxSlopeDeg: THREE.MathUtils.radToDeg(kccConfig.maxSlopeClimbAngle),
-  				                  toFallDeg: THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle),
-  				                })
-  			            );
-  			          }
-  			        } catch {
-  			          // ignore
-  			        }
-  			      }
+      // Extra always-on logging for diagnosing "teleport" during fall->wall push transitions.
+      // Emits at most once per ~200ms per NPC, and only when a push is being applied.
+      if (fallSlidePush != null) {
+        try {
+          const nowMs = Date.now();
+          const lastAt = (ud as any)._fallWallPushDbgLogAtMs as number | undefined;
+          if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
+            (ud as any)._fallWallPushDbgLogAtMs = nowMs;
+            const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+            const moved = {
+              x: next.x - prevTranslation.x,
+              y: next.y - prevTranslation.y,
+              z: next.z - prevTranslation.z,
+            };
+            console.log(
+              "[NPCFallWallPushDbgJSON]" +
+                JSON.stringify({
+                  t: nowMs,
+                  npc: npcData?.symbolName ?? npcData?.instanceIndex ?? null,
+                  frame: physicsFrameRef.current,
+                  phase: fallWallPushDbg?.phase ?? null,
+                  duration: fallWallPushDbg?.duration ?? null,
+                  push: fallSlidePush,
+                  pushMeta: fallWallPushDbg,
+                  desired: { x: dx, y: dy, z: dz },
+                  kccMove: { x: move.x, y: move.y, z: move.z },
+                  translationPrev: prevTranslation,
+                  translationNext: next,
+                  moved,
+                  rawGroundedNow,
+                  vy: (ud as any)._kccVy ?? null,
+                  bestGroundNy,
+                  slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
+                  maxSlopeDeg: THREE.MathUtils.radToDeg(kccConfig.maxSlopeClimbAngle),
+                  toFallDeg: THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle),
+                }),
+            );
+          }
+        } catch {
+          // ignore
+        }
+      }
 
-  			      // If we touch walkable ground, stop any ongoing fall->wall push transition.
-  			      if (rawGroundedNow && slopeAngleNow != null && slopeAngleNow <= kccConfig.maxSlopeClimbAngle + 1e-3) {
-  			        ud._kccFallWallPushT = 0;
-  			        ud._kccFallWallPushTotalDist = 0;
-  			        ud._kccFallWallPushDir = undefined;
-  			      }
+      // If we touch walkable ground, stop any ongoing fall->wall push transition.
+      if (
+        rawGroundedNow &&
+        slopeAngleNow != null &&
+        slopeAngleNow <= kccConfig.maxSlopeClimbAngle + 1e-3
+      ) {
+        ud._kccFallWallPushT = 0;
+        ud._kccFallWallPushTotalDist = 0;
+        ud._kccFallWallPushDir = undefined;
+      }
 
       // Optional: block stepping onto very steep surfaces (treat as a wall).
       if (
@@ -2465,77 +2865,100 @@ export function useNpcPhysics({
         wasStableGrounded &&
         !wasSliding &&
         !wasFalling &&
-  		        desiredDistXZ > 1e-6 &&
-  		        rawGroundedNow &&
-  		        slopeAngleNow != null &&
-  		        slopeAngleNow >= kccConfig.slideEntryBlockAngle
-  		      ) {
-  		        // Only block if we can still find a walkable floor underneath the previous position.
-  		        // This avoids blocking legitimate step-off-a-ledge situations where the only contact is a steep triangle.
-  		        let hasWalkableFloorUnderPrev = false;
-  		        try {
-  		          if (kccConfig.groundRecoverDistance > 0) {
-  		            const WORLD_MEMBERSHIP = 0x0001;
-  		            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-  		            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
-  		            const startAbove = kccConfig.groundRecoverRayStartAbove;
-  		            const maxToi = startAbove + kccConfig.groundRecoverDistance;
-  		            const feetYPrev = prevTranslation.y - capsuleHeight / 2;
-  		            const ray = new rapier.Ray({ x: prevTranslation.x, y: feetYPrev + startAbove, z: prevTranslation.z }, { x: 0, y: -1, z: 0 });
-  		            const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
-  		            if (hit) {
-  		              const ny = hit.normal?.y ?? 0;
-  		              const minNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-  		              if (typeof ny === "number" && Number.isFinite(ny) && ny >= minNy) {
-  		                const p = ray.pointAt(hit.timeOfImpact);
-  		                const deltaDownToHit = feetYPrev - p.y;
-  		                if (deltaDownToHit >= -1e-3 && deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3) {
-  		                  hasWalkableFloorUnderPrev = true;
-  		                }
-  		              }
-  		            }
-  		          }
-  		        } catch {
-  		          // ignore
-  		        }
-  		        if (!hasWalkableFloorUnderPrev) {
-  		          // Let the normal KCC/fall logic handle it (likely a real ledge).
-  		        } else {
-  		        collider.setTranslation(prevTranslation);
-  		        npcGroup.position.set(prevTranslation.x, prevTranslation.y - capsuleHeight / 2, prevTranslation.z);
-  		        vy = 0;
-  		        ud._kccVy = 0;
-  		        ud._kccGrounded = true;
-  		        ud._kccStableGrounded = true;
-  		        ud._kccUngroundedFor = 0;
-  		        ud.isFalling = false;
-  		        ud.isSliding = false;
-  		        ud._kccSlideSpeed = 0;
-  		        ud._kccSlideToFallFor = 0;
-  		        ud._kccSlideExitFor = 0;
-  		        updateNpcVisualSmoothing(npcGroup, dtClamped);
-  		        ud._kccLastFrame = physicsFrameRef.current;
-  		        return { blocked: true, moved: false };
-  		        }
-  		      }
+        desiredDistXZ > 1e-6 &&
+        rawGroundedNow &&
+        slopeAngleNow != null &&
+        slopeAngleNow >= kccConfig.slideEntryBlockAngle
+      ) {
+        // Only block if we can still find a walkable floor underneath the previous position.
+        // This avoids blocking legitimate step-off-a-ledge situations where the only contact is a steep triangle.
+        let hasWalkableFloorUnderPrev = false;
+        try {
+          if (kccConfig.groundRecoverDistance > 0) {
+            const WORLD_MEMBERSHIP = 0x0001;
+            const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
+            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+            const startAbove = kccConfig.groundRecoverRayStartAbove;
+            const maxToi = startAbove + kccConfig.groundRecoverDistance;
+            const feetYPrev = prevTranslation.y - capsuleHeight / 2;
+            const ray = new rapier.Ray(
+              { x: prevTranslation.x, y: feetYPrev + startAbove, z: prevTranslation.z },
+              { x: 0, y: -1, z: 0 },
+            );
+            const hit = rapierWorld.castRayAndGetNormal(
+              ray,
+              maxToi,
+              true,
+              filterFlags,
+              filterGroups,
+              collider,
+            );
+            if (hit) {
+              const ny = hit.normal?.y ?? 0;
+              const minNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
+              if (typeof ny === "number" && Number.isFinite(ny) && ny >= minNy) {
+                const p = ray.pointAt(hit.timeOfImpact);
+                const deltaDownToHit = feetYPrev - p.y;
+                if (
+                  deltaDownToHit >= -1e-3 &&
+                  deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3
+                ) {
+                  hasWalkableFloorUnderPrev = true;
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+        if (!hasWalkableFloorUnderPrev) {
+          // Let the normal KCC/fall logic handle it (likely a real ledge).
+        } else {
+          collider.setTranslation(prevTranslation);
+          npcGroup.position.set(
+            prevTranslation.x,
+            prevTranslation.y - capsuleHeight / 2,
+            prevTranslation.z,
+          );
+          vy = 0;
+          ud._kccVy = 0;
+          ud._kccGrounded = true;
+          ud._kccStableGrounded = true;
+          ud._kccUngroundedFor = 0;
+          ud.isFalling = false;
+          ud.isSliding = false;
+          ud._kccSlideSpeed = 0;
+          ud._kccSlideToFallFor = 0;
+          ud._kccSlideExitFor = 0;
+          updateNpcVisualSmoothing(npcGroup, dtClamped);
+          ud._kccLastFrame = physicsFrameRef.current;
+          return { blocked: true, moved: false };
+        }
+      }
 
-  		      // Slide→fall grace: only flip into "falling" after the too-steep condition persists.
-  		      let slideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
-  		      if (tooSteepToStandNow && wasSliding) slideToFallFor += dtClamped;
-  		      else slideToFallFor = 0;
-  	      ud._kccSlideToFallFor = slideToFallFor;
-  	      const slideToFallGraceActiveNow = tooSteepToStandNow && wasSliding && slideToFallFor < SLIDE_TO_FALL_GRACE_S;
-  	      const tooSteepToStandEffective = tooSteepToStandNow && !slideToFallGraceActiveNow;
+      // Slide→fall grace: only flip into "falling" after the too-steep condition persists.
+      let slideToFallFor = (ud._kccSlideToFallFor as number | undefined) ?? 0;
+      if (tooSteepToStandNow && wasSliding) slideToFallFor += dtClamped;
+      else slideToFallFor = 0;
+      ud._kccSlideToFallFor = slideToFallFor;
+      const slideToFallGraceActiveNow =
+        tooSteepToStandNow && wasSliding && slideToFallFor < SLIDE_TO_FALL_GRACE_S;
+      const tooSteepToStandEffective = tooSteepToStandNow && !slideToFallGraceActiveNow;
 
-  	      const fallHitSlideSurfaceNow =
-  	        wasFalling && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
+      const fallHitSlideSurfaceNow =
+        wasFalling && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
 
-  	      // Integrate gravity for the next frame (semi-implicit):
-  	      // - If grounded on a walkable/slideable surface: reset vertical speed.
-  	      // - If not grounded (or too steep to stand on / we are falling onto a slide surface): apply gravity.
+      // Integrate gravity for the next frame (semi-implicit):
+      // - If grounded on a walkable/slideable surface: reset vertical speed.
+      // - If not grounded (or too steep to stand on / we are falling onto a slide surface): apply gravity.
       if (jumpSkipKccActive) {
         vy = 0;
-      } else if (rawGroundedNow && !tooSteepToStandEffective && !fallHitSlideSurfaceNow && !jumpActive) {
+      } else if (
+        rawGroundedNow &&
+        !tooSteepToStandEffective &&
+        !fallHitSlideSurfaceNow &&
+        !jumpActive
+      ) {
         vy = 0;
       } else {
         vy -= kccConfig.gravity * dtClamped;
@@ -2549,27 +2972,28 @@ export function useNpcPhysics({
       const FALL_VY_THRESHOLD = -20;
 
       let groundedFor = (ud._kccGroundedFor as number | undefined) ?? 0;
-  	      let ungroundedFor = (ud._kccUngroundedFor as number | undefined) ?? 0;
-  	      let stableGrounded = Boolean(ud._kccStableGrounded ?? rawGroundedNow);
+      let ungroundedFor = (ud._kccUngroundedFor as number | undefined) ?? 0;
+      let stableGrounded = Boolean(ud._kccStableGrounded ?? rawGroundedNow);
 
-  	      const canStandNow = rawGroundedNow && !tooSteepToStandEffective && !jumpActive;
-  	      if (canStandNow) {
-  	        groundedFor += dtClamped;
-  	        ungroundedFor = 0;
-  	        if (!stableGrounded && groundedFor >= LAND_GRACE_S) stableGrounded = true;
-  	      } else {
+      const canStandNow = rawGroundedNow && !tooSteepToStandEffective && !jumpActive;
+      if (canStandNow) {
+        groundedFor += dtClamped;
+        ungroundedFor = 0;
+        if (!stableGrounded && groundedFor >= LAND_GRACE_S) stableGrounded = true;
+      } else {
         groundedFor = 0;
         ungroundedFor += dtClamped;
-        if (stableGrounded && ungroundedFor >= FALL_GRACE_S && vy <= FALL_VY_THRESHOLD) stableGrounded = false;
+        if (stableGrounded && ungroundedFor >= FALL_GRACE_S && vy <= FALL_VY_THRESHOLD)
+          stableGrounded = false;
       }
 
       // Optional: allow stepping onto steep surfaces but suppress slide when stepping "up" onto them.
       // Forward-probe slide helpers removed.
 
-  	      if (tooSteepToStandEffective) {
-  	        // Very steep surfaces (near-walls) should behave like falling, not like "slow sliding".
-  	        stableGrounded = false;
-  	      }
+      if (tooSteepToStandEffective) {
+        // Very steep surfaces (near-walls) should behave like falling, not like "slow sliding".
+        stableGrounded = false;
+      }
 
       if (fallHitSlideSurfaceNow) {
         // If we were already falling, don't "stick" to a slide surface.
@@ -2597,18 +3021,21 @@ export function useNpcPhysics({
 
       // If we are not grounded, attempt a lightweight ray-based recovery snap to avoid edge flicker on ramps/stairs.
       // This uses Rapier queries only (no legacy world mesh code).
-  	      let recoveredToGround = false;
-  	      let groundRayToi: number | null = null;
-  	      let groundRayNormalY: number | null = null;
-  	      let groundRayColliderHandle: number | null = null;
-  	      let groundRecoverDropApplied: number | null = null;
+      let recoveredToGround = false;
+      let groundRayToi: number | null = null;
+      let groundRayNormalY: number | null = null;
+      let groundRayColliderHandle: number | null = null;
+      let groundRecoverDropApplied: number | null = null;
       const jumpEndByProbePending = Boolean((ud as any)._kccJumpEndByProbePending);
       if (jumpEndByProbePending && stableGrounded) {
         (ud as any)._kccJumpEndByProbePending = false;
       }
       const jumpGraceActiveRecover = Boolean((ud as any)._kccJumpGraceActive);
-      const recoverSuppressUntilMs = (ud as any)._kccGroundRecoverSuppressUntilMs as number | undefined;
-      const recoverSuppressed = typeof recoverSuppressUntilMs === "number" && nowMs < recoverSuppressUntilMs;
+      const recoverSuppressUntilMs = (ud as any)._kccGroundRecoverSuppressUntilMs as
+        | number
+        | undefined;
+      const recoverSuppressed =
+        typeof recoverSuppressUntilMs === "number" && nowMs < recoverSuppressUntilMs;
       if (
         !rawGroundedNow &&
         !tooSteepToStandNow &&
@@ -2631,37 +3058,50 @@ export function useNpcPhysics({
           const maxToi = startAbove + kccConfig.groundRecoverDistance;
           const ray = new rapier.Ray(
             { x: npcGroup.position.x, y: feetY + startAbove, z: npcGroup.position.z },
-            { x: 0, y: -1, z: 0 }
+            { x: 0, y: -1, z: 0 },
           );
-          const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups, collider);
+          const hit = rapierWorld.castRayAndGetNormal(
+            ray,
+            maxToi,
+            true,
+            filterFlags,
+            filterGroups,
+            collider,
+          );
           if (hit) {
             groundRayToi = hit.timeOfImpact;
             groundRayNormalY = hit.normal?.y ?? null;
             groundRayColliderHandle = hit.collider?.handle ?? null;
 
             const minNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
-            const nyOk = typeof groundRayNormalY === "number" && Number.isFinite(groundRayNormalY) && groundRayNormalY >= minNy;
+            const nyOk =
+              typeof groundRayNormalY === "number" &&
+              Number.isFinite(groundRayNormalY) &&
+              groundRayNormalY >= minNy;
             if (nyOk) {
               const p = ray.pointAt(hit.timeOfImpact);
               const deltaDownToHit = feetY - p.y;
-              if (deltaDownToHit >= -1e-3 && deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3) {
+              if (
+                deltaDownToHit >= -1e-3 &&
+                deltaDownToHit <= kccConfig.groundRecoverDistance + 1e-3
+              ) {
                 // Consider ourselves grounded again (even if we don't adjust Y), to avoid 1-frame fall flicker at edges.
-  	                recoveredToGround = true;
+                recoveredToGround = true;
 
-  	                const targetFeetYRaw = Math.min(feetY, p.y + kccConfig.groundClearance);
-  	                const dropWanted = feetY - targetFeetYRaw;
-  	                const maxDrop = kccConfig.groundRecoverMaxDrop ?? 0;
-  	                const drop = maxDrop > 0 ? Math.min(dropWanted, maxDrop) : 0;
-  	                groundRecoverDropApplied = drop;
-  	                if (drop > 1e-3) {
-  	                  const targetFeetY = feetY - drop;
-  	                  collider.setTranslation({
-  	                    x: npcGroup.position.x,
-  	                    y: targetFeetY + capsuleHeight / 2,
-  	                    z: npcGroup.position.z,
-  	                  });
-  	                  npcGroup.position.y = targetFeetY;
-  	                }
+                const targetFeetYRaw = Math.min(feetY, p.y + kccConfig.groundClearance);
+                const dropWanted = feetY - targetFeetYRaw;
+                const maxDrop = kccConfig.groundRecoverMaxDrop ?? 0;
+                const drop = maxDrop > 0 ? Math.min(dropWanted, maxDrop) : 0;
+                groundRecoverDropApplied = drop;
+                if (drop > 1e-3) {
+                  const targetFeetY = feetY - drop;
+                  collider.setTranslation({
+                    x: npcGroup.position.x,
+                    y: targetFeetY + capsuleHeight / 2,
+                    z: npcGroup.position.z,
+                  });
+                  npcGroup.position.y = targetFeetY;
+                }
 
                 vy = 0;
                 ud._kccVy = 0;
@@ -2687,7 +3127,8 @@ export function useNpcPhysics({
         ud._kccFallEntryFor = entryFor;
         const probeDrop = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
         const skipDelay =
-          probeDrop == null || (typeof probeDrop === "number" && Number.isFinite(probeDrop) && probeDrop > 50);
+          probeDrop == null ||
+          (typeof probeDrop === "number" && Number.isFinite(probeDrop) && probeDrop > 50);
         if (!skipDelay && delayS > 0 && entryFor < delayS) {
           stableGrounded = true;
           groundedFor = Math.max(groundedFor, LAND_GRACE_S);
@@ -2718,37 +3159,40 @@ export function useNpcPhysics({
           if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
             const drop = fallStartY - nowY;
             console.log("[NPCFallDrop] " + drop);
-          const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
-          console.log(
-            "[NPCFallDropJSON]" +
-              JSON.stringify({
-                t: Date.now(),
-                drop,
-                probeDistDown: typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null,
-              })
-          );
-          // Track repeated short falls: if >=4 landings within 1s, force 500ms lock.
-          const nowMs = Date.now();
-          const recentFalls =
-            ((ud as any)._kccRecentFallsMs as number[] | undefined) ??
-            ((ud as any)._kccRecentFallsMs = []);
-          const cutoff = nowMs - 1000;
-          let writeIdx = 0;
-          for (let i = 0; i < recentFalls.length; i++) {
-            const t = recentFalls[i];
-            if (t >= cutoff) recentFalls[writeIdx++] = t;
-          }
-          recentFalls.length = writeIdx;
-          recentFalls.push(nowMs);
+            const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
+            console.log(
+              "[NPCFallDropJSON]" +
+                JSON.stringify({
+                  t: Date.now(),
+                  drop,
+                  probeDistDown:
+                    typeof probeDistDown === "number" && Number.isFinite(probeDistDown)
+                      ? probeDistDown
+                      : null,
+                }),
+            );
+            // Track repeated short falls: if >=4 landings within 1s, force 500ms lock.
+            const nowMs = Date.now();
+            const recentFalls =
+              ((ud as any)._kccRecentFallsMs as number[] | undefined) ??
+              ((ud as any)._kccRecentFallsMs = []);
+            const cutoff = nowMs - 1000;
+            let writeIdx = 0;
+            for (let i = 0; i < recentFalls.length; i++) {
+              const t = recentFalls[i];
+              if (t >= cutoff) recentFalls[writeIdx++] = t;
+            }
+            recentFalls.length = writeIdx;
+            recentFalls.push(nowMs);
 
-          let lockMs = 0;
-          if (recentFalls.length >= 4) {
-            lockMs = 500;
-          } else if (drop < 10) lockMs = 0;
-          else if (drop < 20) lockMs = 100;
-          else if (drop < 50) lockMs = 200;
-          else if (drop < 100) lockMs = 300;
-          else lockMs = 500;
+            let lockMs = 0;
+            if (recentFalls.length >= 4) {
+              lockMs = 500;
+            } else if (drop < 10) lockMs = 0;
+            else if (drop < 20) lockMs = 100;
+            else if (drop < 50) lockMs = 200;
+            else if (drop < 100) lockMs = 300;
+            else lockMs = 500;
             if (lockMs > 0) (ud as any)._kccIgnoreInputUntilMs = Date.now() + lockMs;
           }
           (ud as any)._kccFallStartY = undefined;
@@ -2762,14 +3206,18 @@ export function useNpcPhysics({
       else fallFor = 0;
       ud._kccFallFor = fallFor;
 
-  	      // Reduce slide<->walk jitter near the maxSlopeClimbAngle threshold:
-  	      // when we were sliding and the slope briefly drops just below the threshold, keep sliding for a moment.
-  	      const wantsSlideAngleNow = stableGrounded && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
-  	      let slideExitFor = (ud._kccSlideExitFor as number | undefined) ?? 0;
-  	      if (wasSliding && !wantsSlideAngleNow) slideExitFor += dtClamped;
-  	      else slideExitFor = 0;
-  	      ud._kccSlideExitFor = slideExitFor;
-  	      const slideExitGraceActiveNow = wasSliding && !wantsSlideAngleNow && slideExitFor < SLIDE_EXIT_GRACE_S;
+      // Reduce slide<->walk jitter near the maxSlopeClimbAngle threshold:
+      // when we were sliding and the slope briefly drops just below the threshold, keep sliding for a moment.
+      const wantsSlideAngleNow =
+        stableGrounded &&
+        slopeAngleNow != null &&
+        slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
+      let slideExitFor = (ud._kccSlideExitFor as number | undefined) ?? 0;
+      if (wasSliding && !wantsSlideAngleNow) slideExitFor += dtClamped;
+      else slideExitFor = 0;
+      ud._kccSlideExitFor = slideExitFor;
+      const slideExitGraceActiveNow =
+        wasSliding && !wantsSlideAngleNow && slideExitFor < SLIDE_EXIT_GRACE_S;
 
       let isSliding = false;
       if (stableGrounded) {
@@ -2782,13 +3230,20 @@ export function useNpcPhysics({
             slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3 &&
             (slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3 || slideToFallGraceActiveNow);
           isSliding = wantsSlideBySlope;
-          if (!isSliding && slideExitGraceActiveNow && slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3) isSliding = true;
+          if (
+            !isSliding &&
+            slideExitGraceActiveNow &&
+            slopeAngleNow <= kccConfig.slideToFallAngle + 1e-3
+          )
+            isSliding = true;
         }
       }
       // Delay slide state entry (not just animation). Count time spent in "slide candidate" state.
       const delayS = kccConfig.slideEntryDelaySeconds ?? 0;
       const wantsSlideBySlope =
-        stableGrounded && slopeAngleNow != null && slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
+        stableGrounded &&
+        slopeAngleNow != null &&
+        slopeAngleNow > kccConfig.maxSlopeClimbAngle + 1e-3;
       if (wantsSlideBySlope) {
         let entryFor = (ud._kccSlideEntryFor as number | undefined) ?? 0;
         const applyDelay = stableGrounded && !wasFalling && !wasSliding;
@@ -2821,7 +3276,7 @@ export function useNpcPhysics({
                   slopeDeg: slopeAngleNow != null ? THREE.MathUtils.radToDeg(slopeAngleNow) : null,
                   slideExitFor,
                   slideExitGraceActive: slideExitGraceActiveNow,
-                })
+                }),
             );
           }
         } catch {
@@ -2839,12 +3294,14 @@ export function useNpcPhysics({
       updateNpcVisualSmoothing(npcGroup, dtClamped);
 
       const isMotionDebugRuntime =
-        typeof window !== "undefined" && Boolean((window as any).__npcMotionDebug) && playerGroupRef.current === npcGroup;
+        typeof window !== "undefined" &&
+        Boolean((window as any).__npcMotionDebug) &&
+        playerGroupRef.current === npcGroup;
       const shouldStoreKccDbg = isMotionDebugRuntime && playerGroupRef.current === npcGroup;
-  	      if (shouldStoreKccDbg) {
-  	        const dbg =
-  	          (ud._kccDbg as any) ??
-  	          (ud._kccDbg = {
+      if (shouldStoreKccDbg) {
+        const dbg =
+          (ud._kccDbg as any) ??
+          (ud._kccDbg = {
             dt: 0,
             desired: { x: 0, y: 0, z: 0 },
             computed: { x: 0, y: 0, z: 0 },
@@ -2852,16 +3309,16 @@ export function useNpcPhysics({
             groundedRaw: false,
             groundedStable: false,
             vy: 0,
-  	            groundedFor: 0,
-  	            ungroundedFor: 0,
-  	            groundNy: null as number | null,
-  	            groundNyEffective: null as number | null,
-  	            floorProbeNy: null as number | null,
-  	            floorProbeSrc: null as string | null,
-  	            collisions: 0,
-  	            groundRay: null as any,
-  	            recoveredToGround: false,
-  	            slopeBoost: null as any,
+            groundedFor: 0,
+            ungroundedFor: 0,
+            groundNy: null as number | null,
+            groundNyEffective: null as number | null,
+            floorProbeNy: null as number | null,
+            floorProbeSrc: null as string | null,
+            collisions: 0,
+            groundRay: null as any,
+            recoveredToGround: false,
+            slopeBoost: null as any,
             slide: null as any,
             slideBlock: null as any,
           });
@@ -2878,17 +3335,22 @@ export function useNpcPhysics({
         dbg.slideExitFor = slideExitFor;
         dbg.slideExitGraceActive = slideExitGraceActiveNow;
         dbg.vy = vy;
-  	        dbg.groundedFor = groundedFor;
-  	        dbg.ungroundedFor = ungroundedFor;
-  	        dbg.groundNy = bestGroundNy;
-  	        dbg.groundNyEffective = (ud as any)._kccGroundNyEffective ?? null;
-  	        dbg.floorProbeNy = (ud as any)._kccFloorProbeNy ?? null;
-  	        dbg.floorProbeSrc = (ud as any)._kccFloorProbeSrc ?? null;
-  	        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
-  	        dbg.groundRay =
-  	          groundRayToi != null
-  	            ? { toi: groundRayToi, normalY: groundRayNormalY, colliderHandle: groundRayColliderHandle, recoverDrop: groundRecoverDropApplied }
-  	            : null;
+        dbg.groundedFor = groundedFor;
+        dbg.ungroundedFor = ungroundedFor;
+        dbg.groundNy = bestGroundNy;
+        dbg.groundNyEffective = (ud as any)._kccGroundNyEffective ?? null;
+        dbg.floorProbeNy = (ud as any)._kccFloorProbeNy ?? null;
+        dbg.floorProbeSrc = (ud as any)._kccFloorProbeSrc ?? null;
+        dbg.collisions = controller.numComputedCollisions?.() ?? 0;
+        dbg.groundRay =
+          groundRayToi != null
+            ? {
+                toi: groundRayToi,
+                normalY: groundRayNormalY,
+                colliderHandle: groundRayColliderHandle,
+                recoverDrop: groundRecoverDropApplied,
+              }
+            : null;
         dbg.recoveredToGround = recoveredToGround;
         dbg.slopeBoost = boostApplied ? { factor: boostFactor } : null;
         const wantsSlideBySlope =
@@ -2906,7 +3368,8 @@ export function useNpcPhysics({
             ? {
                 speed: slideSpeedApplied,
                 tooSteep: slideTooSteep,
-                toFallDeg: Math.round(THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle) * 100) / 100,
+                toFallDeg:
+                  Math.round(THREE.MathUtils.radToDeg(kccConfig.slideToFallAngle) * 100) / 100,
                 entryDelayS: kccConfig.slideEntryDelaySeconds ?? 0,
                 entryFor: (ud._kccSlideEntryFor as number | undefined) ?? 0,
                 wantsSlideBySlope,
@@ -2918,7 +3381,10 @@ export function useNpcPhysics({
             : null;
         dbg.slideBlock =
           kccConfig.slideBlockUphillEnabled && wasSliding
-            ? { wasSliding: true, blockedAlong: (ud._slideBlockedAlong as number | undefined) ?? null }
+            ? {
+                wasSliding: true,
+                blockedAlong: (ud._slideBlockedAlong as number | undefined) ?? null,
+              }
             : null;
       }
 
@@ -2932,7 +3398,9 @@ export function useNpcPhysics({
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
-      const moved = Math.abs(npcGroup.position.x - beforeX) > 1e-6 || Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
+      const moved =
+        Math.abs(npcGroup.position.x - beforeX) > 1e-6 ||
+        Math.abs(npcGroup.position.z - beforeZ) > 1e-6;
       updateNpcVisualSmoothing(npcGroup, dtClamped);
       ud._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(ud._npcNpcBlocked), moved };
@@ -2954,7 +3422,10 @@ export function useNpcPhysics({
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
       const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
-      const ray = new rapier.Ray({ x, y: npcGroup.position.y + rayStartAbove, z }, { x: 0, y: -1, z: 0 });
+      const ray = new rapier.Ray(
+        { x, y: npcGroup.position.y + rayStartAbove, z },
+        { x: 0, y: -1, z: 0 },
+      );
       const maxToi = rayStartAbove + maxDownDistance;
       const minNormalY = 0.2;
 
@@ -2973,7 +3444,7 @@ export function useNpcPhysics({
         },
         filterFlags,
         filterGroups,
-        collider
+        collider,
       );
 
       if (bestToi == null) return null;
@@ -2992,17 +3463,17 @@ export function useNpcPhysics({
     ud._kccGrounded = true;
     ud._kccStableGrounded = true;
     ud._kccGroundedFor = 0;
-  	    ud._kccUngroundedFor = 0;
-  	    ud._kccSnapped = true;
-  	    ud.isFalling = false;
-  	    ud.isSliding = false;
-  	    ud._kccFallWallPushT = 0;
-  	    ud._kccFallWallPushTotalDist = 0;
-  	    ud._kccFallWallPushDir = undefined;
+    ud._kccUngroundedFor = 0;
+    ud._kccSnapped = true;
+    ud.isFalling = false;
+    ud.isSliding = false;
+    ud._kccFallWallPushT = 0;
+    ud._kccFallWallPushTotalDist = 0;
+    ud._kccFallWallPushDir = undefined;
 
-  	    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
-  	    ud._visSmoothY = npcGroup.position.y;
-  	    const visualRoot = getNpcVisualRoot(npcGroup);
+    // Reset visual smoothing so we don't keep an offset across teleports/spawns.
+    ud._visSmoothY = npcGroup.position.y;
+    const visualRoot = getNpcVisualRoot(npcGroup);
     if (visualRoot !== npcGroup) visualRoot.position.y = 0;
     return true;
   };

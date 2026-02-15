@@ -14,7 +14,7 @@ function angleDegBetweenXZ(ax: number, az: number, bx: number, bz: number): numb
 export function findMeleeHit(
   attacker: CombatantSnapshot,
   attack: Pick<MeleeAttackProfile, "range" | "arcDeg">,
-  candidates: CombatantSnapshot[]
+  candidates: CombatantSnapshot[],
 ): MeleeHit | null {
   const range = Math.max(0, attack.range);
   const maxArc = Math.max(0, attack.arcDeg);
@@ -48,4 +48,3 @@ export function findMeleeHit(
 
   return best;
 }
-

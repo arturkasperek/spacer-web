@@ -6,7 +6,11 @@ import { getWorldTime } from "./world-time.js";
 import { __getNpcEmQueueState } from "./npc-em-queue.js";
 import { __getNpcEmActiveJob } from "./npc-em-runtime.js";
 import { getNpcStateTime } from "./vm-manager.js";
-import { findFreepointForNpc, isFreepointAvailableForNpc, isNpcOnFreepoint } from "./npc-freepoints.js";
+import {
+  findFreepointForNpc,
+  isFreepointAvailableForNpc,
+  isNpcOnFreepoint,
+} from "./npc-freepoints.js";
 
 type SelectedNpc = {
   npc: NpcData;
@@ -96,7 +100,10 @@ export function NpcInspectorOverlay({
       const q = __getNpcEmQueueState(npc.instanceIndex);
       const activeJob = __getNpcEmActiveJob(npc.instanceIndex);
 
-      const activeStateName = (ud?._aiActiveStateName as string | undefined) ?? (routine?.state as string | undefined) ?? null;
+      const activeStateName =
+        (ud?._aiActiveStateName as string | undefined) ??
+        (routine?.state as string | undefined) ??
+        null;
       const stateTimeSeconds = getNpcStateTime(npc.instanceIndex);
       const nowMs = Date.now();
       const nextAt = (ud?._aiLoopNextAtMs as number | undefined) ?? null;
@@ -106,7 +113,10 @@ export function NpcInspectorOverlay({
 
       const primaryTag = inferPrimaryFreepointTag(routine?.state ?? null);
       const defaultTags = ["PICK", "STAND", "ROAM"];
-      const checks: Record<string, { isOn: boolean; isAvailable: boolean; isNextAvailable: boolean }> = {};
+      const checks: Record<
+        string,
+        { isOn: boolean; isAvailable: boolean; isNextAvailable: boolean }
+      > = {};
       for (const tag of defaultTags) {
         checks[tag] = {
           isOn: Boolean(isNpcOnFreepoint(npc.instanceIndex, tag, 100)),
@@ -117,16 +127,29 @@ export function NpcInspectorOverlay({
 
       let primary: NpcInspectorInfo["freepoints"]["primary"] = null;
       if (primaryTag) {
-        const nearest = findFreepointForNpc(npc.instanceIndex, primaryTag, { checkDistance: true, dist: 3000, avoidCurrentSpot: false });
+        const nearest = findFreepointForNpc(npc.instanceIndex, primaryTag, {
+          checkDistance: true,
+          dist: 3000,
+          avoidCurrentSpot: false,
+        });
         const nearestDist = nearest
-          ? Math.hypot(nearest.position.x - pos.x, nearest.position.y - pos.y, nearest.position.z - pos.z)
+          ? Math.hypot(
+              nearest.position.x - pos.x,
+              nearest.position.y - pos.y,
+              nearest.position.z - pos.z,
+            )
           : null;
         primary = {
           tag: primaryTag,
           isOn: Boolean(isNpcOnFreepoint(npc.instanceIndex, primaryTag, 100)),
           isAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, primaryTag, true)),
-          isNextAvailable: Boolean(isFreepointAvailableForNpc(npc.instanceIndex, primaryTag, false)),
-          nearest: nearest && nearestDist !== null ? { nameUpper: nearest.nameUpper, vobId: nearest.vobId, dist: nearestDist } : null,
+          isNextAvailable: Boolean(
+            isFreepointAvailableForNpc(npc.instanceIndex, primaryTag, false),
+          ),
+          nearest:
+            nearest && nearestDist !== null
+              ? { nameUpper: nearest.nameUpper, vobId: nearest.vobId, dist: nearestDist }
+              : null,
         };
       }
 
@@ -224,7 +247,8 @@ export function NpcInspectorOverlay({
         }}
       >
         <div style={{ fontWeight: 700 }}>
-          NPC Inspector: {selected.npc.name ?? selected.npc.symbolName} ({selected.npc.instanceIndex})
+          NPC Inspector: {selected.npc.name ?? selected.npc.symbolName} (
+          {selected.npc.instanceIndex})
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button

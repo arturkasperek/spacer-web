@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { setWorldTime, useWorldTime } from "./world-time.js";
 
-const clampInt = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.trunc(value)));
+const clampInt = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.trunc(value)));
 
 export function WorldTimeOverlay({ onClose }: { onClose?: () => void } = {}) {
   const t = useWorldTime();

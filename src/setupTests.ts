@@ -1,39 +1,43 @@
-import '@testing-library/jest-dom';
+import "@testing-library/jest-dom";
 
 // Suppress console warnings during tests (Three.js component casing warnings)
 const originalWarn = console.warn;
 const originalError = console.error;
 console.warn = (...args) => {
   // Filter out Three.js component casing warnings
-  if (args[0] && typeof args[0] === 'string' && (
-    args[0].includes('is using incorrect casing') ||
-    args[0].includes('unrecognized in this browser')
-  )) {
+  if (
+    args[0] &&
+    typeof args[0] === "string" &&
+    (args[0].includes("is using incorrect casing") ||
+      args[0].includes("unrecognized in this browser"))
+  ) {
     return;
   }
   originalWarn(...args);
 };
 console.error = (...args) => {
   // Filter out Three.js component casing errors and React warnings
-  if (args[0] && typeof args[0] === 'string' && (
-    args[0].includes('is using incorrect casing') ||
-    args[0].includes('unrecognized in this browser') ||
-    args[0].includes('does not recognize the') ||
-    args[0].includes('Received `true` for a non-boolean attribute')
-  )) {
+  if (
+    args[0] &&
+    typeof args[0] === "string" &&
+    (args[0].includes("is using incorrect casing") ||
+      args[0].includes("unrecognized in this browser") ||
+      args[0].includes("does not recognize the") ||
+      args[0].includes("Received `true` for a non-boolean attribute"))
+  ) {
     return;
   }
   originalError(...args);
 };
 
 // Mock React Three Fiber hooks
-jest.mock('@react-three/fiber', () => ({
+jest.mock("@react-three/fiber", () => ({
   useFrame: jest.fn(),
   useThree: jest.fn(() => ({
     camera: {
       position: { set: jest.fn() },
       lookAt: jest.fn(),
-      rotation: { order: 'YXZ' },
+      rotation: { order: "YXZ" },
       updateProjectionMatrix: jest.fn(),
     },
     gl: {
@@ -51,28 +55,31 @@ jest.mock('@react-three/fiber', () => ({
   })),
   useLoader: jest.fn(),
   extend: jest.fn(),
-  Canvas: ({ children }: { children: any }) => ({ type: 'Canvas', props: { children } }),
+  Canvas: ({ children }: { children: any }) => ({ type: "Canvas", props: { children } }),
 }));
 
 // Mock @react-three/drei
-jest.mock('@react-three/drei', () => ({
-  OrbitControls: ({ children }: { children: any }) => ({ type: 'OrbitControls', props: { children } }),
-  Html: ({ children }: { children: any }) => ({ type: 'Html', props: { children } }),
-  Text: ({ children }: { children: any }) => ({ type: 'Text', props: { children } }),
+jest.mock("@react-three/drei", () => ({
+  OrbitControls: ({ children }: { children: any }) => ({
+    type: "OrbitControls",
+    props: { children },
+  }),
+  Html: ({ children }: { children: any }) => ({ type: "Html", props: { children } }),
+  Text: ({ children }: { children: any }) => ({ type: "Text", props: { children } }),
 }));
 
 // Mock @react-three/rapier (it pulls in three-stdlib loaders which don't work with our minimal Three.js mock)
-jest.mock('@react-three/rapier', () => ({
-  Physics: ({ children }: { children: any }) => ({ type: 'Physics', props: { children } }),
+jest.mock("@react-three/rapier", () => ({
+  Physics: ({ children }: { children: any }) => ({ type: "Physics", props: { children } }),
   useRapier: jest.fn(() => ({ world: null, rapier: null })),
 }));
 
 // Mock ZenKit
-jest.mock('@kolarz3/zenkit', () => ({
+jest.mock("@kolarz3/zenkit", () => ({
   ZenKit: {
     createWorld: jest.fn(() => ({
       loadFromArray: jest.fn(),
-      getMeshNames: jest.fn(() => ['root']),
+      getMeshNames: jest.fn(() => ["root"]),
       getMesh: jest.fn(() => ({
         getProcessedMeshData: jest.fn(() => ({
           vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
@@ -86,21 +93,23 @@ jest.mock('@kolarz3/zenkit', () => ({
           materials: {
             size: jest.fn(() => 1),
             get: jest.fn(() => ({
-              texture: 'test_texture.TGA',
+              texture: "test_texture.TGA",
             })),
           },
         })),
       })),
     })),
-    loadCompiledTexAsDataTexture: jest.fn(() => Promise.resolve({
-      image: { width: 64, height: 64 },
-      needsUpdate: true,
-    })),
+    loadCompiledTexAsDataTexture: jest.fn(() =>
+      Promise.resolve({
+        image: { width: 64, height: 64 },
+        needsUpdate: true,
+      }),
+    ),
   },
 }));
 
 // Mock Three.js
-jest.mock('three', () => {
+jest.mock("three", () => {
   const mockGeometry = {
     setAttribute: jest.fn(),
     setIndex: jest.fn(),
@@ -134,22 +143,22 @@ jest.mock('three', () => {
     Mesh: jest.fn(() => mockMesh),
     DoubleSide: 2,
     Vector3: jest.fn(() => {
-    const vector: any = {
-      x: 0,
-      y: 0,
-      z: 0,
-      set: jest.fn().mockReturnThis(),
-      length: jest.fn(() => 0),
-      addScaledVector: jest.fn().mockReturnThis(),
-      applyQuaternion: jest.fn().mockReturnThis(),
-      distanceTo: jest.fn(() => 0),
-      copy: jest.fn().mockReturnThis(),
-    };
-    vector.subVectors = jest.fn().mockReturnValue(vector);
-    vector.crossVectors = jest.fn().mockReturnValue(vector);
-    vector.normalize = jest.fn().mockReturnValue(vector);
-    return vector;
-  }),
+      const vector: any = {
+        x: 0,
+        y: 0,
+        z: 0,
+        set: jest.fn().mockReturnThis(),
+        length: jest.fn(() => 0),
+        addScaledVector: jest.fn().mockReturnThis(),
+        applyQuaternion: jest.fn().mockReturnThis(),
+        distanceTo: jest.fn(() => 0),
+        copy: jest.fn().mockReturnThis(),
+      };
+      vector.subVectors = jest.fn().mockReturnValue(vector);
+      vector.crossVectors = jest.fn().mockReturnValue(vector);
+      vector.normalize = jest.fn().mockReturnValue(vector);
+      return vector;
+    }),
     Euler: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
     Quaternion: jest.fn(() => ({
       x: 0,
@@ -180,4 +189,4 @@ jest.mock('three', () => {
 });
 
 // Mock file loader
-jest.mock('../__mocks__/fileMock.js', () => 'test-file-stub', { virtual: true });
+jest.mock("../__mocks__/fileMock.js", () => "test-file-stub", { virtual: true });

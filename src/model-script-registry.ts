@@ -127,13 +127,13 @@ export class ModelScriptRegistry {
    */
   getAnimationMetaForNpc(
     npcScripts: NpcModelScriptsState | null | undefined,
-    animationName: string
+    animationName: string,
   ): AnimationMeta | null {
     const nameKey = (animationName || "").trim().toUpperCase();
     if (!nameKey) return null;
 
     const st: NpcModelScriptsState = npcScripts ?? { baseScript: "HUMANS", overlays: [] };
-    const keys = [...(st.overlays || [])].map(s => s.toUpperCase());
+    const keys = [...(st.overlays || [])].map((s) => s.toUpperCase());
     keys.push((st.baseScript || "HUMANS").toUpperCase());
 
     // Resolve from the most recently applied overlay, falling back to base.

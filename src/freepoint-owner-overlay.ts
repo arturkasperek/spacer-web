@@ -108,4 +108,3 @@ export function createFreepointOwnerOverlay(scene: THREE.Scene): FreepointOwnerO
     },
   };
 }
-

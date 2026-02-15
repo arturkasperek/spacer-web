@@ -27,7 +27,11 @@ describe("npc-character-loader", () => {
     };
   }
 
-  function makeNpcData(instanceIndex: number, symbolName: string, extra?: Partial<NpcData>): NpcData {
+  function makeNpcData(
+    instanceIndex: number,
+    symbolName: string,
+    extra?: Partial<NpcData>,
+  ): NpcData {
     return {
       instanceIndex,
       symbolName,
@@ -46,10 +50,12 @@ describe("npc-character-loader", () => {
     }));
 
     jest.doMock("../character/character-instance.js", () => ({
-      createHumanoidCharacterInstance: (...args: any[]) => mockCreateHumanoidCharacterInstance(...args),
+      createHumanoidCharacterInstance: (...args: any[]) =>
+        mockCreateHumanoidCharacterInstance(...args),
     }));
     jest.doMock("../character/creature-character.js", () => ({
-      createCreatureCharacterInstance: (...args: any[]) => mockCreateCreatureCharacterInstance(...args),
+      createCreatureCharacterInstance: (...args: any[]) =>
+        mockCreateCreatureCharacterInstance(...args),
     }));
 
     jest.doMock("../npc-model-scripts", () => ({
@@ -102,7 +108,14 @@ describe("npc-character-loader", () => {
     npcGroup.userData.visualKey = "HUM_A|1|2|HEAD|3|4|5";
 
     const npcData = makeNpcData(1, "NPC_1", {
-      visual: makeVisual("HUM_A", { bodyTex: 1, skin: 2, headMesh: "HEAD", headTex: 3, teethTex: 4, armorInst: 5 }),
+      visual: makeVisual("HUM_A", {
+        bodyTex: 1,
+        skin: 2,
+        headMesh: "HEAD",
+        headTex: 3,
+        teethTex: 4,
+        armorInst: 5,
+      }),
     });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {

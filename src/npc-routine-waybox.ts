@@ -42,7 +42,7 @@ export const aabbIntersects = (a: Aabb, b: Aabb): boolean =>
 
 export const createAabbAroundPoint = (
   center: { x: number; y: number; z: number },
-  halfExtents: { x: number; y: number; z: number }
+  halfExtents: { x: number; y: number; z: number },
 ): Aabb => ({
   minX: center.x - halfExtents.x,
   minY: center.y - halfExtents.y,
@@ -60,7 +60,7 @@ export const createAabbAroundPoint = (
  */
 export const buildRoutineWaybox = (
   routine: RoutineEntry[] | undefined,
-  waypointPosIndex: Map<string, { x: number; y: number; z: number }>
+  waypointPosIndex: Map<string, { x: number; y: number; z: number }>,
 ): Aabb | null => {
   if (!routine || routine.length === 0) return null;
 
@@ -79,4 +79,3 @@ export const buildRoutineWaybox = (
   if (found === 0 || !isAabbValid(aabb)) return null;
   return aabb;
 };
-

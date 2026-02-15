@@ -35,7 +35,8 @@ export async function loadHeadMesh(params: {
   teethTex?: number;
 }): Promise<THREE.Mesh | null> {
   const { zenKit, binaryCache, textureCache, materialCache } = params;
-  const headNames = params.headNames && params.headNames.length ? params.headNames : DEFAULT_MALE_HEADS;
+  const headNames =
+    params.headNames && params.headNames.length ? params.headNames : DEFAULT_MALE_HEADS;
   const headTex = params.headTex ?? 0;
   const skin = params.skin ?? 0;
   const teethTex = params.teethTex ?? 0;
@@ -87,7 +88,12 @@ export async function loadHeadMesh(params: {
         overridden = applyVarAndColor(originalTex, teethTex);
       }
 
-      const material = await createMeshMaterial({ texture: overridden }, zenKit, textureCache, materialCache);
+      const material = await createMeshMaterial(
+        { texture: overridden },
+        zenKit,
+        textureCache,
+        materialCache,
+      );
       materials.push(material);
     }
 

@@ -1,9 +1,12 @@
 // NPC utility functions for routine processing and mesh creation
 import * as THREE from "three";
-import type { NpcData, RoutineEntry } from './types';
-import { createTextSprite } from './mesh-utils';
+import type { NpcData, RoutineEntry } from "./types";
+import { createTextSprite } from "./mesh-utils";
 
-function createDynamicHudTextSprite(initialText: string): { sprite: THREE.Sprite; setText: (text: string) => void } {
+function createDynamicHudTextSprite(initialText: string): {
+  sprite: THREE.Sprite;
+  setText: (text: string) => void;
+} {
   if (typeof document === "undefined") {
     throw new Error("document is not available");
   }
@@ -63,7 +66,7 @@ function createDynamicHudTextSprite(initialText: string): { sprite: THREE.Sprite
 export function findActiveRoutineEntry(
   routines: RoutineEntry[] | undefined,
   hour: number,
-  minute: number = 0
+  minute: number = 0,
 ): RoutineEntry | null {
   if (!routines || routines.length === 0) return null;
 
@@ -88,7 +91,11 @@ export function findActiveRoutineEntry(
 /**
  * Returns the waypoint name from the active routine, or null if no routine is active.
  */
-export function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, hour: number, minute: number = 0): string | null {
+export function findActiveRoutineWaypoint(
+  routines: RoutineEntry[] | undefined,
+  hour: number,
+  minute: number = 0,
+): string | null {
   const entry = findActiveRoutineEntry(routines, hour, minute);
   return entry?.waypoint ?? null;
 }
@@ -99,16 +106,20 @@ export function findActiveRoutineWaypoint(routines: RoutineEntry[] | undefined, 
 export function getMapKey(npcs: Map<number, NpcData>): string {
   const entries = Array.from(npcs.entries());
   entries.sort((a, b) => a[0] - b[0]); // Sort by instance index
-  return entries.map(([idx, data]) => `${idx}:${data.spawnpoint}`).join('|');
+  return entries.map(([idx, data]) => `${idx}:${data.spawnpoint}`).join("|");
 }
 
 /**
  * Create NPC mesh (box + text sprite) imperatively
  */
-export function createNpcMesh(npcData: NpcData, position: THREE.Vector3, rotation?: THREE.Quaternion): THREE.Group {
+export function createNpcMesh(
+  npcData: NpcData,
+  position: THREE.Vector3,
+  rotation?: THREE.Quaternion,
+): THREE.Group {
   const group = new THREE.Group();
   group.position.copy(position);
-  
+
   // Apply rotation if provided (from waypoint direction)
   if (rotation) {
     group.quaternion.copy(rotation);
@@ -127,7 +138,7 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3, rotatio
     opacity: 0.25,
   });
   const placeholder = new THREE.Mesh(boxGeometry, boxMaterial);
-  placeholder.name = 'npc-placeholder';
+  placeholder.name = "npc-placeholder";
   placeholder.position.y = 30;
   visualRoot.add(placeholder);
 
@@ -189,7 +200,13 @@ export function createNpcMesh(npcData: NpcData, position: THREE.Vector3, rotatio
   group.userData.npcData = npcData;
   group.userData.isNpc = true;
   group.userData.visualRoot = visualRoot;
-  group.userData.healthBar = { root: healthBarRoot, fill, width: HEALTH_BAR_WIDTH - 2, textSprite: hpTextSprite, setText: setHpText };
+  group.userData.healthBar = {
+    root: healthBarRoot,
+    fill,
+    width: HEALTH_BAR_WIDTH - 2,
+    textSprite: hpTextSprite,
+    setText: setHpText,
+  };
 
   return group;
 }

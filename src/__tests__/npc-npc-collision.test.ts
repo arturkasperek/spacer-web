@@ -64,4 +64,3 @@ describe("npc-npc-collision", () => {
     expect(r).toEqual({ x: 9, z: 0, blocked: false });
   });
 });
-

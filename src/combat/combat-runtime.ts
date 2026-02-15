@@ -1,7 +1,12 @@
 import type * as THREE from "three";
 import type { NpcData } from "../types";
 import type { CombatantSnapshot, CombatStats, MeleeAttackProfile, WeaponState } from "./types";
-import { applyDamageToState, createCombatState, startMeleeAttack, type CombatState } from "./fight-state";
+import {
+  applyDamageToState,
+  createCombatState,
+  startMeleeAttack,
+  type CombatState,
+} from "./fight-state";
 import { updateCombatStateTick } from "./fight-logic";
 
 export type CombatRuntime = {
@@ -12,7 +17,10 @@ export type CombatRuntime = {
     nowMs: number;
     dtSeconds: number;
     loadedNpcs: Iterable<THREE.Group>;
-    resolveAnim?: (npcInstanceIndex: number, animationName: string) => {
+    resolveAnim?: (
+      npcInstanceIndex: number,
+      animationName: string,
+    ) => {
       animationName: string;
       modelName?: string;
       blendInMs?: number;
@@ -84,7 +92,10 @@ function defaultMeleeProfile(weaponState: WeaponState): MeleeAttackProfile {
   };
 }
 
-function pickAttackAnimationName(ws: WeaponState, kind: string): { name: string; fallback?: string[] } {
+function pickAttackAnimationName(
+  ws: WeaponState,
+  kind: string,
+): { name: string; fallback?: string[] } {
   if (ws === "2h") return { name: "T_2HATTACKL", fallback: ["S_Run"] };
   if (ws === "1h") {
     if (kind === "right") return { name: "T_1HATTACKR", fallback: ["T_1HATTACKL", "S_Run"] };
@@ -111,7 +122,10 @@ export function createCombatRuntime(): CombatRuntime {
     return states.get(npcInstanceIndex) ?? null;
   };
 
-  const requestMeleeAttack = (npcInstanceIndex: number, profile?: Partial<MeleeAttackProfile>): boolean => {
+  const requestMeleeAttack = (
+    npcInstanceIndex: number,
+    profile?: Partial<MeleeAttackProfile>,
+  ): boolean => {
     const st = states.get(npcInstanceIndex);
     if (!st || st.dead || st.active) return false;
     // Attack start is stamped in update() to keep ordering deterministic.
@@ -127,7 +141,10 @@ export function createCombatRuntime(): CombatRuntime {
     nowMs: number;
     dtSeconds: number;
     loadedNpcs: Iterable<any>;
-    resolveAnim?: (npcInstanceIndex: number, animationName: string) => {
+    resolveAnim?: (
+      npcInstanceIndex: number,
+      animationName: string,
+    ) => {
       animationName: string;
       modelName?: string;
       blendInMs?: number;

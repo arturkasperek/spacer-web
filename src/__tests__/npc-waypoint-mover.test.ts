@@ -36,14 +36,18 @@ describe("npc waypoint mover", () => {
         // Note: the mover flips X (Gothic -> Three), so this ends up at x=-10 in Three space.
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
 
-    const started = mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" });
+    const started = mover.startMoveToWaypoint("npc-1", group, "B", {
+      speed: 140,
+      arriveDistance: 0.01,
+      locomotionMode: "walk",
+    });
     expect(started).toBe(true);
     expect(group.userData.isScriptControlled).toBe(true);
 
@@ -76,7 +80,7 @@ describe("npc waypoint mover", () => {
         { name: "B", position: { x: 10, y: 0, z: 0 } },
         { name: "C", position: { x: 20, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
@@ -93,14 +97,20 @@ describe("npc waypoint mover", () => {
         { name: "A", position: { x: 0, y: 0, z: 0 } },
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     // Force the NPC exactly onto the target XZ (the mover only advances the route when it decides to "snap").
     group.position.set(-10, 0, 0);
@@ -122,7 +132,7 @@ describe("npc waypoint mover", () => {
       [
         { waypoint_a_index: 0, waypoint_b_index: 1 },
         { waypoint_a_index: 1, waypoint_b_index: 2 },
-      ]
+      ],
     );
 
     const mover = createWaypointMover(world);
@@ -136,13 +146,20 @@ describe("npc waypoint mover", () => {
     (group.userData as any).moveConstraint = (_g: any, x: number, z: number) => {
       const bx = -200;
       const bz = 0;
-      if (Math.abs(x - bx) < 1e-6 && Math.abs(z - bz) < 1e-6) return { blocked: true, moved: false };
+      if (Math.abs(x - bx) < 1e-6 && Math.abs(z - bz) < 1e-6)
+        return { blocked: true, moved: false };
       _g.position.x = x;
       _g.position.z = z;
       return { blocked: false, moved: true };
     };
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "C", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "C", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     // Run updates until we are past B (x < -200) which should be possible even though snapping to B is blocked.
     let safety = 0;
@@ -177,14 +194,20 @@ describe("npc waypoint mover", () => {
       [
         { waypoint_a_index: 0, waypoint_b_index: 1 },
         { waypoint_a_index: 1, waypoint_b_index: 2 },
-      ]
+      ],
     );
 
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "C", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "C", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     let sawSnapToB = false;
     let safety = 0;
@@ -209,7 +232,7 @@ describe("npc waypoint mover", () => {
         // Three X becomes -200
         { name: "B", position: { x: 200, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
@@ -232,7 +255,13 @@ describe("npc waypoint mover", () => {
       return { blocked: false, moved: true };
     };
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     // The NPC should try to approach the center, get NPC-blocked near it, and accept the gate as complete.
     let safety = 0;
@@ -254,7 +283,7 @@ describe("npc waypoint mover", () => {
         // Three X becomes -200
         { name: "B", position: { x: 200, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
@@ -274,7 +303,13 @@ describe("npc waypoint mover", () => {
       return { blocked: false, moved: true };
     };
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     let last = mover.update("npc-1", group, 0.05);
     let safety = 0;
@@ -300,7 +335,7 @@ describe("npc waypoint mover", () => {
         // Three X becomes -10
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
@@ -313,14 +348,21 @@ describe("npc waypoint mover", () => {
       const beforeX = _g.position.x;
       const beforeZ = _g.position.z;
       const movingNegX = x < beforeX - 1e-9;
-      if (movingNegX && beforeX > -5 && Math.abs(beforeZ) < 1) return { blocked: true, moved: false };
+      if (movingNegX && beforeX > -5 && Math.abs(beforeZ) < 1)
+        return { blocked: true, moved: false };
       _g.position.x = x;
       _g.position.z = z;
       (_g.userData as any)._npcNpcBlocked = false;
       return { blocked: false, moved: true };
     };
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     let last = mover.update("npc-1", group, 0.05);
     let safety = 0;
@@ -343,14 +385,20 @@ describe("npc waypoint mover", () => {
         { name: "A", position: { x: 0, y: 0, z: 0 } },
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 10, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 10,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
     expect(mover.update("npc-1", group, 0.016).moved).toBe(true);
 
     mover.clear();
@@ -366,13 +414,19 @@ describe("npc waypoint mover", () => {
         { name: "A", position: { x: 0, y: 0, z: 0 } },
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
     const group = new THREE.Group();
     group.position.set(0, 0, 0);
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
 
     // Force a steer direction that differs from the route direction (route is towards x=-10).
     (group.userData as any)._npcTrafficSteerYaw = Math.PI / 2; // +X
@@ -413,7 +467,7 @@ describe("npc waypoint mover", () => {
         { name: "A", position: { x: 0, y: 0, z: 0 } },
         { name: "B", position: { x: 10, y: 0, z: 0 } },
       ],
-      [{ waypoint_a_index: 0, waypoint_b_index: 1 }]
+      [{ waypoint_a_index: 0, waypoint_b_index: 1 }],
     );
 
     const mover = createWaypointMover(world);
@@ -421,7 +475,13 @@ describe("npc waypoint mover", () => {
     group.position.set(0, 0, 0);
     (group.userData as any).moveConstraint = () => ({ blocked: true, moved: false });
 
-    expect(mover.startMoveToWaypoint("npc-1", group, "B", { speed: 140, arriveDistance: 0.01, locomotionMode: "walk" })).toBe(true);
+    expect(
+      mover.startMoveToWaypoint("npc-1", group, "B", {
+        speed: 140,
+        arriveDistance: 0.01,
+        locomotionMode: "walk",
+      }),
+    ).toBe(true);
     const tick = mover.update("npc-1", group, 1.0);
     expect(tick.mode).toBe("idle");
     expect(group.position.x).toBeCloseTo(0, 6);

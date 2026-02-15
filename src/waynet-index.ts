@@ -13,4 +13,3 @@ export function getWaynetWaypointPosition(name: string): WaynetPoint | null {
   if (!key) return null;
   return waypointPositions.get(key) ?? null;
 }
-

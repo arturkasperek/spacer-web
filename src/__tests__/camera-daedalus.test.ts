@@ -92,4 +92,3 @@ describe("camera-daedalus", () => {
     expect(readCameraModeDef(vm as any, "CAMMODNORMAL")).toBeNull();
   });
 });
-

@@ -20,4 +20,3 @@ describe("vm state time helpers", () => {
     expect(getNpcStateTime(idx)).toBe(0);
   });
 });
-

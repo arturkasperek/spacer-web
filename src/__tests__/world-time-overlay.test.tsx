@@ -22,4 +22,3 @@ describe("WorldTimeOverlay", () => {
     expect(screen.getByTestId("world-time-display").textContent).toContain("Day 2 13:45");
   });
 });
-

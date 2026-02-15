@@ -94,7 +94,7 @@ function getVobWorldTransform(vob: Vob): { pos: THREE.Vector3; quat: THREE.Quate
     0,
     0,
     0,
-    1
+    1,
   );
 
   const pos = new THREE.Vector3();
@@ -121,7 +121,8 @@ function ensureSpotIndex(): FreepointSpot[] {
   for (const vob of all) {
     const type = getVobType(vob);
     if (type !== 11) continue; // zCVobSpot
-    const rawName = ((vob as any).vobName as string | undefined) || vob.name || (vob as any).objectName || "";
+    const rawName =
+      ((vob as any).vobName as string | undefined) || vob.name || (vob as any).objectName || "";
     const nameUpper = toUpperKey(rawName);
     if (!nameUpper) continue;
     const { pos, quat } = getVobWorldTransform(vob);
@@ -142,7 +143,11 @@ function isInSpotBBox(spot: FreepointSpot, npcPos: NpcPose): boolean {
   const dx = npcPos.x - spot.position.x;
   const dy = npcPos.y - spot.position.y;
   const dz = npcPos.z - spot.position.z;
-  return Math.abs(dx) <= FPBOX_DIMENSION && Math.abs(dy) <= FPBOX_DIMENSION_Y && Math.abs(dz) <= FPBOX_DIMENSION;
+  return (
+    Math.abs(dx) <= FPBOX_DIMENSION &&
+    Math.abs(dy) <= FPBOX_DIMENSION_Y &&
+    Math.abs(dz) <= FPBOX_DIMENSION
+  );
 }
 
 function isSpotInUseByNpc(spot: FreepointSpot, npcInstanceIndex: number): boolean {
@@ -154,7 +159,11 @@ function isSpotInUseByNpc(spot: FreepointSpot, npcInstanceIndex: number): boolea
   return true;
 }
 
-function isSpotAvailable(spot: FreepointSpot, requesterNpcInstanceIndex: number, nowMs: number): boolean {
+function isSpotAvailable(
+  spot: FreepointSpot,
+  requesterNpcInstanceIndex: number,
+  nowMs: number,
+): boolean {
   const res = reservations.get(spot.vobId);
   if (!res) return true;
 
@@ -246,7 +255,7 @@ export type FindFreepointOptions = {
 export function findFreepointForNpc(
   npcInstanceIndex: number,
   freepointName: string,
-  options?: FindFreepointOptions
+  options?: FindFreepointOptions,
 ): FreepointSpot | null {
   const spots = ensureSpotIndex();
   const npcPos = npcPosByInstanceIndex.get(npcInstanceIndex);
@@ -276,7 +285,7 @@ export function findFreepointForNpc(
     if (p.x < bboxMinX || p.x > bboxMaxX) continue;
     if (p.y < bboxMinY || p.y > bboxMaxY) continue;
     if (p.z < bboxMinZ || p.z > bboxMaxZ) continue;
-    if (!queryKeys.some(q => s.nameUpper.indexOf(q) >= 0)) continue;
+    if (!queryKeys.some((q) => s.nameUpper.indexOf(q) >= 0)) continue;
     if (!isSpotAvailable(s, npcInstanceIndex, nowMs)) continue;
     if (avoidCurrentSpot && isSpotInUseByNpc(s, npcInstanceIndex)) continue;
     candidates.push(s);
@@ -299,7 +308,11 @@ export function findFreepointForNpc(
   return candidates[0] ?? null;
 }
 
-export function reserveFreepoint(spotVobId: number, npcInstanceIndex: number, holdMs: number): void {
+export function reserveFreepoint(
+  spotVobId: number,
+  npcInstanceIndex: number,
+  holdMs: number,
+): void {
   const nowMs = Date.now();
   reservations.set(spotVobId, {
     byNpcInstanceIndex: npcInstanceIndex,
@@ -326,7 +339,7 @@ export function clearNpcFreepointReservations(npcInstanceIndex: number): void {
 export function acquireFreepointForNpc(
   npcInstanceIndex: number,
   freepointName: string,
-  options?: FindFreepointOptions & { holdMs?: number }
+  options?: FindFreepointOptions & { holdMs?: number },
 ): FreepointSpot | null {
   const spot = findFreepointForNpc(npcInstanceIndex, freepointName, options);
   if (!spot) return null;
@@ -334,12 +347,22 @@ export function acquireFreepointForNpc(
   return spot;
 }
 
-export function isFreepointAvailableForNpc(npcInstanceIndex: number, freepointName: string, checkDistance: boolean): boolean {
+export function isFreepointAvailableForNpc(
+  npcInstanceIndex: number,
+  freepointName: string,
+  checkDistance: boolean,
+): boolean {
   // Gothic uses oCNpc::FindSpot(name, checkDistance, dist=700) for most FP queries.
-  return Boolean(findFreepointForNpc(npcInstanceIndex, freepointName, { checkDistance, dist: 700 }));
+  return Boolean(
+    findFreepointForNpc(npcInstanceIndex, freepointName, { checkDistance, dist: 700 }),
+  );
 }
 
-export function isNpcOnFreepoint(npcInstanceIndex: number, freepointName: string, dist: number = 100): boolean {
+export function isNpcOnFreepoint(
+  npcInstanceIndex: number,
+  freepointName: string,
+  dist: number = 100,
+): boolean {
   const npcPos = npcPosByInstanceIndex.get(npcInstanceIndex);
   if (!npcPos) return false;
   // Gothic's Npc_IsOnFP() does: FindSpot(name, checkDistance=true, dist=100), then spot->IsOnFP(npc).

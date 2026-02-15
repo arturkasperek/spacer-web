@@ -109,7 +109,8 @@ export async function createCreatureCharacterInstance(params: {
     group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(group);
     const center = box.getCenter(new THREE.Vector3());
-    const offsetWorld = align === "ground" ? new THREE.Vector3(center.x, box.min.y, center.z) : center.clone();
+    const offsetWorld =
+      align === "ground" ? new THREE.Vector3(center.x, box.min.y, center.z) : center.clone();
     const offsetLocal = group.worldToLocal(offsetWorld.clone());
     group.position.sub(offsetLocal);
 
@@ -117,13 +118,19 @@ export async function createCreatureCharacterInstance(params: {
       new Set(
         [animationName, "s_Run", "s_Walk", "s_Stand", "s_Idle", "t_Stand", "t_Dance_01"]
           .map((s) => (s || "").trim())
-          .filter(Boolean)
-      )
+          .filter(Boolean),
+      ),
     );
     let initialSequence: any | null = null;
     let initialName = animationName;
     for (const cand of initialCandidates) {
-      const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, model, cand);
+      const seq = await loadAnimationSequence(
+        zenKit,
+        caches.binary,
+        caches.animations,
+        model,
+        cand,
+      );
       if (seq) {
         initialSequence = seq;
         initialName = cand;
@@ -137,11 +144,21 @@ export async function createCreatureCharacterInstance(params: {
     let currentLoop = loop;
     let currentTimeMs = 0;
     const failedAnis = new Set<string>();
-    let pendingLoad: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] } | null = null;
+    let pendingLoad: {
+      modelName: string;
+      name: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+    } | null = null;
     let loadingPromise: Promise<void> | null = null;
-    let nextAfterNonLoop:
-      | { animationName: string; modelName: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }
-      | null = null;
+    let nextAfterNonLoop: {
+      animationName: string;
+      modelName: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+    } | null = null;
 
     const rootMotionPos = new THREE.Vector3();
     const lastRootMotionPos = new THREE.Vector3();
@@ -162,7 +179,13 @@ export async function createCreatureCharacterInstance(params: {
           for (const cand of candidates) {
             const key = `${next.modelName}:${cand}`.toUpperCase();
             if (failedAnis.has(key)) continue;
-            const seq = await loadAnimationSequence(zenKit, caches.binary, caches.animations, next.modelName, cand);
+            const seq = await loadAnimationSequence(
+              zenKit,
+              caches.binary,
+              caches.animations,
+              next.modelName,
+              cand,
+            );
             if (seq) {
               loaded = { seq, name: cand };
               break;
@@ -190,7 +213,13 @@ export async function createCreatureCharacterInstance(params: {
       });
     };
 
-    const tryLoadAnimation = (req: { modelName: string; name: string; loop: boolean; resetTime: boolean; fallbackNames?: string[] }) => {
+    const tryLoadAnimation = (req: {
+      modelName: string;
+      name: string;
+      loop: boolean;
+      resetTime: boolean;
+      fallbackNames?: string[];
+    }) => {
       const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
       for (const n of names) failedAnis.delete(`${req.modelName}:${n}`.toUpperCase());
       pendingLoad = req;
@@ -204,7 +233,10 @@ export async function createCreatureCharacterInstance(params: {
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
 
-      if (name.toUpperCase() === (currentAnimationName || "").toUpperCase() && nextModel === currentModelName) {
+      if (
+        name.toUpperCase() === (currentAnimationName || "").toUpperCase() &&
+        nextModel === currentModelName
+      ) {
         currentLoop = nextLoop;
         if (resetTime) currentTimeMs = 0;
         if (currentLoop) nextAfterNonLoop = null;
@@ -223,7 +255,13 @@ export async function createCreatureCharacterInstance(params: {
         nextAfterNonLoop = null;
       }
 
-      tryLoadAnimation({ modelName: nextModel, name, loop: nextLoop, resetTime, fallbackNames: options?.fallbackNames });
+      tryLoadAnimation({
+        modelName: nextModel,
+        name,
+        loop: nextLoop,
+        resetTime,
+        fallbackNames: options?.fallbackNames,
+      });
     };
 
     const update = (deltaSeconds: number) => {
@@ -295,7 +333,11 @@ export async function createCreatureCharacterInstance(params: {
           }
         }
 
-        root.userData.__rootMotionDelta = { x: rootMotionDelta.x, y: rootMotionDelta.y, z: rootMotionDelta.z };
+        root.userData.__rootMotionDelta = {
+          x: rootMotionDelta.x,
+          y: rootMotionDelta.y,
+          z: rootMotionDelta.z,
+        };
       } else {
         root.userData.__rootMotionDelta = { x: 0, y: 0, z: 0 };
       }

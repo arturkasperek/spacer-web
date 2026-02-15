@@ -50,4 +50,3 @@ export type MeleeHit = {
   distance: number;
   angleDeg: number;
 };
-

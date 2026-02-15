@@ -50,4 +50,3 @@ export function useUiSettings(): UiSettingsState {
 export function __resetUiSettingsForTests(): void {
   setSnapshot(defaultState);
 }
-

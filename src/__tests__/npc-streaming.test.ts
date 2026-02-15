@@ -4,7 +4,14 @@ type Aabb = import("../npc-routine-waybox").Aabb;
 type NpcData = import("../types").NpcData;
 
 function aabbAround(x: number, y: number, z: number, half: number): Aabb {
-  return { minX: x - half, minY: y - half, minZ: z - half, maxX: x + half, maxY: y + half, maxZ: z + half };
+  return {
+    minX: x - half,
+    minY: y - half,
+    minZ: z - half,
+    maxX: x + half,
+    maxY: y + half,
+    maxZ: z + half,
+  };
 }
 
 function makeNpcData(instanceIndex: number, symbolName: string, extra?: Partial<NpcData>): NpcData {
@@ -74,8 +81,16 @@ describe("npc-streaming", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockShouldUpdateStreaming.mockReturnValue({ shouldUpdate: true, cameraPos: new THREE.Vector3(0, 0, 0) });
-    mockSpreadSpawnXZ.mockImplementation(({ baseX, baseZ }: any) => ({ applied: false, x: baseX, z: baseZ, tries: 0 }));
+    mockShouldUpdateStreaming.mockReturnValue({
+      shouldUpdate: true,
+      cameraPos: new THREE.Vector3(0, 0, 0),
+    });
+    mockSpreadSpawnXZ.mockImplementation(({ baseX, baseZ }: any) => ({
+      applied: false,
+      x: baseX,
+      z: baseZ,
+      tries: 0,
+    }));
     mockGetNpcSpawnOrder.mockReturnValue(null);
   });
 
@@ -96,7 +111,13 @@ describe("npc-streaming", () => {
       world: {} as any,
       cameraPosition: new THREE.Vector3(0, 0, 0),
       camera: undefined,
-      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
       npcItemsRef: { current: [{ id: npcId, waybox: entry.waybox }] },
       loadedNpcsRef,
       allNpcsRef: { current: [entry] },
@@ -126,12 +147,22 @@ describe("npc-streaming", () => {
   });
 
   it("sorts load order using getNpcSpawnOrder when available", () => {
-    mockGetNpcSpawnOrder.mockImplementation((idx: number) => (idx === 1 ? 2 : idx === 2 ? 1 : null));
+    mockGetNpcSpawnOrder.mockImplementation((idx: number) =>
+      idx === 1 ? 2 : idx === 2 ? 1 : null,
+    );
 
     const npc1 = makeNpcData(1, "NPC_1");
     const npc2 = makeNpcData(2, "NPC_2");
-    const e1 = { npcData: npc1, position: new THREE.Vector3(0, 0, 0), waybox: aabbAround(0, 0, 0, 1) };
-    const e2 = { npcData: npc2, position: new THREE.Vector3(0, 0, 0), waybox: aabbAround(0, 0, 0, 1) };
+    const e1 = {
+      npcData: npc1,
+      position: new THREE.Vector3(0, 0, 0),
+      waybox: aabbAround(0, 0, 0, 1),
+    };
+    const e2 = {
+      npcData: npc2,
+      position: new THREE.Vector3(0, 0, 0),
+      waybox: aabbAround(0, 0, 0, 1),
+    };
 
     const loadNpcCharacter = jest.fn();
 
@@ -140,11 +171,27 @@ describe("npc-streaming", () => {
       world: {} as any,
       cameraPosition: new THREE.Vector3(0, 0, 0),
       camera: undefined,
-      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
-      npcItemsRef: { current: [{ id: "npc-1", waybox: e1.waybox }, { id: "npc-2", waybox: e2.waybox }] },
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
+      npcItemsRef: {
+        current: [
+          { id: "npc-1", waybox: e1.waybox },
+          { id: "npc-2", waybox: e2.waybox },
+        ],
+      },
       loadedNpcsRef: { current: new Map() },
       allNpcsRef: { current: [e1, e2] },
-      allNpcsByIdRef: { current: new Map([["npc-1", e1], ["npc-2", e2]]) },
+      allNpcsByIdRef: {
+        current: new Map([
+          ["npc-1", e1],
+          ["npc-2", e2],
+        ]),
+      },
       npcsGroupRef: { current: null },
       scene: new THREE.Scene(),
       kccConfig: { radius: 30 },
@@ -162,7 +209,9 @@ describe("npc-streaming", () => {
       NPC_ACTIVE_BBOX_HALF_Y: 100,
     });
 
-    const loadedOrder = loadNpcCharacter.mock.calls.map(([, npcData]) => (npcData as any).instanceIndex);
+    const loadedOrder = loadNpcCharacter.mock.calls.map(
+      ([, npcData]) => (npcData as any).instanceIndex,
+    );
     expect(loadedOrder).toEqual([2, 1]);
   });
 
@@ -174,7 +223,18 @@ describe("npc-streaming", () => {
     group.userData.isPlayer = true;
 
     const loadedNpcsRef = { current: new Map([[npcId, group]]) };
-    const allNpcsByIdRef = { current: new Map([[npcId, { npcData: heroData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) }]]) };
+    const allNpcsByIdRef = {
+      current: new Map([
+        [
+          npcId,
+          {
+            npcData: heroData,
+            position: new THREE.Vector3(1000, 0, 0),
+            waybox: aabbAround(1000, 0, 0, 1),
+          },
+        ],
+      ]),
+    };
 
     const removeNpcKccCollider = jest.fn();
 
@@ -183,7 +243,13 @@ describe("npc-streaming", () => {
       world: {} as any,
       cameraPosition: new THREE.Vector3(0, 0, 0),
       camera: undefined,
-      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
       npcItemsRef: { current: [] },
       loadedNpcsRef,
       allNpcsRef: { current: [] },
@@ -212,7 +278,11 @@ describe("npc-streaming", () => {
   it("forces hero into the load set even when camera is far", () => {
     const heroData = makeNpcData(99, "PC_HERO", { name: "HERO" });
     const npcId = "npc-99";
-    const entry = { npcData: heroData, position: new THREE.Vector3(1000, 0, 0), waybox: aabbAround(1000, 0, 0, 1) };
+    const entry = {
+      npcData: heroData,
+      position: new THREE.Vector3(1000, 0, 0),
+      waybox: aabbAround(1000, 0, 0, 1),
+    };
 
     const loadedNpcsRef = { current: new Map<string, any>() };
     const playerGroupRef = { current: null as any };
@@ -222,7 +292,13 @@ describe("npc-streaming", () => {
       world: {} as any,
       cameraPosition: new THREE.Vector3(0, 0, 0),
       camera: undefined,
-      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
       npcItemsRef: { current: [] },
       loadedNpcsRef,
       allNpcsRef: { current: [entry] },
@@ -262,7 +338,13 @@ describe("npc-streaming", () => {
       world: {} as any,
       cameraPosition: new THREE.Vector3(0, 0, 0),
       camera: undefined,
-      streamingState: { current: { lastCameraPosition: { current: new THREE.Vector3() }, isFirstUpdate: { current: true }, updateCounter: { current: 0 } } },
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
       npcItemsRef: { current: [{ id: npcId, waybox: entry.waybox }] },
       loadedNpcsRef,
       allNpcsRef: { current: [entry] },

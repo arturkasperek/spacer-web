@@ -34,4 +34,3 @@ describe("world-time-lighting", () => {
     expect(mod.getWorldLightFactor(-1, -1)).toBeCloseTo(mod.getWorldLightFactor(23, 59), 8);
   });
 });
-

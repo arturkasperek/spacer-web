@@ -36,12 +36,13 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   });
 
   // Camera control variables (matching zen-viewer.html)
-  const moveSpeedRef = useRef(25);  // Reduce default speed to reduce grain
+  const moveSpeedRef = useRef(25); // Reduce default speed to reduce grain
   const mouseSensitivity = 0.002;
-  let pitch = 0, yaw = 0;
+  let pitch = 0,
+    yaw = 0;
   const velocity = new THREE.Vector3();
   let isMouseDown = false;
-  
+
   // Track mouse down for quick click detection
   const mouseDownTimeRef = useRef<number>(0);
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -70,35 +71,39 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
   const lastCameraCollidedRef = useRef(false);
 
   // Expose updateMouseState function to parent component
-  useImperativeHandle(ref, () => ({
-    updateMouseState: (newPitch: number, newYaw: number) => {
-      pitch = newPitch;
-      yaw = newYaw;
-      updateCameraOrientation();
-    },
-    setPose: (position: [number, number, number], lookAt: [number, number, number]) => {
-      // Set camera position
-      camera.position.set(position[0], position[1], position[2]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      updateMouseState: (newPitch: number, newYaw: number) => {
+        pitch = newPitch;
+        yaw = newYaw;
+        updateCameraOrientation();
+      },
+      setPose: (position: [number, number, number], lookAt: [number, number, number]) => {
+        // Set camera position
+        camera.position.set(position[0], position[1], position[2]);
 
-      // Compute yaw/pitch from position and lookAt (matching zen-viewer logic)
-      const from = new THREE.Vector3(position[0], position[1], position[2]);
-      const to = new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]);
-      const dir = new THREE.Vector3().subVectors(to, from).normalize();
+        // Compute yaw/pitch from position and lookAt (matching zen-viewer logic)
+        const from = new THREE.Vector3(position[0], position[1], position[2]);
+        const to = new THREE.Vector3(lookAt[0], lookAt[1], lookAt[2]);
+        const dir = new THREE.Vector3().subVectors(to, from).normalize();
 
-      yaw = Math.atan2(-dir.x, -dir.z);
-      pitch = Math.asin(dir.y);
+        yaw = Math.atan2(-dir.x, -dir.z);
+        pitch = Math.asin(dir.y);
 
-      updateCameraOrientation();
-    },
-    getPosition: () => {
-      return camera.position.clone();
-    }
-  }), [camera]);
+        updateCameraOrientation();
+      },
+      getPosition: () => {
+        return camera.position.clone();
+      },
+    }),
+    [camera],
+  );
 
   // Camera orientation update function (matching zen-viewer)
   const updateCameraOrientation = () => {
     const quaternion = new THREE.Quaternion();
-    quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+    quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, "YXZ"));
     camera.quaternion.copy(quaternion);
   };
 
@@ -110,7 +115,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     const dist = origin.distanceTo(target);
     if (!Number.isFinite(dist) || dist <= 1e-4) return out;
 
-    const tempCam = collisionCamRef.current ?? (collisionCamRef.current = new THREE.PerspectiveCamera());
+    const tempCam =
+      collisionCamRef.current ?? (collisionCamRef.current = new THREE.PerspectiveCamera());
     const srcCam = camera as THREE.PerspectiveCamera;
     tempCam.fov = srcCam.fov;
     tempCam.near = srcCam.near;
@@ -148,7 +154,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
         const ray = new rapier.Ray(
           { x: target.x, y: target.y, z: target.z },
-          { x: dr.x, y: dr.y, z: dr.z }
+          { x: dr.x, y: dr.y, z: dr.z },
         );
         const hit = rapierWorld.castRayAndGetNormal(ray, maxToi, true, filterFlags, filterGroups);
         if (!hit) continue;
@@ -170,7 +176,6 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     return out;
   };
 
-
   useEffect(() => {
     // Initialize camera orientation from current position (matching zen-viewer)
     const initialDirection = new THREE.Vector3(0, 0, -1);
@@ -181,11 +186,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Ignore keyboard events when user is typing in an input field
       const activeElement = document.activeElement;
-      if (activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        (activeElement instanceof HTMLElement && activeElement.isContentEditable)
-      )) {
+      if (
+        activeElement &&
+        (activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          (activeElement instanceof HTMLElement && activeElement.isContentEditable))
+      ) {
         return;
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
@@ -196,10 +202,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         return;
       }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
-      if (
-        (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
-        !freeCamera
-      ) {
+      if ((event.code === "ShiftLeft" || event.code === "ShiftRight") && !freeCamera) {
         return;
       }
       setKeys((prev) => ({ ...prev, [event.code]: true }));
@@ -208,11 +211,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     const handleKeyUp = (event: KeyboardEvent) => {
       // Ignore keyboard events when user is typing in an input field
       const activeElement = document.activeElement;
-      if (activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        (activeElement instanceof HTMLElement && activeElement.isContentEditable)
-      )) {
+      if (
+        activeElement &&
+        (activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          (activeElement instanceof HTMLElement && activeElement.isContentEditable))
+      ) {
         return;
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
@@ -223,10 +227,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         return;
       }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
-      if (
-        (event.code === "ShiftLeft" || event.code === "ShiftRight") &&
-        !freeCamera
-      ) {
+      if ((event.code === "ShiftLeft" || event.code === "ShiftRight") && !freeCamera) {
         return;
       }
       setKeys((prev) => ({ ...prev, [event.code]: false }));
@@ -234,7 +235,8 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
     // Mouse controls (matching zen-viewer with pointer lock)
     const handleMouseDown = (event: MouseEvent) => {
-      if (event.button === 0) { // Left mouse button
+      if (event.button === 0) {
+        // Left mouse button
         isMouseDown = true;
         mouseDownTimeRef.current = Date.now();
         mouseDownPosRef.current = { x: event.clientX, y: event.clientY };
@@ -261,7 +263,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       // 2. Pointer is locked to body (fullscreen mode with global pointer lock)
       const canvasPointerLock = isMouseDown && document.pointerLockElement === gl.domElement;
       const globalPointerLock = document.pointerLockElement === document.body;
-      
+
       if (!canvasPointerLock && !globalPointerLock) return;
 
       const freeCamera = getCameraSettings().freeCamera;
@@ -278,16 +280,16 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
       // Follow camera: mouse rotates the player (like arrow keys)
       const scale = 0.2; // deg per pixel
-      
+
       // Horizontal mouse movement rotates the player
       const dYaw = deltaX * scale;
       playerInput.addMouseYawDelta(dYaw);
-      
+
       // Vertical mouse movement adjusts camera pitch offset
       userPitchOffsetDegRef.current -= deltaY * scale;
       userPitchOffsetDegRef.current = Math.max(-60, Math.min(60, userPitchOffsetDegRef.current));
     };
-    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener("mousemove", handleMouseMove);
 
     const handleMouseUp = (event: MouseEvent) => {
       if (event.button === 0) {
@@ -300,14 +302,14 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           clearTimeout(pointerLockTimeoutRef.current);
           pointerLockTimeoutRef.current = null;
         }
-        
+
         // Check if it was a quick click (< 120ms and < 5px movement)
         if (mouseDownPos && clickDuration < 120) {
           const moveDistance = Math.sqrt(
-            Math.pow(event.clientX - mouseDownPos.x, 2) + 
-            Math.pow(event.clientY - mouseDownPos.y, 2)
+            Math.pow(event.clientX - mouseDownPos.x, 2) +
+              Math.pow(event.clientY - mouseDownPos.y, 2),
           );
-          
+
           if (moveDistance < 5) {
             isQuickClickRef.current = true;
             // Don't request pointer lock for quick clicks
@@ -316,13 +318,15 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
               document.exitPointerLock();
             }
             // Dispatch a click event for VOB selection
-            gl.domElement.dispatchEvent(new MouseEvent('click', {
-              bubbles: true,
-              cancelable: true,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              button: event.button
-            }));
+            gl.domElement.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                cancelable: true,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                button: event.button,
+              }),
+            );
             isMouseDown = false;
             return;
           }
@@ -361,27 +365,26 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       event.preventDefault();
     };
 
-    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener("wheel", handleWheel, { passive: false });
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    gl.domElement.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    gl.domElement.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mouseup", handleMouseUp);
     document.addEventListener("pointerlockchange", handlePointerLockChange);
-    gl.domElement.style.cursor = 'grab';
+    gl.domElement.style.cursor = "grab";
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('wheel', handleWheel);
-      gl.domElement.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("wheel", handleWheel);
+      gl.domElement.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("pointerlockchange", handlePointerLockChange);
       playerInput.consumeMouseYawDelta(); // Cleanup
     };
   }, [gl, camera]);
-
 
   // Movement update function (matching zen-viewer)
   const updateMovement = (_delta?: number) => {
@@ -396,22 +399,22 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     right.applyQuaternion(camera.quaternion);
 
     // WASD movement
-    if (keys['KeyW']) {
+    if (keys["KeyW"]) {
       velocity.add(forward);
     }
-    if (keys['KeyS']) {
+    if (keys["KeyS"]) {
       velocity.sub(forward);
     }
-    if (keys['KeyA']) {
+    if (keys["KeyA"]) {
       velocity.sub(right);
     }
-    if (keys['KeyD']) {
+    if (keys["KeyD"]) {
       velocity.add(right);
     }
-    if (keys['KeyQ'] || keys['Space']) {
+    if (keys["KeyQ"] || keys["Space"]) {
       velocity.add(up);
     }
-    if (keys['KeyZ'] || keys['ShiftLeft']) {
+    if (keys["KeyZ"] || keys["ShiftLeft"]) {
       velocity.sub(up);
     }
 
@@ -436,7 +439,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       const pose = getPlayerPose();
       if (pose) {
         const camDef = getCameraMode("CAMMODNORMAL");
-        
+
         // Simple fixed camera behind player
         // Apply debug overrides if set
         const camDefBestRange = Number.isFinite(camDef?.bestRange) ? camDef!.bestRange : 3;
@@ -454,7 +457,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const camDefVeloRot = Number.isFinite(camDef?.veloRot) ? camDef!.veloRot : 0;
         const veloTrans = camDefVeloTrans;
         const veloRot = camDefVeloRot;
-        
+
         const bestRangeM = camDefBestRange;
         const bestElevDeg = camDefBestElev;
         const bestAzimuthDeg = camDefBestAzimuth;
@@ -467,12 +470,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const maxElevDeg = Math.max(camDefMinElev, camDefMaxElev);
         const minAzimuthDeg = Math.min(camDefMinAzimuth, camDefMaxAzimuth);
         const maxAzimuthDeg = Math.max(camDefMinAzimuth, camDefMaxAzimuth);
-        
+
         const playerPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
-        
+
         // Use root bone world Y if available, fallback to playerPos.y + 110cm
-        const lookAtY = pose.rootBoneWorldY ?? (playerPos.y + 110); // cm - absolute Y in world
-        
+        const lookAtY = pose.rootBoneWorldY ?? playerPos.y + 110; // cm - absolute Y in world
+
         // Initialize once
         if (!didSnapToHeroRef.current) {
           didSnapToHeroRef.current = true;
@@ -486,7 +489,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           pose.quaternion.x,
           pose.quaternion.y,
           pose.quaternion.z,
-          pose.quaternion.w
+          pose.quaternion.w,
         );
 
         // Get player forward direction
@@ -497,12 +500,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
 
         // Calculate hero yaw
         const heroYawDeg = (Math.atan2(forward.x, forward.z) * 180) / Math.PI;
-        
+
         // Camera target (look at point on player) - all positions in cm
         const desiredTarget = tmpTargetRef.current.set(
           playerPos.x,
-          lookAtY,  // Use absolute world Y position of root bone
-          playerPos.z
+          lookAtY, // Use absolute world Y position of root bone
+          playerPos.z,
         );
         if (!hasSmoothedTargetRef.current) {
           hasSmoothedTargetRef.current = true;
@@ -514,12 +517,17 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
           const mul2 = 10;
           const baseSpeed = Math.max(0, veloTrans) * 100;
           if (baseSpeed > 0 && delta > 0) {
-            const dp = tmpTargetDeltaRef.current.subVectors(desiredTarget, smoothedTargetRef.current);
+            const dp = tmpTargetDeltaRef.current.subVectors(
+              desiredTarget,
+              smoothedTargetRef.current,
+            );
             const len = dp.length();
             if (len > 0.0001) {
               targetVeloRef.current =
                 targetVeloRef.current + (len - targetVeloRef.current) * Math.min(1, delta * mul2);
-              const speed = inertiaTarget ? Math.min(baseSpeed, targetVeloRef.current * mul) : baseSpeed;
+              const speed = inertiaTarget
+                ? Math.min(baseSpeed, targetVeloRef.current * mul)
+                : baseSpeed;
               const step = Math.min(speed * delta, len);
               smoothedTargetRef.current.addScaledVector(dp, step / len);
             }
@@ -534,19 +542,19 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const desiredAzimuthDeg = bestAzimuthDeg + userYawOffsetDegRef.current;
         const clampedAzimuthDeg = Math.max(
           minAzimuthDeg,
-          Math.min(maxAzimuthDeg, desiredAzimuthDeg)
+          Math.min(maxAzimuthDeg, desiredAzimuthDeg),
         );
         userYawOffsetDegRef.current = clampedAzimuthDeg - bestAzimuthDeg;
         const minPitchOffsetDeg = minElevDeg - bestElevDeg;
         const maxPitchOffsetDeg = maxElevDeg - bestElevDeg;
         const clampedPitchOffsetDeg = Math.max(
           minPitchOffsetDeg,
-          Math.min(maxPitchOffsetDeg, userPitchOffsetDegRef.current)
+          Math.min(maxPitchOffsetDeg, userPitchOffsetDegRef.current),
         );
         userPitchOffsetDegRef.current = clampedPitchOffsetDeg;
         const desiredElevDeg = Math.max(
           minElevDeg,
-          Math.min(maxElevDeg, bestElevDeg + clampedPitchOffsetDeg)
+          Math.min(maxElevDeg, bestElevDeg + clampedPitchOffsetDeg),
         );
         const desiredYawDeg = heroYawDeg + clampedAzimuthDeg;
         let smoothedYawDeg = desiredYawDeg;
@@ -582,25 +590,26 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const cameraElevDeg = smoothedElevDeg;
         const cameraYawRad = (cameraYawDeg * Math.PI) / 180;
         const elevationRad = (cameraElevDeg * Math.PI) / 180;
-        
+
         let rangeM: number;
         const range01 = userRange01Ref.current ?? lastRange01Ref.current;
         lastRange01Ref.current = range01;
         rangeM = minRangeM + range01 * (maxRangeM - minRangeM);
         const rangeCm = rangeM * 100;
-        
+
         // Calculate horizontal distance (on XZ plane) based on elevation - in cm
         const horizontalDist = rangeCm * Math.cos(elevationRad);
         const verticalDist = rangeCm * Math.sin(elevationRad);
-        
+
         // Camera position
         const cameraPos = new THREE.Vector3(
           target.x + horizontalDist * Math.sin(cameraYawRad),
           target.y + verticalDist,
-          target.z + horizontalDist * Math.cos(cameraYawRad)
+          target.z + horizontalDist * Math.cos(cameraYawRad),
         );
-        let cameraPosResolved =
-          camDef?.collision ? calcCameraCollision(target, cameraPos) : cameraPos;
+        let cameraPosResolved = camDef?.collision
+          ? calcCameraCollision(target, cameraPos)
+          : cameraPos;
         // OpenGothic applies rot_offset to the view matrix (spin - rotOffset),
         // so the camera does not look directly at the target.
         // View yaw should be aligned with hero yaw (camera yaw - 180),
@@ -611,7 +620,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
         const lookDir = new THREE.Vector3(
           Math.sin(viewYawRad) * Math.cos(viewPitchRad),
           -Math.sin(viewPitchRad),
-          Math.cos(viewYawRad) * Math.cos(viewPitchRad)
+          Math.cos(viewYawRad) * Math.cos(viewPitchRad),
         );
         let lookAtPos = cameraPosResolved.clone().addScaledVector(lookDir, 100);
         if (camDef?.collision && lastCameraCollidedRef.current) {
@@ -624,9 +633,12 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
             const heroForward = tmpTargetDeltaRef.current.set(
               Math.sin(heroYawRad),
               0,
-              Math.cos(heroYawRad)
+              Math.cos(heroYawRad),
             );
-            cameraPosResolved = cameraPosResolved.clone().copy(target).addScaledVector(heroForward, frontOffset);
+            cameraPosResolved = cameraPosResolved
+              .clone()
+              .copy(target)
+              .addScaledVector(heroForward, frontOffset);
             cameraPosResolved.y = originalY;
             lookAtPos = cameraPosResolved.clone().addScaledVector(heroForward, 100);
           }

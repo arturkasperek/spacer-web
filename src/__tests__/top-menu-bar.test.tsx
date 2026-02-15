@@ -25,7 +25,10 @@ describe("TopMenuBar", () => {
     expect(getViewSettings().showWaypoints).toBe(false);
 
     // Menu stays open; checkbox reflects the state.
-    expect(screen.getByRole("menuitemcheckbox", { name: /waypoints/i })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("menuitemcheckbox", { name: /waypoints/i })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 
   it("closes the menu on outside click", async () => {

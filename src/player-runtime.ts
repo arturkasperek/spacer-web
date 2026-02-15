@@ -26,18 +26,18 @@ function findRootBoneWorldY(obj: THREE.Object3D): number | null {
   // Search for root bone
   let skinnedMesh: THREE.SkinnedMesh | undefined;
   let rootBone: THREE.Bone | undefined;
-  
+
   obj.traverse((child) => {
     if (child instanceof THREE.SkinnedMesh && !skinnedMesh) {
       skinnedMesh = child;
     }
-    
+
     // Look for root bone named "BIP01" (Gothic convention)
-    if (child instanceof THREE.Bone && child.name === 'BIP01' && !rootBone) {
+    if (child instanceof THREE.Bone && child.name === "BIP01" && !rootBone) {
       rootBone = child;
     }
   });
-  
+
   // Prefer explicit "BIP01" bone if found.
   if (rootBone) {
     cachedRootBone = rootBone;
@@ -45,7 +45,7 @@ function findRootBoneWorldY(obj: THREE.Object3D): number | null {
     rootBone.getWorldPosition(worldPos);
     return worldPos.y;
   }
-  
+
   // Fallback to first skeleton bone if nothing matches by name.
   if (skinnedMesh?.skeleton && skinnedMesh.skeleton.bones.length > 0) {
     const bone = skinnedMesh.skeleton.bones[0];
@@ -67,7 +67,7 @@ export function setPlayerPoseFromObject3D(obj: THREE.Object3D | null | undefined
   const p = obj.position;
   const q = obj.quaternion;
   const rootBoneWorldY = findRootBoneWorldY(obj);
-  
+
   playerPose = {
     position: { x: p.x, y: p.y, z: p.z },
     quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },

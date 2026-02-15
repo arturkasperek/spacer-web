@@ -57,12 +57,12 @@ describe("__blendAnimWorld", () => {
     const prev = new THREE.Matrix4().compose(
       new THREE.Vector3(0, 0, 0),
       new THREE.Quaternion(),
-      new THREE.Vector3(1, 1, 1)
+      new THREE.Vector3(1, 1, 1),
     );
     const curr = new THREE.Matrix4().compose(
       new THREE.Vector3(0, 0, 0),
       new THREE.Quaternion(),
-      new THREE.Vector3(2, 2, 2)
+      new THREE.Vector3(2, 2, 2),
     );
 
     const out = __blendAnimWorld([prev], [curr], 0.25, makeOut(1), makeTemps());

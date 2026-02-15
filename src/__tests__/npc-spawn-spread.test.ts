@@ -48,4 +48,3 @@ describe("npc-spawn-spread", () => {
     expect(r.z).toBe(0);
   });
 });
-

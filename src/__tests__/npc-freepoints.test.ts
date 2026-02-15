@@ -39,8 +39,15 @@ describe("npc freepoints", () => {
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
-    ({ setFreepointsWorld, updateNpcWorldPosition, acquireFreepointForNpc, findFreepointForNpc, isFreepointAvailableForNpc, isNpcOnFreepoint, reserveFreepoint } =
-      await import("../npc-freepoints"));
+    ({
+      setFreepointsWorld,
+      updateNpcWorldPosition,
+      acquireFreepointForNpc,
+      findFreepointForNpc,
+      isFreepointAvailableForNpc,
+      isNpcOnFreepoint,
+      reserveFreepoint,
+    } = await import("../npc-freepoints"));
   });
 
   afterEach(() => {
@@ -66,19 +73,36 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spotA, spotB]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spotA, spotB]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(100, { x: 0, y: 0, z: 0 });
 
     jest.spyOn(Date, "now").mockReturnValue(1_000_000);
 
-    const acquired = acquireFreepointForNpc(100, "FP_ROAM", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const acquired = acquireFreepointForNpc(100, "FP_ROAM", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(acquired?.vobId).toBe(spotA.id);
 
     // Another NPC cannot take the same spot while the hold timer is active.
     updateNpcWorldPosition(200, { x: 0, y: 0, z: 0 });
-    const other = acquireFreepointForNpc(200, "FP_ROAM_A", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const other = acquireFreepointForNpc(200, "FP_ROAM_A", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(other).toBeNull();
   });
 
@@ -92,7 +116,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: -10, y: 0, z: 0 });
@@ -125,7 +158,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     // Reserve from outside the FP bbox (±50, ±200, ±50), but still within FindSpot(dist=100),
@@ -135,7 +177,11 @@ describe("npc freepoints", () => {
 
     const nowSpy = jest.spyOn(Date, "now");
     nowSpy.mockReturnValue(1_000_000);
-    const acquired = acquireFreepointForNpc(1, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const acquired = acquireFreepointForNpc(1, "FP_TEST", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(acquired?.vobId).toBe(spot.id);
 
     // Owner checks "on fp" / availability while still outside the FP bbox: should NOT clear the reservation.
@@ -143,7 +189,11 @@ describe("npc freepoints", () => {
     expect(isFreepointAvailableForNpc(1, "FP_TEST", true)).toBe(true);
 
     // Another NPC still can't take it within the hold time.
-    const other = acquireFreepointForNpc(2, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const other = acquireFreepointForNpc(2, "FP_TEST", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(other).toBeNull();
   });
 
@@ -157,7 +207,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
@@ -165,7 +224,11 @@ describe("npc freepoints", () => {
 
     const nowSpy = jest.spyOn(Date, "now");
     nowSpy.mockReturnValue(1_000_000);
-    const acquired = acquireFreepointForNpc(1, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const acquired = acquireFreepointForNpc(1, "FP_TEST", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(acquired?.vobId).toBe(spot.id);
 
     // Owner enters the FP bbox at least once -> reservation becomes "confirmed".
@@ -177,7 +240,11 @@ describe("npc freepoints", () => {
     expect(isFreepointAvailableForNpc(1, "FP_TEST", true)).toBe(true);
 
     // Another NPC can take it immediately (even though hold time hasn't advanced).
-    const otherAfterRelease = acquireFreepointForNpc(2, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const otherAfterRelease = acquireFreepointForNpc(2, "FP_TEST", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(otherAfterRelease?.vobId).toBe(spot.id);
   });
 
@@ -191,7 +258,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
@@ -201,7 +277,11 @@ describe("npc freepoints", () => {
     jest.spyOn(Date, "now").mockReturnValue(1_000_000);
     reserveFreepoint(spot.id, 1, 30_000);
 
-    const acquired = acquireFreepointForNpc(2, "FP_TEST", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const acquired = acquireFreepointForNpc(2, "FP_TEST", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(acquired).toBeNull();
   });
 
@@ -224,14 +304,27 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spotA, spotB]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spotA, spotB]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(10, { x: 0, y: 0, z: 0 });
 
     // Mark spotA as used by this NPC (mimics zCVobSpot::inUseVob == npc).
     jest.spyOn(Date, "now").mockReturnValue(1_000_000);
-    const acquired = acquireFreepointForNpc(10, "FP_ROAM_A", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const acquired = acquireFreepointForNpc(10, "FP_ROAM_A", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(acquired?.vobId).toBe(spotA.id);
 
     const spot = findFreepointForNpc(10, "FP_ROAM", { checkDistance: false });
@@ -248,7 +341,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
@@ -270,7 +372,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([spot]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([spot]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });
@@ -316,7 +427,11 @@ describe("npc freepoints", () => {
     setFreepointsWorld(world);
     updateNpcWorldPosition(123, { x: 0, y: 0, z: 0 });
 
-    const picked = acquireFreepointForNpc(123, "STAND", { checkDistance: true, dist: 2000, holdMs: 30_000 });
+    const picked = acquireFreepointForNpc(123, "STAND", {
+      checkDistance: true,
+      dist: 2000,
+      holdMs: 30_000,
+    });
     expect(picked?.vobId).toBe(roamNear.id);
   });
 
@@ -330,7 +445,16 @@ describe("npc freepoints", () => {
       rotation: { toArray: () => createIdentityRotArray() },
       children: createMockChildren([]),
     };
-    const world = createMockWorld([{ id: 1, type: 0, name: "ROOT", position: { x: 0, y: 0, z: 0 }, rotation: { toArray: () => createIdentityRotArray() }, children: createMockChildren([far]) }]);
+    const world = createMockWorld([
+      {
+        id: 1,
+        type: 0,
+        name: "ROOT",
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { toArray: () => createIdentityRotArray() },
+        children: createMockChildren([far]),
+      },
+    ]);
 
     setFreepointsWorld(world);
     updateNpcWorldPosition(1, { x: 0, y: 0, z: 0 });

@@ -32,7 +32,7 @@ describe("npc locomotion controller", () => {
       expect.objectContaining({
         loop: false,
         next: expect.objectContaining({ animationName: "WALK_LOOP", loop: true }),
-      })
+      }),
     );
 
     controller.update(instance, "idle");
@@ -41,7 +41,7 @@ describe("npc locomotion controller", () => {
       expect.objectContaining({
         loop: false,
         next: expect.objectContaining({ animationName: "IDLE", loop: true }),
-      })
+      }),
     );
   });
 
@@ -74,7 +74,7 @@ describe("npc locomotion controller", () => {
       expect.objectContaining({
         loop: false,
         next: expect.objectContaining({ animationName: "RUN_LOOP", loop: true }),
-      })
+      }),
     );
 
     controller.update(instance, "idle");
@@ -83,7 +83,7 @@ describe("npc locomotion controller", () => {
       expect.objectContaining({
         loop: false,
         next: expect.objectContaining({ animationName: "IDLE", loop: true }),
-      })
+      }),
     );
   });
 
@@ -114,7 +114,7 @@ describe("npc locomotion controller", () => {
     controller.update(instance, "run");
     controller.update(instance, "walk");
 
-    const calls = setAnimation.mock.calls.map(c => c[0]);
+    const calls = setAnimation.mock.calls.map((c) => c[0]);
     expect(calls).toContain("WALK_START");
     expect(calls).toContain("RUN_START");
     expect(calls).not.toContain("WALK_STOP");

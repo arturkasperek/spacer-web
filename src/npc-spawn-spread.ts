@@ -57,4 +57,3 @@ export function spreadSpawnXZ(params: {
   // Give up: keep the original position (dynamic collision may still separate later).
   return { x: params.baseX, z: params.baseZ, applied: false, tries: maxTries };
 }
-

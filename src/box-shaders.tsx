@@ -1,7 +1,7 @@
-import type { Mesh, ShaderMaterial } from 'three'
-import { Color } from 'three'
-import { useMemo, useRef, useState } from 'react'
-import { useFrame, ThreeElements } from '@react-three/fiber'
+import type { Mesh, ShaderMaterial } from "three";
+import { Color } from "three";
+import { useMemo, useRef, useState } from "react";
+import { useFrame, ThreeElements } from "@react-three/fiber";
 
 // FRAGMENT_SHADER
 const fragmentShader = `
@@ -48,10 +48,10 @@ void main() {
 }
 `;
 
-export function BoxShaders(props: ThreeElements['mesh']) {
-  const meshRef = useRef<Mesh>(null!)
-  const [, setHover] = useState(false)
-  const [active, setActive] = useState(false)
+export function BoxShaders(props: ThreeElements["mesh"]) {
+  const meshRef = useRef<Mesh>(null!);
+  const [, setHover] = useState(false);
+  const [active, setActive] = useState(false);
   const uniforms = useMemo(
     () => ({
       u_time: {
@@ -59,7 +59,8 @@ export function BoxShaders(props: ThreeElements['mesh']) {
       },
       u_colorA: { value: new Color("#FF0000") },
       u_colorB: { value: new Color("#00FF00") },
-    }), []
+    }),
+    [],
   );
   useFrame((state, delta) => {
     const { clock } = state;
@@ -73,7 +74,8 @@ export function BoxShaders(props: ThreeElements['mesh']) {
       scale={active ? 1.5 : 1}
       onClick={() => setActive(!active)}
       onPointerOver={() => setHover(true)}
-      onPointerOut={() => setHover(false)}>
+      onPointerOut={() => setHover(false)}
+    >
       <boxGeometry args={[1, 1, 1, 20, 20, 20]} />
       <shaderMaterial
         fragmentShader={fragmentShader}
@@ -82,5 +84,5 @@ export function BoxShaders(props: ThreeElements['mesh']) {
         wireframe={false}
       />
     </mesh>
-  )
+  );
 }

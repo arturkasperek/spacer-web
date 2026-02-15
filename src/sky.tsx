@@ -1,6 +1,6 @@
-import { useRef, useMemo, useEffect } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
-import * as THREE from 'three';
+import { useRef, useMemo, useEffect } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import * as THREE from "three";
 import { useWorldTime } from "./world-time.js";
 
 interface SkyProps {
@@ -8,10 +8,7 @@ interface SkyProps {
   sunPosition?: THREE.Vector3;
 }
 
-export function SkyComponent({
-  scale = 100000,
-  sunPosition,
-}: SkyProps) {
+export function SkyComponent({ scale = 100000, sunPosition }: SkyProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
   const { scene, gl, camera } = useThree();
@@ -239,9 +236,8 @@ export function SkyComponent({
 
           // Cleanup temp scene
           tempScene.remove(tempSky);
-
         } catch (error: unknown) {
-          console.warn('PMREM generation failed:', error);
+          console.warn("PMREM generation failed:", error);
         }
       }, 100);
 
@@ -269,11 +265,5 @@ export function SkyComponent({
     }
   });
 
-  return (
-    <mesh
-      ref={meshRef}
-      geometry={skyGeometry}
-      scale={[scale, scale, scale]}
-    />
-  );
+  return <mesh ref={meshRef} geometry={skyGeometry} scale={[scale, scale, scale]} />;
 }

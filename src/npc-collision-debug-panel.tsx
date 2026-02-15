@@ -4,7 +4,12 @@ export function NpcCollisionDebugPanel() {
   const enabled = useMemo(() => {
     try {
       const qs = new URLSearchParams(window.location.search);
-      return qs.has("controlHero") || qs.has("controlPlayer") || qs.has("controlCavalorn") || qs.has("debugNpcCollision");
+      return (
+        qs.has("controlHero") ||
+        qs.has("controlPlayer") ||
+        qs.has("controlCavalorn") ||
+        qs.has("debugNpcCollision")
+      );
     } catch {
       return false;
     }

@@ -46,12 +46,19 @@ export function tickNpcDaedalusStateLoop({
         (g.userData as any)._aiLoopNextAtMs = nowMs + 500; // 2Hz
 
         const currentTime = t.hour * 60 + t.minute;
-        let desiredEntry: { state: string; waypoint: string; startM: number; stopM: number } | null = null;
+        let desiredEntry: {
+          state: string;
+          waypoint: string;
+          startM: number;
+          stopM: number;
+        } | null = null;
         for (const r of npcData.dailyRoutine) {
           const startM = r.start_h * 60 + (r.start_m ?? 0);
           const stopM = r.stop_h * 60 + (r.stop_m ?? 0);
           const wraps = stopM < startM;
-          const isActive = wraps ? currentTime >= startM || currentTime < stopM : currentTime >= startM && currentTime < stopM;
+          const isActive = wraps
+            ? currentTime >= startM || currentTime < stopM
+            : currentTime >= startM && currentTime < stopM;
           if (isActive && r.state) {
             desiredEntry = { state: r.state, waypoint: r.waypoint, startM, stopM };
             break;
@@ -83,7 +90,14 @@ export function tickNpcDaedalusStateLoop({
           (q?.queue?.length ?? 0) === 0;
 
         const pending = (g.userData as any)._aiPendingRoutine as
-          | { key: string; state: string; waypoint: string; startM: number; stopM: number; sinceMs: number }
+          | {
+              key: string;
+              state: string;
+              waypoint: string;
+              startM: number;
+              stopM: number;
+              sinceMs: number;
+            }
           | undefined;
 
         const activateRoutineEntry = (
@@ -92,7 +106,7 @@ export function tickNpcDaedalusStateLoop({
           nextWaypoint: string,
           startM: number,
           stopM: number,
-          opts?: { forceClear?: boolean }
+          opts?: { forceClear?: boolean },
         ) => {
           // Update the routine runtime before calling the entry function so builtins like
           // `Npc_GetDistToWP(self, self.wp)` / `AI_GotoWP(self, self.wp)` resolve to the NEW routine waypoint.
@@ -156,7 +170,13 @@ export function tickNpcDaedalusStateLoop({
 
         if (!currentKey || !currentState) {
           if (emEmpty) {
-            activateRoutineEntry(desiredEntry.state, desiredKey, desiredEntry.waypoint, desiredEntry.startM, desiredEntry.stopM);
+            activateRoutineEntry(
+              desiredEntry.state,
+              desiredKey,
+              desiredEntry.waypoint,
+              desiredEntry.startM,
+              desiredEntry.stopM,
+            );
             delete (g.userData as any)._aiPendingRoutine;
           } else {
             (g.userData as any)._aiPendingRoutine = {
@@ -186,12 +206,21 @@ export function tickNpcDaedalusStateLoop({
           }
 
           const p = (g.userData as any)._aiPendingRoutine as
-            | { key: string; state: string; waypoint: string; startM: number; stopM: number; sinceMs: number }
+            | {
+                key: string;
+                state: string;
+                waypoint: string;
+                startM: number;
+                stopM: number;
+                sinceMs: number;
+              }
             | undefined;
           if (p && p.key !== currentKey) {
             const waitedMs = Math.max(0, nowMs - (p.sinceMs ?? nowMs));
             if (emEmpty || waitedMs >= FORCE_AFTER_MS) {
-              activateRoutineEntry(p.state, p.key, p.waypoint, p.startM, p.stopM, { forceClear: !emEmpty });
+              activateRoutineEntry(p.state, p.key, p.waypoint, p.startM, p.stopM, {
+                forceClear: !emEmpty,
+              });
               delete (g.userData as any)._aiPendingRoutine;
             } else {
               // While waiting for EM to become empty, do not run the old state's loop.
@@ -205,8 +234,11 @@ export function tickNpcDaedalusStateLoop({
           }
         }
 
-        const runningState = ((g.userData as any)._aiActiveStateName as string | undefined) || desiredEntry.state;
-        const runningWaypoint = ((g.userData as any)._aiActiveRoutineWaypoint as string | undefined) || (desiredEntry.waypoint || "").trim().toUpperCase();
+        const runningState =
+          ((g.userData as any)._aiActiveStateName as string | undefined) || desiredEntry.state;
+        const runningWaypoint =
+          ((g.userData as any)._aiActiveRoutineWaypoint as string | undefined) ||
+          (desiredEntry.waypoint || "").trim().toUpperCase();
         const runningStartM = (g.userData as any)._aiActiveRoutineStartM as number | undefined;
         const runningStopM = (g.userData as any)._aiActiveRoutineStopM as number | undefined;
         if (runningState && runningWaypoint) {

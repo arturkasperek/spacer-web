@@ -32,7 +32,13 @@ describe("buildSoftSkinMeshCPU", () => {
         bonePositions[v * 12 + 1] = 0; // y
         bonePositions[v * 12 + 2] = 0; // z
       }
-      return { vertexCount: vCount, maxInfluences: 4 as const, boneIndices, boneWeights, bonePositions };
+      return {
+        vertexCount: vCount,
+        maxInfluences: 4 as const,
+        boneIndices,
+        boneWeights,
+        bonePositions,
+      };
     })();
 
     const wedges = makeVector([

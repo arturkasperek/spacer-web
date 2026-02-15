@@ -1,9 +1,9 @@
-import { useRef, useMemo, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
-import { Line2 } from 'three/examples/jsm/lines/Line2.js';
-import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { useRef, useMemo, useEffect } from "react";
+import { useFrame } from "@react-three/fiber";
+import * as THREE from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
 interface VOBBoundingBoxProps {
   readonly vobObject: THREE.Object3D | null;
@@ -18,8 +18,8 @@ interface VOBBoundingBoxProps {
 export function VOBBoundingBox({
   vobObject,
   visible = true,
-  color = '#00ff00',
-  lineWidth = 5
+  color = "#00ff00",
+  lineWidth = 5,
 }: VOBBoundingBoxProps) {
   const boxRef = useRef<THREE.Group>(null);
 
@@ -41,26 +41,62 @@ export function VOBBoundingBox({
   const lineSegments = useMemo(() => {
     const half = 0.5;
     const segments: Line2[] = [];
-    
+
     // Define 12 edges as separate line segments
     const edges = [
       // Bottom face (z = -0.5) - 4 edges
-      [[-half, -half, -half], [half, -half, -half]],  // edge 1: bottom front
-      [[half, -half, -half], [half, half, -half]],     // edge 2: bottom right
-      [[half, half, -half], [-half, half, -half]],     // edge 3: bottom back
-      [[-half, half, -half], [-half, -half, -half]],   // edge 4: bottom left
-      
+      [
+        [-half, -half, -half],
+        [half, -half, -half],
+      ], // edge 1: bottom front
+      [
+        [half, -half, -half],
+        [half, half, -half],
+      ], // edge 2: bottom right
+      [
+        [half, half, -half],
+        [-half, half, -half],
+      ], // edge 3: bottom back
+      [
+        [-half, half, -half],
+        [-half, -half, -half],
+      ], // edge 4: bottom left
+
       // Top face (z = +0.5) - 4 edges
-      [[-half, -half, half], [half, -half, half]],     // edge 5: top front
-      [[half, -half, half], [half, half, half]],       // edge 6: top right
-      [[half, half, half], [-half, half, half]],       // edge 7: top back
-      [[-half, half, half], [-half, -half, half]],     // edge 8: top left
-      
+      [
+        [-half, -half, half],
+        [half, -half, half],
+      ], // edge 5: top front
+      [
+        [half, -half, half],
+        [half, half, half],
+      ], // edge 6: top right
+      [
+        [half, half, half],
+        [-half, half, half],
+      ], // edge 7: top back
+      [
+        [-half, half, half],
+        [-half, -half, half],
+      ], // edge 8: top left
+
       // Vertical edges - 4 edges connecting bottom to top
-      [[-half, -half, -half], [-half, -half, half]],   // edge 9: front-left vertical
-      [[half, -half, -half], [half, -half, half]],     // edge 10: front-right vertical
-      [[half, half, -half], [half, half, half]],      // edge 11: back-right vertical
-      [[-half, half, -half], [-half, half, half]],     // edge 12: back-left vertical
+      [
+        [-half, -half, -half],
+        [-half, -half, half],
+      ], // edge 9: front-left vertical
+      [
+        [half, -half, -half],
+        [half, -half, half],
+      ], // edge 10: front-right vertical
+      [
+        [half, half, -half],
+        [half, half, half],
+      ], // edge 11: back-right vertical
+      [
+        [-half, half, -half],
+        [-half, half, half],
+      ], // edge 12: back-left vertical
     ];
 
     for (const [start, end] of edges) {
@@ -79,15 +115,15 @@ export function VOBBoundingBox({
     const updateResolution = () => {
       lineMaterial.resolution.set(window.innerWidth, window.innerHeight);
     };
-    
+
     updateResolution();
-    window.addEventListener('resize', updateResolution);
-    return () => window.removeEventListener('resize', updateResolution);
+    window.addEventListener("resize", updateResolution);
+    return () => window.removeEventListener("resize", updateResolution);
   }, [lineMaterial]);
 
   // Create group to hold all line segments
   const groupRef = useRef<THREE.Group>(null);
-  
+
   useEffect(() => {
     if (!groupRef.current) {
       const group = new THREE.Group();
@@ -149,4 +185,3 @@ export function VOBBoundingBox({
 
   return boxRef.current ? <primitive object={boxRef.current} /> : null;
 }
-

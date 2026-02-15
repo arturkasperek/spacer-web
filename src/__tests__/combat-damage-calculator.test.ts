@@ -60,4 +60,3 @@ describe("combat/damage-calculator", () => {
     expect(r.finalDamage).toBe(0);
   });
 });
-

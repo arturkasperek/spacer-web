@@ -1,7 +1,11 @@
 import type { MutableRefObject } from "react";
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import { createHumanoidCharacterInstance, type CharacterCaches, type CharacterInstance } from "./character/character-instance.js";
+import {
+  createHumanoidCharacterInstance,
+  type CharacterCaches,
+  type CharacterInstance,
+} from "./character/character-instance.js";
 import { createCreatureCharacterInstance } from "./character/creature-character.js";
 import { disposeObject3D } from "./distance-streaming";
 import type { NpcData } from "./types";
@@ -25,7 +29,7 @@ export async function loadNpcCharacter(
     modelScriptRegistryRef: MutableRefObject<ModelScriptRegistry | null>;
     waypointMoverRef: MutableRefObject<WaypointMover | null>;
     getNpcVisualRoot: (npcGroup: THREE.Group) => THREE.Object3D;
-  }
+  },
 ) {
   if (!zenKit) return;
   const visual = npcData.visual;
@@ -111,7 +115,9 @@ export async function loadNpcCharacter(
 
     if (!instance) {
       const mesh = (visual?.bodyMesh || "").trim();
-      console.warn(`Failed to create NPC character model for ${npcData.symbolName}${mesh ? ` (mesh: ${mesh})` : ""}`);
+      console.warn(
+        `Failed to create NPC character model for ${npcData.symbolName}${mesh ? ` (mesh: ${mesh})` : ""}`,
+      );
       return;
     }
 
@@ -122,10 +128,20 @@ export async function loadNpcCharacter(
 
     const npcId = `npc-${npcData.instanceIndex}`;
     npcGroup.userData.startMoveToWaypoint = (targetWaypointName: string, options?: any) => {
-      return waypointMoverRef.current?.startMoveToWaypoint(npcId, npcGroup, targetWaypointName, options) ?? false;
+      return (
+        waypointMoverRef.current?.startMoveToWaypoint(
+          npcId,
+          npcGroup,
+          targetWaypointName,
+          options,
+        ) ?? false
+      );
     };
     npcGroup.userData.startMoveToFreepoint = (freepointName: string, options?: any) => {
-      return waypointMoverRef.current?.startMoveToFreepoint(npcId, npcGroup, freepointName, options) ?? false;
+      return (
+        waypointMoverRef.current?.startMoveToFreepoint(npcId, npcGroup, freepointName, options) ??
+        false
+      );
     };
 
     const placeholder = npcGroup.getObjectByName("npc-placeholder");
@@ -135,7 +151,9 @@ export async function loadNpcCharacter(
     }
 
     const visualRoot = getNpcVisualRoot(npcGroup);
-    const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as THREE.Sprite | undefined;
+    const sprite = visualRoot.children.find((child) => child instanceof THREE.Sprite) as
+      | THREE.Sprite
+      | undefined;
     const healthBarRoot = (npcGroup.userData as any)?.healthBar?.root as THREE.Object3D | undefined;
     const modelObj = instance.object;
     if (sprite && modelObj) {

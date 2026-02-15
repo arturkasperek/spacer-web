@@ -1,14 +1,14 @@
 // Mesh and geometry utility functions for loading and processing Gothic meshes
 import * as THREE from "three";
-import type { ZenKit, ProcessedMeshData } from '@kolarz3/zenkit';
-import { tgaNameToCompiledUrl } from './vob-utils';
+import type { ZenKit, ProcessedMeshData } from "@kolarz3/zenkit";
+import { tgaNameToCompiledUrl } from "./vob-utils";
 
 /**
  * Loads a compiled TEX file as a Three.js DataTexture
  */
 export async function loadCompiledTexAsDataTexture(
   url: string | null,
-  zenKit: ZenKit
+  zenKit: ZenKit,
 ): Promise<THREE.DataTexture | null> {
   if (!url) return null;
 
@@ -16,8 +16,8 @@ export async function loadCompiledTexAsDataTexture(
     let res = await fetch(url);
     if (!res.ok) {
       // Fallback: many textures reference _C1/_C2 variants that don't exist in the shipped set
-      if (url.includes('_C') && !url.includes('_C0-C.TEX')) {
-        const fallbackUrl = url.replace(/_C\d+(-C\.TEX)$/i, '_C0$1');
+      if (url.includes("_C") && !url.includes("_C0-C.TEX")) {
+        const fallbackUrl = url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1");
         res = await fetch(fallbackUrl);
         if (!res.ok) return null;
       } else {
@@ -39,9 +39,9 @@ export async function loadCompiledTexAsDataTexture(
 
     const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
     tex.needsUpdate = true;
-    tex.flipY = false;  // OpenGothic doesn't flip Y
+    tex.flipY = false; // OpenGothic doesn't flip Y
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;  // Enable some anisotropy for better quality
+    tex.anisotropy = 4; // Enable some anisotropy for better quality
     // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
@@ -62,7 +62,7 @@ export async function loadCompiledTexAsDataTexture(
 export async function loadMeshCached(
   meshPath: string,
   zenKit: ZenKit,
-  cache: Map<string, ProcessedMeshData>
+  cache: Map<string, ProcessedMeshData>,
 ): Promise<ProcessedMeshData | null> {
   // Check cache first
   const cached = cache.get(meshPath);
@@ -81,8 +81,10 @@ export async function loadMeshCached(
 
     // Load mesh with ZenKit
     const vobMesh = zenKit.createMesh();
-    const isMRM = meshPath.toUpperCase().endsWith('.MRM');
-    const loadResult = isMRM ? vobMesh.loadMRMFromArray(uint8Array) : vobMesh.loadFromArray(uint8Array);
+    const isMRM = meshPath.toUpperCase().endsWith(".MRM");
+    const loadResult = isMRM
+      ? vobMesh.loadMRMFromArray(uint8Array)
+      : vobMesh.loadFromArray(uint8Array);
 
     if (!loadResult || !loadResult.success) {
       return null;
@@ -122,22 +124,22 @@ export function buildThreeJSGeometry(processed: ProcessedMeshData): THREE.Buffer
     const vertIdx = processed.indices.get(i);
     const vertBase = vertIdx * 8;
 
-    positions[i*3 + 0] = processed.vertices.get(vertBase + 0);
-    positions[i*3 + 1] = processed.vertices.get(vertBase + 1);
-    positions[i*3 + 2] = processed.vertices.get(vertBase + 2);
+    positions[i * 3 + 0] = processed.vertices.get(vertBase + 0);
+    positions[i * 3 + 1] = processed.vertices.get(vertBase + 1);
+    positions[i * 3 + 2] = processed.vertices.get(vertBase + 2);
 
-    normals[i*3 + 0] = processed.vertices.get(vertBase + 3);
-    normals[i*3 + 1] = processed.vertices.get(vertBase + 4);
-    normals[i*3 + 2] = processed.vertices.get(vertBase + 5);
+    normals[i * 3 + 0] = processed.vertices.get(vertBase + 3);
+    normals[i * 3 + 1] = processed.vertices.get(vertBase + 4);
+    normals[i * 3 + 2] = processed.vertices.get(vertBase + 5);
 
-    uvs[i*2 + 0] = processed.vertices.get(vertBase + 6);
-    uvs[i*2 + 1] = processed.vertices.get(vertBase + 7);
+    uvs[i * 2 + 0] = processed.vertices.get(vertBase + 6);
+    uvs[i * 2 + 1] = processed.vertices.get(vertBase + 7);
   }
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
 
   return geometry;
 }
@@ -148,7 +150,7 @@ export function buildThreeJSGeometry(processed: ProcessedMeshData): THREE.Buffer
  */
 export function buildMaterialGroups(
   geometry: THREE.BufferGeometry,
-  processed: ProcessedMeshData
+  processed: ProcessedMeshData,
 ): void {
   const triCount = processed.materialIds.size();
   geometry.clearGroups();
@@ -157,7 +159,7 @@ export function buildMaterialGroups(
   let groupStart = 0;
 
   for (let t = 1; t <= triCount; t++) {
-    const matId = (t < triCount) ? processed.materialIds.get(t) : -1;
+    const matId = t < triCount ? processed.materialIds.get(t) : -1;
 
     if (t === triCount || matId !== currentMatId) {
       const vertexStart = groupStart * 3;
@@ -174,33 +176,33 @@ export function buildMaterialGroups(
  * Color name to hex mapping for helper visuals (matching original Spacer editor)
  */
 const colorNameToHex: { [key: string]: number } = {
-  'RED': 0xFF0000,
-  'GREEN': 0x00FF00,
-  'BLUE': 0x0000FF,
-  'YELLOW': 0xFFFF00,
-  'ORANGE': 0xFFA500,
-  'PURPLE': 0x800080,
-  'CYAN': 0x00FFFF,
-  'MAGENTA': 0xFF00FF,
-  'WHITE': 0xFFFFFF,
-  'BLACK': 0x000000,
-  'GRAY': 0x808080,
-  'GREY': 0x808080,
+  RED: 0xff0000,
+  GREEN: 0x00ff00,
+  BLUE: 0x0000ff,
+  YELLOW: 0xffff00,
+  ORANGE: 0xffa500,
+  PURPLE: 0x800080,
+  CYAN: 0x00ffff,
+  MAGENTA: 0xff00ff,
+  WHITE: 0xffffff,
+  BLACK: 0x000000,
+  GRAY: 0x808080,
+  GREY: 0x808080,
   // Camera-related materials (zCCamTrj_KeyFrame - type 17)
-  'KAMERA': 0x00FFFF,      // CYAN - cameras are typically cyan
-  'FILM': 0xFF00FF,        // MAGENTA - film/cinematic
-  'DIRECTION': 0xFFFF00,   // YELLOW - direction indicators
+  KAMERA: 0x00ffff, // CYAN - cameras are typically cyan
+  FILM: 0xff00ff, // MAGENTA - film/cinematic
+  DIRECTION: 0xffff00, // YELLOW - direction indicators
   // Light materials (zCVobLight - type 10)
-  'LIGHTMESH': 0xFFFF00,   // YELLOW - lights are yellow
+  LIGHTMESH: 0xffff00, // YELLOW - lights are yellow
   // Numbered materials (zCVobSound - type 36, zCCamTrj_KeyFrame - type 17)
-  'ZCVOBMAT1': 0xFF6B6B,   // CORAL/RED - lighter red
-  'ZCVOBMAT2': 0x4ECDC4,   // TURQUOISE - cyan-green
-  'ZCVOBMAT3': 0x45B7D1,   // SKY BLUE - light blue
-  'ZCVOBMAT4': 0xFFA07A,   // LIGHT SALMON - orange-pink
-  'ZCVOBMAT5': 0x98D8C8,   // MINT GREEN - light green
-  'ZCVOBMAT6': 0xC0C0C0,   // SILVER - lighter gray
-  'ZCVOBMAT7': 0xA0A0A0,   // GRAY - medium gray
-  'ZCVOBMAT8': 0x808080,   // DARKGRAY - darker gray
+  ZCVOBMAT1: 0xff6b6b, // CORAL/RED - lighter red
+  ZCVOBMAT2: 0x4ecdc4, // TURQUOISE - cyan-green
+  ZCVOBMAT3: 0x45b7d1, // SKY BLUE - light blue
+  ZCVOBMAT4: 0xffa07a, // LIGHT SALMON - orange-pink
+  ZCVOBMAT5: 0x98d8c8, // MINT GREEN - light green
+  ZCVOBMAT6: 0xc0c0c0, // SILVER - lighter gray
+  ZCVOBMAT7: 0xa0a0a0, // GRAY - medium gray
+  ZCVOBMAT8: 0x808080, // DARKGRAY - darker gray
 };
 
 /**
@@ -211,10 +213,10 @@ export async function createMeshMaterial(
   materialData: { texture: string; name?: string; disableCollision?: boolean },
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
-  materialCache: Map<string, THREE.Material>
+  materialCache: Map<string, THREE.Material>,
 ): Promise<THREE.MeshBasicMaterial> {
-  const textureName = materialData.texture || '';
-  const materialName = materialData.name || '';
+  const textureName = materialData.texture || "";
+  const materialName = materialData.name || "";
   const disableCollision = Boolean((materialData as any).disableCollision);
   const noCollDet = disableCollision;
 
@@ -224,8 +226,8 @@ export async function createMeshMaterial(
     const materialNameUpper = materialName.toUpperCase();
     const colorHex = colorNameToHex[materialNameUpper];
     const cacheKey = `HELPER_COLOR_${materialNameUpper}`;
-    const finalColor = colorHex !== undefined ? colorHex : 0xFFFFFF;
-    
+    const finalColor = colorHex !== undefined ? colorHex : 0xffffff;
+
     // Check cache first
     const cached = materialCache.get(cacheKey);
     if (cached && cached instanceof THREE.MeshBasicMaterial) {
@@ -237,7 +239,7 @@ export async function createMeshMaterial(
       color: finalColor,
       side: THREE.DoubleSide,
       transparent: false,
-      alphaTest: 0.5
+      alphaTest: 0.5,
     });
     material.userData.noCollDet = noCollDet;
 
@@ -255,10 +257,10 @@ export async function createMeshMaterial(
 
   // Create material
   const material = new THREE.MeshBasicMaterial({
-    color: 0xFFFFFF,
+    color: 0xffffff,
     side: THREE.DoubleSide,
-    transparent: false,  // Disable transparency for alpha-tested materials
-    alphaTest: 0.5       // Use proper alpha test threshold like OpenGothic
+    transparent: false, // Disable transparency for alpha-tested materials
+    alphaTest: 0.5, // Use proper alpha test threshold like OpenGothic
   });
   material.userData.noCollDet = noCollDet;
 
@@ -295,13 +297,13 @@ export async function buildThreeJSGeometryAndMaterials(
   processed: ProcessedMeshData,
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
-  materialCache: Map<string, THREE.Material>
+  materialCache: Map<string, THREE.Material>,
 ): Promise<{ geometry: THREE.BufferGeometry; materials: THREE.MeshBasicMaterial[] }> {
   const matCount = processed.materials.size();
 
   // Build geometry
   const geometry = buildThreeJSGeometry(processed);
-  
+
   // Build material groups
   buildMaterialGroups(geometry, processed);
 
@@ -320,10 +322,10 @@ export async function buildThreeJSGeometryAndMaterials(
  * Create a text sprite for NPC name label
  */
 export function createTextSprite(text: string): THREE.Sprite {
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
   if (!context) {
-    throw new Error('Could not get 2D context');
+    throw new Error("Could not get 2D context");
   }
 
   // Set canvas size
@@ -333,16 +335,16 @@ export function createTextSprite(text: string): THREE.Sprite {
   // Draw text with outline
   const fontSize = 32;
   context.font = `bold ${fontSize}px Arial`;
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
+  context.textAlign = "center";
+  context.textBaseline = "middle";
 
   // Draw outline (black)
-  context.strokeStyle = '#000000';
+  context.strokeStyle = "#000000";
   context.lineWidth = 4;
   context.strokeText(text, canvas.width / 2, canvas.height / 2);
 
   // Draw text (white)
-  context.fillStyle = '#ffffff';
+  context.fillStyle = "#ffffff";
   context.fillText(text, canvas.width / 2, canvas.height / 2);
 
   // Create texture from canvas

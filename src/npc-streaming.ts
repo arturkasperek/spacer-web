@@ -48,11 +48,18 @@ export function updateNpcStreaming({
   npcItemsRef: MutableRefObject<Array<{ id: string; waybox: Aabb }>>;
   loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
   allNpcsRef: MutableRefObject<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
-  allNpcsByIdRef: MutableRefObject<Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
+  allNpcsByIdRef: MutableRefObject<
+    Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>
+  >;
   npcsGroupRef: MutableRefObject<THREE.Group | null>;
   scene: THREE.Scene;
   kccConfig: { radius: number };
-  applyMoveConstraint: (npcGroup: THREE.Group, desiredX: number, desiredZ: number, dt: number) => { blocked: boolean; moved: boolean };
+  applyMoveConstraint: (
+    npcGroup: THREE.Group,
+    desiredX: number,
+    desiredZ: number,
+    dt: number,
+  ) => { blocked: boolean; moved: boolean };
   trySnapNpcToGroundWithRapier: (npcGroup: THREE.Group) => boolean;
   loadNpcCharacter: (npcGroup: THREE.Group, npcData: NpcData) => Promise<void> | void;
   removeNpcKccCollider: (npcGroup: THREE.Object3D) => void;
@@ -79,7 +86,11 @@ export function updateNpcStreaming({
   // Use the Three.js camera position directly if cameraPosition prop is not provided or is at origin
   const effectiveCameraPos = cameraPosition || (camera ? camera.position : undefined);
 
-  const { shouldUpdate, cameraPos } = shouldUpdateStreaming(streamingState.current, effectiveCameraPos, config);
+  const { shouldUpdate, cameraPos } = shouldUpdateStreaming(
+    streamingState.current,
+    effectiveCameraPos,
+    config,
+  );
 
   if (!shouldUpdate) return;
 
@@ -128,7 +139,11 @@ export function updateNpcStreaming({
     if (manualControlHeroEnabled) {
       const g = loadedNpcsRef.current.get(id);
       const npcData = g?.userData?.npcData as NpcData | undefined;
-      if ((g?.userData as any)?.isPlayer === true || isHeroNpcData(npcData) || isHeroNpcData(entry.npcData)) {
+      if (
+        (g?.userData as any)?.isPlayer === true ||
+        isHeroNpcData(npcData) ||
+        isHeroNpcData(entry.npcData)
+      ) {
         continue;
       }
     }
@@ -154,15 +169,15 @@ export function updateNpcStreaming({
     let rotation: THREE.Quaternion | undefined;
     if (npc.npcData.spawnpoint) {
       const key = normalizeNameKey(npc.npcData.spawnpoint);
-      
+
       // Try waypoint first
       let quat = waypointDirIndex.get(key);
-      
+
       // Fallback to VOB if waypoint has no direction
       if (!quat) {
         quat = vobDirIndex.get(key);
       }
-      
+
       if (quat) {
         rotation = quat.clone();
       }

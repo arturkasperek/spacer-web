@@ -56,7 +56,10 @@ const CAMERA_MODE_INTS: ReadonlyArray<readonly [keyof CameraModeDef, string]> = 
   ["collision", "CCAMSYS.COLLISION"],
 ] as const;
 
-export function readCameraModeDef(vm: Pick<DaedalusVm, "getSymbolFloat" | "getSymbolInt">, instanceName: string): CameraModeDef | null {
+export function readCameraModeDef(
+  vm: Pick<DaedalusVm, "getSymbolFloat" | "getSymbolInt">,
+  instanceName: string,
+): CameraModeDef | null {
   const bestRange = vm.getSymbolFloat("CCAMSYS.BESTRANGE", instanceName);
   if (!Number.isFinite(bestRange) || bestRange <= 0) return null;
 
@@ -71,7 +74,7 @@ export function readCameraModeDef(vm: Pick<DaedalusVm, "getSymbolFloat" | "getSy
 }
 
 export function discoverCameraModeInstanceNames(
-  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex">
+  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex">,
 ): string[] {
   const count = Number(vm.symbolCount);
   if (!Number.isFinite(count) || count <= 0) return [];
@@ -88,7 +91,7 @@ export function discoverCameraModeInstanceNames(
 }
 
 export function discoverCameraModeInstances(
-  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex">
+  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex">,
 ): Array<{ name: string; symbolIndex: number }> {
   const count = Number(vm.symbolCount);
   if (!Number.isFinite(count) || count <= 0) return [];
@@ -105,7 +108,14 @@ export function discoverCameraModeInstances(
 }
 
 export function extractCameraModes(
-  vm: Pick<DaedalusVm, "symbolCount" | "getSymbolNameByIndex" | "getSymbolFloat" | "getSymbolInt" | "initInstanceByIndex">
+  vm: Pick<
+    DaedalusVm,
+    | "symbolCount"
+    | "getSymbolNameByIndex"
+    | "getSymbolFloat"
+    | "getSymbolInt"
+    | "initInstanceByIndex"
+  >,
 ): Record<string, CameraModeDef> {
   const out: Record<string, CameraModeDef> = {};
   for (const { name, symbolIndex } of discoverCameraModeInstances(vm)) {
@@ -135,7 +145,7 @@ export function getCameraMode(name: string): CameraModeDef | null {
 
 export async function loadCameraModes(
   zenKit: ZenKit,
-  scriptPath: string = "/SCRIPTS/_COMPILED/CAMERA.DAT"
+  scriptPath: string = "/SCRIPTS/_COMPILED/CAMERA.DAT",
 ): Promise<Record<string, CameraModeDef>> {
   if (cameraModesCache) return cameraModesCache;
   if (cameraModesPromise) return cameraModesPromise;
@@ -147,7 +157,9 @@ export async function loadCameraModes(
       const modes = extractCameraModes(vm);
       cameraModesCache = modes;
       if (!Object.keys(modes).length) {
-        console.warn("[Camera.dat] Loaded but found 0 CAMMOD* instances; camera will use fallbacks.");
+        console.warn(
+          "[Camera.dat] Loaded but found 0 CAMMOD* instances; camera will use fallbacks.",
+        );
       }
       return modes;
     } catch (e) {

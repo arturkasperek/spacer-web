@@ -5,7 +5,12 @@ import { endActiveAction } from "./fight-state";
 import { findMeleeHit } from "./melee-hit";
 
 export type CombatEvent =
-  | { type: "meleeAttackStarted"; attackerId: number; attackId: number; profile: MeleeAttackProfile }
+  | {
+      type: "meleeAttackStarted";
+      attackerId: number;
+      attackId: number;
+      profile: MeleeAttackProfile;
+    }
   | { type: "meleeHit"; hit: MeleeHit; damage: DamageDescriptor }
   | { type: "meleeAttackEnded"; attackerId: number; attackId: number };
 
@@ -54,4 +59,3 @@ export function updateCombatStateTick({
   a.lastSampleAtMs = t1;
   return { events, attackerState };
 }
-

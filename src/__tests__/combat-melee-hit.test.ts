@@ -11,7 +11,14 @@ describe("combat/melee-hit", () => {
     pos: { x, y: 0, z },
     forwardXZ: { x: fx, z: fz },
     weaponState: "1h" as const,
-    stats: { hp: 100, hpMax: 100, strength: 10, dexterity: 10, weaponDamage: { edge: 20 }, protection: {} },
+    stats: {
+      hp: 100,
+      hpMax: 100,
+      strength: 10,
+      dexterity: 10,
+      weaponDamage: { edge: 20 },
+      protection: {},
+    },
   });
 
   it("selects the nearest target within range and arc", () => {
@@ -37,4 +44,3 @@ describe("combat/melee-hit", () => {
     expect(hit).toBeNull();
   });
 });
-

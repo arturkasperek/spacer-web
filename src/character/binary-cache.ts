@@ -14,4 +14,3 @@ export async function fetchBinaryCached(url: string, cache: BinaryCache): Promis
   cache.set(url, bytes);
   return bytes;
 }
-

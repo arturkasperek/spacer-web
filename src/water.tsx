@@ -1,7 +1,7 @@
-import { useRef, useMemo } from 'react';
-import { useFrame, useLoader } from '@react-three/fiber';
-import * as THREE from 'three';
-import { Water } from 'three/addons/objects/Water.js';
+import { useRef, useMemo } from "react";
+import { useFrame, useLoader } from "@react-three/fiber";
+import * as THREE from "three";
+import { Water } from "three/addons/objects/Water.js";
 
 interface WaterProps {
   position?: [number, number, number];
@@ -22,7 +22,7 @@ export function WaterComponent({
   rotation = [-Math.PI / 2, 0, 0],
   scale: _scale = [1, 1, 1],
   size = 10000,
-  waterNormals = '/assets/water/water.jpg',
+  waterNormals = "/assets/water/water.jpg",
   sunDirection = new THREE.Vector3(0.70707, 0.70707, 0.0),
   sunColor = 0xffffff,
   waterColor = 0x001e0f,
@@ -56,8 +56,8 @@ export function WaterComponent({
       textureHeight: 512,
       waterNormals: waterNormalsTexture,
       sunDirection: sunDirection.clone().normalize(),
-      sunColor: typeof sunColor === 'number' ? sunColor : sunColor.getHex(),
-      waterColor: typeof waterColor === 'number' ? waterColor : waterColor.getHex(),
+      sunColor: typeof sunColor === "number" ? sunColor : sunColor.getHex(),
+      waterColor: typeof waterColor === "number" ? waterColor : waterColor.getHex(),
       distortionScale: distortionScale,
       fog: false,
       alpha: alpha,
@@ -69,7 +69,17 @@ export function WaterComponent({
     water.position.set(position[0], position[1], position[2]);
 
     return water;
-  }, [waterGeometry, waterNormalsTexture, sunDirection, sunColor, waterColor, distortionScale, alpha, position, rotation]);
+  }, [
+    waterGeometry,
+    waterNormalsTexture,
+    sunDirection,
+    sunColor,
+    waterColor,
+    distortionScale,
+    alpha,
+    position,
+    rotation,
+  ]);
 
   // Update water time uniform
   useFrame(() => {

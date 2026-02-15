@@ -10,10 +10,20 @@ function makeVector<T>(items: T[]) {
 function quatEquivalent(
   a: { x: number; y: number; z: number; w: number },
   b: { x: number; y: number; z: number; w: number },
-  eps: number
+  eps: number,
 ) {
-  const d1 = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z), Math.abs(a.w - b.w));
-  const d2 = Math.max(Math.abs(a.x + b.x), Math.abs(a.y + b.y), Math.abs(a.z + b.z), Math.abs(a.w + b.w));
+  const d1 = Math.max(
+    Math.abs(a.x - b.x),
+    Math.abs(a.y - b.y),
+    Math.abs(a.z - b.z),
+    Math.abs(a.w - b.w),
+  );
+  const d2 = Math.max(
+    Math.abs(a.x + b.x),
+    Math.abs(a.y + b.y),
+    Math.abs(a.z + b.z),
+    Math.abs(a.w + b.w),
+  );
   return Math.min(d1, d2) <= eps;
 }
 
@@ -36,8 +46,16 @@ describe("npc-world-indices", () => {
   });
 
   it("indexes waypoints, waypoint directions, and vob names", () => {
-    const wpA = { name: " WP_A ", position: { x: 10, y: 20, z: 30 }, direction: { x: 0, y: 0, z: 0 } };
-    const wpDir = { name: "WP_DIR", position: { x: 1, y: 2, z: 3 }, direction: { x: 1, y: 0, z: 0 } };
+    const wpA = {
+      name: " WP_A ",
+      position: { x: 10, y: 20, z: 30 },
+      direction: { x: 0, y: 0, z: 0 },
+    };
+    const wpDir = {
+      name: "WP_DIR",
+      position: { x: 1, y: 2, z: 3 },
+      direction: { x: 1, y: 0, z: 0 },
+    };
     const world = {
       getAllWaypoints: () => makeVector([wpA, wpDir]),
       getVobs: () =>
@@ -88,4 +106,3 @@ describe("npc-world-indices", () => {
     expect(quatEquivalent(q, expected, 1e-6)).toBe(true);
   });
 });
-

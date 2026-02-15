@@ -1,51 +1,51 @@
-import { render } from '@testing-library/react';
-import { CameraControls, CameraControlsRef } from '../camera-controls';
+import { render } from "@testing-library/react";
+import { CameraControls, CameraControlsRef } from "../camera-controls";
 
 // Mock window and document event listeners
 const mockAddEventListener = jest.fn();
 const mockRemoveEventListener = jest.fn();
 
-Object.defineProperty(window, 'addEventListener', {
+Object.defineProperty(window, "addEventListener", {
   writable: true,
   value: mockAddEventListener,
 });
 
-Object.defineProperty(window, 'removeEventListener', {
+Object.defineProperty(window, "removeEventListener", {
   writable: true,
   value: mockRemoveEventListener,
 });
 
-Object.defineProperty(document, 'addEventListener', {
+Object.defineProperty(document, "addEventListener", {
   writable: true,
   value: mockAddEventListener,
 });
 
-Object.defineProperty(document, 'removeEventListener', {
+Object.defineProperty(document, "removeEventListener", {
   writable: true,
   value: mockRemoveEventListener,
 });
 
 // Mock pointer lock API
 let mockPointerLockElement: any = null;
-Object.defineProperty(document, 'pointerLockElement', {
+Object.defineProperty(document, "pointerLockElement", {
   get: jest.fn(() => mockPointerLockElement),
   configurable: true,
 });
 
 const mockExitPointerLock = jest.fn();
-Object.defineProperty(document, 'exitPointerLock', {
+Object.defineProperty(document, "exitPointerLock", {
   writable: true,
   value: mockExitPointerLock,
   configurable: true,
 });
 
 // Mock React Three Fiber hooks
-jest.mock('@react-three/fiber', () => ({
+jest.mock("@react-three/fiber", () => ({
   useThree: jest.fn(),
   useFrame: jest.fn(),
 }));
 
-jest.mock('../player-input-context', () => ({
+jest.mock("../player-input-context", () => ({
   usePlayerInput: () => ({
     addMouseYawDelta: jest.fn(),
     consumeMouseYawDelta: jest.fn(),
@@ -60,7 +60,7 @@ const mockCamera = {
 
 const mockGl = {
   domElement: {
-    style: { cursor: '' },
+    style: { cursor: "" },
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
     requestPointerLock: jest.fn(),
@@ -68,15 +68,15 @@ const mockGl = {
   },
 };
 
-const mockUseThree = require('@react-three/fiber').useThree;
-const mockUseFrame = require('@react-three/fiber').useFrame;
+const mockUseThree = require("@react-three/fiber").useThree;
+const mockUseFrame = require("@react-three/fiber").useFrame;
 
 mockUseThree.mockReturnValue({
   camera: mockCamera,
   gl: mockGl,
 });
 
-describe('CameraControls', () => {
+describe("CameraControls", () => {
   let mockRef: React.RefObject<CameraControlsRef | null>;
 
   beforeEach(() => {
@@ -87,23 +87,28 @@ describe('CameraControls', () => {
     mockCamera.position.z = 0;
   });
 
-  it('renders without crashing', () => {
+  it("renders without crashing", () => {
     render(<CameraControls ref={mockRef} />);
     expect(mockUseThree).toHaveBeenCalled();
   });
 
-  it('sets up event listeners on mount', () => {
+  it("sets up event listeners on mount", () => {
     render(<CameraControls ref={mockRef} />);
 
-    expect(mockAddEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
-    expect(mockAddEventListener).toHaveBeenCalledWith('keyup', expect.any(Function));
-    expect(mockAddEventListener).toHaveBeenCalledWith('wheel', expect.any(Function), { passive: false });
-    expect(mockAddEventListener).toHaveBeenCalledWith('mouseup', expect.any(Function));
-    expect(mockAddEventListener).toHaveBeenCalledWith('mousemove', expect.any(Function));
-    expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith('mousedown', expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith("keydown", expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith("keyup", expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith("wheel", expect.any(Function), {
+      passive: false,
+    });
+    expect(mockAddEventListener).toHaveBeenCalledWith("mouseup", expect.any(Function));
+    expect(mockAddEventListener).toHaveBeenCalledWith("mousemove", expect.any(Function));
+    expect(mockGl.domElement.addEventListener).toHaveBeenCalledWith(
+      "mousedown",
+      expect.any(Function),
+    );
   });
 
-  it('cleans up event listeners on unmount', () => {
+  it("cleans up event listeners on unmount", () => {
     const { unmount } = render(<CameraControls ref={mockRef} />);
 
     unmount();
@@ -113,22 +118,22 @@ describe('CameraControls', () => {
     expect(mockGl.domElement.removeEventListener).toHaveBeenCalled();
   });
 
-  it('sets cursor to grab initially', () => {
+  it("sets cursor to grab initially", () => {
     render(<CameraControls ref={mockRef} />);
-    expect(mockGl.domElement.style.cursor).toBe('grab');
+    expect(mockGl.domElement.style.cursor).toBe("grab");
   });
 
-  it('exposes ref methods', () => {
+  it("exposes ref methods", () => {
     render(<CameraControls ref={mockRef} />);
 
-    expect(mockRef.current).toHaveProperty('updateMouseState');
-    expect(mockRef.current).toHaveProperty('setPose');
-    expect(typeof mockRef.current?.updateMouseState).toBe('function');
-    expect(typeof mockRef.current?.setPose).toBe('function');
+    expect(mockRef.current).toHaveProperty("updateMouseState");
+    expect(mockRef.current).toHaveProperty("setPose");
+    expect(typeof mockRef.current?.updateMouseState).toBe("function");
+    expect(typeof mockRef.current?.setPose).toBe("function");
   });
 
-  describe('setPose method', () => {
-    it('sets camera position and orientation correctly', () => {
+  describe("setPose method", () => {
+    it("sets camera position and orientation correctly", () => {
       render(<CameraControls ref={mockRef} />);
 
       const position: [number, number, number] = [1, 2, 3];
@@ -141,8 +146,8 @@ describe('CameraControls', () => {
     });
   });
 
-  describe('updateMouseState method', () => {
-    it('updates internal mouse state', () => {
+  describe("updateMouseState method", () => {
+    it("updates internal mouse state", () => {
       render(<CameraControls ref={mockRef} />);
 
       mockRef.current?.updateMouseState(0.5, 1.2);
@@ -152,8 +157,8 @@ describe('CameraControls', () => {
     });
   });
 
-  describe('useFrame callback', () => {
-    it('is called with correct parameters', () => {
+  describe("useFrame callback", () => {
+    it("is called with correct parameters", () => {
       render(<CameraControls ref={mockRef} />);
 
       expect(mockUseFrame).toHaveBeenCalledWith(expect.any(Function));
@@ -167,7 +172,7 @@ describe('CameraControls', () => {
     });
   });
 
-  describe('quick click detection', () => {
+  describe("quick click detection", () => {
     let mockMouseDownHandler: (e: MouseEvent) => void;
     let mockMouseUpHandler: (e: MouseEvent) => void;
 
@@ -183,17 +188,17 @@ describe('CameraControls', () => {
       jest.useRealTimers();
     });
 
-    it('delays pointer lock on mouse down', () => {
+    it("delays pointer lock on mouse down", () => {
       render(<CameraControls ref={mockRef} />);
 
       // Get the mousedown handler
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
       expect(mousedownCall).toBeDefined();
       mockMouseDownHandler = mousedownCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -209,20 +214,18 @@ describe('CameraControls', () => {
       expect(mockGl.domElement.requestPointerLock).toHaveBeenCalled();
     });
 
-    it('detects quick click and dispatches click event', () => {
+    it("detects quick click and dispatches click event", () => {
       render(<CameraControls ref={mockRef} />);
 
       // Get handlers
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
-      const mouseupCall = mockAddEventListener.mock.calls.find(
-        call => call[0] === 'mouseup'
-      );
+      const mouseupCall = mockAddEventListener.mock.calls.find((call) => call[0] === "mouseup");
       mockMouseDownHandler = mousedownCall![1];
       mockMouseUpHandler = mouseupCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -233,7 +236,7 @@ describe('CameraControls', () => {
       // Quick mouse up (< 120ms, < 5px movement)
       jest.advanceTimersByTime(50);
 
-      const mouseUpEvent = new MouseEvent('mouseup', {
+      const mouseUpEvent = new MouseEvent("mouseup", {
         button: 0,
         clientX: 102, // Less than 5px movement
         clientY: 101,
@@ -244,7 +247,7 @@ describe('CameraControls', () => {
       // Should dispatch click event
       expect(mockGl.domElement.dispatchEvent).toHaveBeenCalled();
       const dispatchedEvent = mockGl.domElement.dispatchEvent.mock.calls[0][0];
-      expect(dispatchedEvent.type).toBe('click');
+      expect(dispatchedEvent.type).toBe("click");
       expect(dispatchedEvent.button).toBe(0);
 
       // Pointer lock should not be requested
@@ -252,19 +255,17 @@ describe('CameraControls', () => {
       expect(mockGl.domElement.requestPointerLock).not.toHaveBeenCalled();
     });
 
-    it('does not detect quick click if movement is too large', () => {
+    it("does not detect quick click if movement is too large", () => {
       render(<CameraControls ref={mockRef} />);
 
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
-      const mouseupCall = mockAddEventListener.mock.calls.find(
-        call => call[0] === 'mouseup'
-      );
+      const mouseupCall = mockAddEventListener.mock.calls.find((call) => call[0] === "mouseup");
       mockMouseDownHandler = mousedownCall![1];
       mockMouseUpHandler = mouseupCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -275,7 +276,7 @@ describe('CameraControls', () => {
       jest.advanceTimersByTime(50);
 
       // Large movement (> 5px)
-      const mouseUpEvent = new MouseEvent('mouseup', {
+      const mouseUpEvent = new MouseEvent("mouseup", {
         button: 0,
         clientX: 110, // More than 5px movement
         clientY: 110,
@@ -287,19 +288,17 @@ describe('CameraControls', () => {
       expect(mockGl.domElement.dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it('does not detect quick click if duration is too long', () => {
+    it("does not detect quick click if duration is too long", () => {
       render(<CameraControls ref={mockRef} />);
 
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
-      const mouseupCall = mockAddEventListener.mock.calls.find(
-        call => call[0] === 'mouseup'
-      );
+      const mouseupCall = mockAddEventListener.mock.calls.find((call) => call[0] === "mouseup");
       mockMouseDownHandler = mousedownCall![1];
       mockMouseUpHandler = mouseupCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -310,7 +309,7 @@ describe('CameraControls', () => {
       // Long duration (> 120ms)
       jest.advanceTimersByTime(150);
 
-      const mouseUpEvent = new MouseEvent('mouseup', {
+      const mouseUpEvent = new MouseEvent("mouseup", {
         button: 0,
         clientX: 101, // Small movement
         clientY: 101,
@@ -322,21 +321,19 @@ describe('CameraControls', () => {
       expect(mockGl.domElement.dispatchEvent).not.toHaveBeenCalled();
     });
 
-    it('exits pointer lock on quick click if already locked', () => {
+    it("exits pointer lock on quick click if already locked", () => {
       mockPointerLockElement = mockGl.domElement;
 
       render(<CameraControls ref={mockRef} />);
 
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
-      const mouseupCall = mockAddEventListener.mock.calls.find(
-        call => call[0] === 'mouseup'
-      );
+      const mouseupCall = mockAddEventListener.mock.calls.find((call) => call[0] === "mouseup");
       mockMouseDownHandler = mousedownCall![1];
       mockMouseUpHandler = mouseupCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -346,7 +343,7 @@ describe('CameraControls', () => {
 
       jest.advanceTimersByTime(50);
 
-      const mouseUpEvent = new MouseEvent('mouseup', {
+      const mouseUpEvent = new MouseEvent("mouseup", {
         button: 0,
         clientX: 101,
         clientY: 101,
@@ -358,19 +355,17 @@ describe('CameraControls', () => {
       expect(mockExitPointerLock).toHaveBeenCalled();
     });
 
-    it('clears pointer lock timeout on mouse up', () => {
+    it("clears pointer lock timeout on mouse up", () => {
       render(<CameraControls ref={mockRef} />);
 
       const mousedownCall = mockGl.domElement.addEventListener.mock.calls.find(
-        call => call[0] === 'mousedown'
+        (call) => call[0] === "mousedown",
       );
-      const mouseupCall = mockAddEventListener.mock.calls.find(
-        call => call[0] === 'mouseup'
-      );
+      const mouseupCall = mockAddEventListener.mock.calls.find((call) => call[0] === "mouseup");
       mockMouseDownHandler = mousedownCall![1];
       mockMouseUpHandler = mouseupCall![1];
 
-      const mouseDownEvent = new MouseEvent('mousedown', {
+      const mouseDownEvent = new MouseEvent("mousedown", {
         button: 0,
         clientX: 100,
         clientY: 100,
@@ -380,7 +375,7 @@ describe('CameraControls', () => {
 
       // Mouse up before timeout
       jest.advanceTimersByTime(50);
-      const mouseUpEvent = new MouseEvent('mouseup', {
+      const mouseUpEvent = new MouseEvent("mouseup", {
         button: 0,
         clientX: 101,
         clientY: 101,

@@ -1,8 +1,8 @@
-import { render } from '@testing-library/react';
-import { NavigationOverlay, NavigationBox } from '../navigation';
+import { render } from "@testing-library/react";
+import { NavigationOverlay, NavigationBox } from "../navigation";
 
 // Mock React Three Fiber Canvas
-jest.mock('@react-three/fiber', () => ({
+jest.mock("@react-three/fiber", () => ({
   Canvas: ({ children, camera, style }: any) => (
     <div
       data-testid="navigation-canvas"
@@ -15,28 +15,28 @@ jest.mock('@react-three/fiber', () => ({
 }));
 
 // Mock Three.js components
-jest.mock('three', () => ({
+jest.mock("three", () => ({
   Mesh: jest.fn(),
 }));
 
-describe('NavigationBox', () => {
+describe("NavigationBox", () => {
   const mockOnCameraChange = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
+  it("renders without crashing", () => {
     expect(() => render(<NavigationBox onCameraChange={mockOnCameraChange} />)).not.toThrow();
   });
 
-  it('renders navigation mesh group', () => {
+  it("renders navigation mesh group", () => {
     render(<NavigationBox onCameraChange={mockOnCameraChange} />);
     // Component renders Three.js elements, just verify no crash
     expect(true).toBe(true);
   });
 
-  it('calls onCameraChange with correct position for front face click', () => {
+  it("calls onCameraChange with correct position for front face click", () => {
     render(<NavigationBox onCameraChange={mockOnCameraChange} />);
 
     // Since the mesh components are mocked, we can't easily test clicks
@@ -48,14 +48,50 @@ describe('NavigationBox', () => {
     expect(mockOnCameraChange).toHaveBeenCalledWith([0, 0, 6], [0, 0, 0]);
   });
 
-  it('calls onCameraChange with correct positions for all faces', () => {
+  it("calls onCameraChange with correct positions for all faces", () => {
     const testCases = [
-      { face: 'front', expected: [[0, 0, 6], [0, 0, 0]] },
-      { face: 'back', expected: [[0, 0, -6], [0, 0, 0]] },
-      { face: 'left', expected: [[-6, 0, 0], [0, 0, 0]] },
-      { face: 'right', expected: [[6, 0, 0], [0, 0, 0]] },
-      { face: 'top', expected: [[0, 6, 0], [0, 0, 0]] },
-      { face: 'bottom', expected: [[0, -6, 0], [0, 0, 0]] },
+      {
+        face: "front",
+        expected: [
+          [0, 0, 6],
+          [0, 0, 0],
+        ],
+      },
+      {
+        face: "back",
+        expected: [
+          [0, 0, -6],
+          [0, 0, 0],
+        ],
+      },
+      {
+        face: "left",
+        expected: [
+          [-6, 0, 0],
+          [0, 0, 0],
+        ],
+      },
+      {
+        face: "right",
+        expected: [
+          [6, 0, 0],
+          [0, 0, 0],
+        ],
+      },
+      {
+        face: "top",
+        expected: [
+          [0, 6, 0],
+          [0, 0, 0],
+        ],
+      },
+      {
+        face: "bottom",
+        expected: [
+          [0, -6, 0],
+          [0, 0, 0],
+        ],
+      },
     ];
 
     testCases.forEach(({ face, expected }) => {
@@ -64,22 +100,22 @@ describe('NavigationBox', () => {
 
       // Test each face position by simulating the click handler
       switch (face) {
-        case 'front':
+        case "front":
           mockOnCameraChange([0, 0, 6], [0, 0, 0]);
           break;
-        case 'back':
+        case "back":
           mockOnCameraChange([0, 0, -6], [0, 0, 0]);
           break;
-        case 'left':
+        case "left":
           mockOnCameraChange([-6, 0, 0], [0, 0, 0]);
           break;
-        case 'right':
+        case "right":
           mockOnCameraChange([6, 0, 0], [0, 0, 0]);
           break;
-        case 'top':
+        case "top":
           mockOnCameraChange([0, 6, 0], [0, 0, 0]);
           break;
-        case 'bottom':
+        case "bottom":
           mockOnCameraChange([0, -6, 0], [0, 0, 0]);
           break;
       }
@@ -89,24 +125,24 @@ describe('NavigationBox', () => {
   });
 });
 
-describe('NavigationOverlay', () => {
+describe("NavigationOverlay", () => {
   const mockOnCameraChange = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders without crashing', () => {
+  it("renders without crashing", () => {
     expect(() => render(<NavigationOverlay onCameraChange={mockOnCameraChange} />)).not.toThrow();
   });
 
-  it('renders overlay container', () => {
+  it("renders overlay container", () => {
     render(<NavigationOverlay onCameraChange={mockOnCameraChange} />);
     // Component renders without errors
     expect(true).toBe(true);
   });
 
-  it('passes onCameraChange prop to NavigationBox', () => {
+  it("passes onCameraChange prop to NavigationBox", () => {
     render(<NavigationOverlay onCameraChange={mockOnCameraChange} />);
     // Component renders and passes props correctly
     expect(true).toBe(true);

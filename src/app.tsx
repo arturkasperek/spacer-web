@@ -20,7 +20,7 @@ import { NpcInspectorOverlay } from "./npc-inspector-overlay.js";
 import { TopMenuBar, TOP_MENU_HEIGHT } from "./top-menu-bar.js";
 import { setUiSettings, useUiSettings } from "./ui-settings";
 import { useViewSettings } from "./view-settings.js";
-import type { World, ZenKit, Vob, WayPointData } from '@kolarz3/zenkit';
+import type { World, ZenKit, Vob, WayPointData } from "@kolarz3/zenkit";
 import type { NpcData, NpcSpawnCallback } from "./types.js";
 import { setFreepointsWorld } from "./npc-freepoints.js";
 import { PlayerInputProvider } from "./player-input-context.js";
@@ -30,7 +30,10 @@ import { FpsOverlay } from "./fps-overlay";
 const cameraRef: RefObject<any> = createRef();
 
 // Component to track camera position changes
-function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
+function CameraPositionTracker({
+  cameraControlsRef,
+  onPositionChange,
+}: {
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   onPositionChange: (position: THREE.Vector3) => void;
 }) {
@@ -49,9 +52,26 @@ function CameraPositionTracker({ cameraControlsRef, onPositionChange }: {
   return null;
 }
 
-
-
-function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, onWorldLoaded, cameraPosition, onCameraPositionChange, onVobStats, selectedVob, onSelectedVobBoundingBox, selectedWaypoint, onVobClickFromScene, onWaypointClickFromScene, onNpcClickFromScene, npcs, onNpcSpawn, viewSettings }: Readonly<{
+function Scene({
+  cameraControlsRef,
+  worldPath,
+  onLoadingStatus,
+  world,
+  zenKit,
+  onWorldLoaded,
+  cameraPosition,
+  onCameraPositionChange,
+  onVobStats,
+  selectedVob,
+  onSelectedVobBoundingBox,
+  selectedWaypoint,
+  onVobClickFromScene,
+  onWaypointClickFromScene,
+  onNpcClickFromScene,
+  npcs,
+  onNpcSpawn,
+  viewSettings,
+}: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
   worldPath: string;
   onLoadingStatus: (status: string) => void;
@@ -60,7 +80,15 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
   onWorldLoaded: (world: World, zenKit: ZenKit) => void;
   cameraPosition: THREE.Vector3;
   onCameraPositionChange: (position: THREE.Vector3) => void;
-  onVobStats: (stats: { loaded: number; total: number; queue: number; loading: number; meshCache: number; morphCache: number; textureCache: number; }) => void;
+  onVobStats: (stats: {
+    loaded: number;
+    total: number;
+    queue: number;
+    loading: number;
+    meshCache: number;
+    morphCache: number;
+    textureCache: number;
+  }) => void;
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
   selectedWaypoint: WayPointData | null;
@@ -89,7 +117,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 
   // Set initial camera pose
   useEffect(() => {
-    camera.rotation.order = 'YXZ';
+    camera.rotation.order = "YXZ";
     camera.updateProjectionMatrix();
 
     if (didInitCameraRef.current) return;
@@ -97,7 +125,9 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     if (!controls) return;
     if (!world) return;
 
-    const getVobWorldTransform = (vob: any): { pos: THREE.Vector3; quat: THREE.Quaternion } | null => {
+    const getVobWorldTransform = (
+      vob: any,
+    ): { pos: THREE.Vector3; quat: THREE.Quaternion } | null => {
       if (!vob?.position) return null;
       const rotArray = vob?.rotation?.toArray?.();
       const m: number[] = [];
@@ -125,7 +155,7 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
         0,
         0,
         0,
-        1
+        1,
       );
 
       const pos = new THREE.Vector3();
@@ -138,7 +168,11 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
     const resolveStartTarget = (): { pos: THREE.Vector3; quat: THREE.Quaternion } => {
       try {
         const startpoints = (world as any)?.getStartpoints?.();
-        if (startpoints && typeof startpoints.size === "function" && typeof startpoints.get === "function") {
+        if (
+          startpoints &&
+          typeof startpoints.size === "function" &&
+          typeof startpoints.get === "function"
+        ) {
           const n = Number(startpoints.size());
           if (Number.isFinite(n) && n > 0) {
             const sp0 = startpoints.get(0);
@@ -184,7 +218,12 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
       <SkyComponent />
 
       {/* World Renderer */}
-      <WorldRenderer worldPath={worldPath} onLoadingStatus={onLoadingStatus} onWorldLoaded={onWorldLoaded} onNpcSpawn={onNpcSpawn} />
+      <WorldRenderer
+        worldPath={worldPath}
+        onLoadingStatus={onLoadingStatus}
+        onWorldLoaded={onWorldLoaded}
+        onNpcSpawn={onNpcSpawn}
+      />
 
       {/* Camera position tracker */}
       <CameraPositionTracker
@@ -194,7 +233,11 @@ function Scene({ cameraControlsRef, worldPath, onLoadingStatus, world, zenKit, o
 
       {/* VOB Click Handler */}
       {(onVobClickFromScene || onWaypointClickFromScene || onNpcClickFromScene) && (
-        <VobClickHandler onVobClick={onVobClickFromScene} onWaypointClick={onWaypointClickFromScene} onNpcClick={onNpcClickFromScene} />
+        <VobClickHandler
+          onVobClick={onVobClickFromScene}
+          onWaypointClick={onWaypointClickFromScene}
+          onNpcClick={onNpcClickFromScene}
+        />
       )}
 
       {/* VOB Renderer */}
@@ -245,7 +288,7 @@ export function App() {
   const cameraControlsRef = useRef<CameraControlsRef>(null);
   const viewSettings = useViewSettings();
   const ui = useUiSettings();
-  const [loadingStatus, setLoadingStatus] = useState<string>('');
+  const [loadingStatus, setLoadingStatus] = useState<string>("");
   const [world, setWorld] = useState<World | null>(null);
   const [zenKit, setZenKit] = useState<ZenKit | null>(null);
   const [cameraPosition, setCameraPosition] = useState(new THREE.Vector3(0, 0, 0));
@@ -259,11 +302,14 @@ export function App() {
     textureCache: number;
   } | null>(null);
 
-  const handleCameraChange = useCallback((position: [number, number, number], lookAt: [number, number, number]) => {
-    if (cameraControlsRef.current) {
-      cameraControlsRef.current.setPose(position, lookAt);
-    }
-  }, []);
+  const handleCameraChange = useCallback(
+    (position: [number, number, number], lookAt: [number, number, number]) => {
+      if (cameraControlsRef.current) {
+        cameraControlsRef.current.setPose(position, lookAt);
+      }
+    },
+    [],
+  );
 
   const handleLoadingStatus = useCallback((status: string) => {
     setLoadingStatus(status);
@@ -279,21 +325,27 @@ export function App() {
     setCameraPosition(position);
   }, []);
 
-  const handleVobStats = useCallback((stats: {
-    loaded: number;
-    total: number;
-    queue: number;
-    loading: number;
-    meshCache: number;
-    morphCache: number;
-    textureCache: number;
-  }) => {
-    setVobStats(stats);
-  }, []);
+  const handleVobStats = useCallback(
+    (stats: {
+      loaded: number;
+      total: number;
+      queue: number;
+      loading: number;
+      meshCache: number;
+      morphCache: number;
+      textureCache: number;
+    }) => {
+      setVobStats(stats);
+    },
+    [],
+  );
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<WayPointData | null>(null);
-  const [inspectedNpc, setInspectedNpc] = useState<{ npc: NpcData; npcRoot: THREE.Object3D } | null>(null);
+  const [inspectedNpc, setInspectedNpc] = useState<{
+    npc: NpcData;
+    npcRoot: THREE.Object3D;
+  } | null>(null);
   const shouldUpdateCameraRef = useRef(false);
 
   // NPC state management
@@ -319,14 +371,18 @@ export function App() {
     setSelectedWaypoint(waypoint);
 
     // Match renderer world space (flip X like VOBs/Waynet)
-    const target = new THREE.Vector3(-waypoint.position.x, waypoint.position.y, waypoint.position.z);
+    const target = new THREE.Vector3(
+      -waypoint.position.x,
+      waypoint.position.y,
+      waypoint.position.z,
+    );
     const offsetDirection = new THREE.Vector3(1, 0.5, 1).normalize();
     const distance = 400;
     const cameraPos = target.clone().add(offsetDirection.multiplyScalar(distance));
 
     cameraControlsRef.current.setPose(
       [cameraPos.x, cameraPos.y, cameraPos.z],
-      [target.x, target.y, target.z]
+      [target.x, target.y, target.z],
     );
   }, []);
 
@@ -338,10 +394,13 @@ export function App() {
     logVobDetails(vob);
   }, []);
 
-  const handleWaypointClickFromScene = useCallback((waypoint: WayPointData) => {
-    // From scene: select, don't move camera (match VOB scene click behavior)
-    handleWaypointSelect(waypoint);
-  }, [handleWaypointSelect]);
+  const handleWaypointClickFromScene = useCallback(
+    (waypoint: WayPointData) => {
+      // From scene: select, don't move camera (match VOB scene click behavior)
+      handleWaypointSelect(waypoint);
+    },
+    [handleWaypointSelect],
+  );
 
   const handleNpcClickFromScene = useCallback((npc: NpcData, npcRoot: THREE.Object3D) => {
     setInspectedNpc({ npc, npcRoot });
@@ -362,7 +421,7 @@ export function App() {
     const cameraPos: [number, number, number] = [
       center.x + cameraOffset.x,
       center.y + cameraOffset.y,
-      center.z + cameraOffset.z
+      center.z + cameraOffset.z,
     ];
 
     const lookAtPos: [number, number, number] = [center.x, center.y, center.z];
@@ -372,7 +431,7 @@ export function App() {
 
   // Handle NPC spawn events from VM
   const handleNpcSpawn = useCallback<NpcSpawnCallback>((npcData) => {
-    setNpcs(prev => {
+    setNpcs((prev) => {
       const newMap = new Map(prev);
       // Replace existing NPC if same instance index (move to new spawnpoint)
       newMap.set(npcData.instanceIndex, npcData);
@@ -386,8 +445,14 @@ export function App() {
   return (
     <>
       <TopMenuBar />
-      {ui.showStatusBar && <WorldTimeOverlay onClose={() => setUiSettings({ showStatusBar: false })} />}
-      <NpcInspectorOverlay selected={inspectedNpc} onClose={() => setInspectedNpc(null)} topOffsetPx={TOP_MENU_HEIGHT} />
+      {ui.showStatusBar && (
+        <WorldTimeOverlay onClose={() => setUiSettings({ showStatusBar: false })} />
+      )}
+      <NpcInspectorOverlay
+        selected={inspectedNpc}
+        onClose={() => setInspectedNpc(null)}
+        topOffsetPx={TOP_MENU_HEIGHT}
+      />
       {/* VOB Tree - left side panel */}
       {ui.showVobTree && (
         <VOBTree
@@ -404,73 +469,84 @@ export function App() {
 
       {/* Loading status display - outside Canvas */}
       {loadingStatus && (
-        <div style={{
-          position: 'absolute',
-          top: `${TOP_MENU_HEIGHT + 10}px`,
-          left: ui.showVobTree ? '330px' : '10px', // Adjusted to be after the VOB tree
-          background: 'rgba(0, 0, 0, 0.8)',
-          color: 'white',
-          padding: '10px',
-          borderRadius: '5px',
-          fontSize: '12px',
-          fontFamily: 'monospace',
-          maxWidth: '400px',
-          zIndex: 1000
-        }}>
+        <div
+          style={{
+            position: "absolute",
+            top: `${TOP_MENU_HEIGHT + 10}px`,
+            left: ui.showVobTree ? "330px" : "10px", // Adjusted to be after the VOB tree
+            background: "rgba(0, 0, 0, 0.8)",
+            color: "white",
+            padding: "10px",
+            borderRadius: "5px",
+            fontSize: "12px",
+            fontFamily: "monospace",
+            maxWidth: "400px",
+            zIndex: 1000,
+          }}
+        >
           <div>Loading Status: {loadingStatus}</div>
           {vobStats && (
-            <div style={{ marginTop: '8px', fontSize: '11px', borderTop: '1px solid rgba(255,255,255,0.3)', paddingTop: '8px' }}>
-              📦 VOBs: {vobStats.loaded}/{vobStats.total} loaded | Queue: {vobStats.queue} | Loading: {vobStats.loading} | Cache: {vobStats.meshCache} meshes, {vobStats.morphCache} morphs, {vobStats.textureCache} textures
+            <div
+              style={{
+                marginTop: "8px",
+                fontSize: "11px",
+                borderTop: "1px solid rgba(255,255,255,0.3)",
+                paddingTop: "8px",
+              }}
+            >
+              📦 VOBs: {vobStats.loaded}/{vobStats.total} loaded | Queue: {vobStats.queue} |
+              Loading: {vobStats.loading} | Cache: {vobStats.meshCache} meshes,{" "}
+              {vobStats.morphCache} morphs, {vobStats.textureCache} textures
             </div>
           )}
         </div>
       )}
 
       <Canvas
-          gl={{
-            alpha: false,
-            antialias: true,
-            logarithmicDepthBuffer: true,  // Better depth precision for large scenes
-            outputColorSpace: THREE.SRGBColorSpace,  // Critical for proper color display
-            sortObjects: true,  // Ensure proper depth sorting
-            pixelRatio: 1,  // Force 1:1 pixel ratio to match zen-viewer
-            powerPreference: 'default',  // Match zen-viewer default
-            toneMapping: THREE.NoToneMapping  // Disable tone mapping for more faded appearance
-          }}
-          camera={{
-            position: [0, 0, 0],
-            fov: 67.5,  // Match OpenGothic default FOV
-            near: 10.0,  // Match OpenGothic zNear (10cm)
-            far: 100000  // Match OpenGothic zFar
-          }}
-          style={{ background: '#222222' }}
-        >
-          <PlayerInputProvider>
-            <Physics>
-              <Scene
-                cameraControlsRef={cameraControlsRef}
-                worldPath={worldPath}
-                onLoadingStatus={handleLoadingStatus}
-                world={world}
-                zenKit={zenKit}
-                onWorldLoaded={handleWorldLoaded}
-                cameraPosition={cameraPosition}
-                onCameraPositionChange={handleCameraPositionChange}
-                onVobStats={handleVobStats}
-                selectedVob={selectedVob}
-                onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
-                selectedWaypoint={selectedWaypoint}
-                onVobClickFromScene={handleVobClickFromScene}
-                onWaypointClickFromScene={handleWaypointClickFromScene}
-                onNpcClickFromScene={handleNpcClickFromScene}
-                npcs={npcs}
-                onNpcSpawn={handleNpcSpawn}
-                viewSettings={viewSettings}
-              />
-              <FpsOverlay enabled={viewSettings.showFpsMeter} />
-            </Physics>
-          </PlayerInputProvider>
-        </Canvas>
+        gl={{
+          alpha: false,
+          antialias: true,
+          logarithmicDepthBuffer: true, // Better depth precision for large scenes
+          outputColorSpace: THREE.SRGBColorSpace, // Critical for proper color display
+          sortObjects: true, // Ensure proper depth sorting
+          pixelRatio: 1, // Force 1:1 pixel ratio to match zen-viewer
+          powerPreference: "default", // Match zen-viewer default
+          toneMapping: THREE.NoToneMapping, // Disable tone mapping for more faded appearance
+        }}
+        camera={{
+          position: [0, 0, 0],
+          fov: 67.5, // Match OpenGothic default FOV
+          near: 10.0, // Match OpenGothic zNear (10cm)
+          far: 100000, // Match OpenGothic zFar
+        }}
+        style={{ background: "#222222" }}
+      >
+        <PlayerInputProvider>
+          <Physics>
+            <Scene
+              cameraControlsRef={cameraControlsRef}
+              worldPath={worldPath}
+              onLoadingStatus={handleLoadingStatus}
+              world={world}
+              zenKit={zenKit}
+              onWorldLoaded={handleWorldLoaded}
+              cameraPosition={cameraPosition}
+              onCameraPositionChange={handleCameraPositionChange}
+              onVobStats={handleVobStats}
+              selectedVob={selectedVob}
+              onSelectedVobBoundingBox={handleSelectedVobBoundingBox}
+              selectedWaypoint={selectedWaypoint}
+              onVobClickFromScene={handleVobClickFromScene}
+              onWaypointClickFromScene={handleWaypointClickFromScene}
+              onNpcClickFromScene={handleNpcClickFromScene}
+              npcs={npcs}
+              onNpcSpawn={handleNpcSpawn}
+              viewSettings={viewSettings}
+            />
+            <FpsOverlay enabled={viewSettings.showFpsMeter} />
+          </Physics>
+        </PlayerInputProvider>
+      </Canvas>
       <NavigationOverlay onCameraChange={handleCameraChange} />
     </>
   );

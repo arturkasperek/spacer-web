@@ -1,6 +1,10 @@
 export {};
 
-import { ModelScriptRegistry, modelScriptKeyToCompiledPath, normalizeMdsToScriptKey } from "../model-script-registry";
+import {
+  ModelScriptRegistry,
+  modelScriptKeyToCompiledPath,
+  normalizeMdsToScriptKey,
+} from "../model-script-registry";
 
 type FakeModelScript = {
   loadFromArray: (b: Uint8Array) => { success: boolean };
@@ -21,14 +25,18 @@ type FakeModelScript = {
 describe("model-script-registry helpers", () => {
   it("normalizes MDS names to script keys", () => {
     expect(normalizeMdsToScriptKey("Humans_Relaxed.mds")).toBe("HUMANS_RELAXED");
-    expect(normalizeMdsToScriptKey("  /ANIMS/MDS_OVERLAY/HumanS_Arrogance.MDS  ")).toBe("HUMANS_ARROGANCE");
+    expect(normalizeMdsToScriptKey("  /ANIMS/MDS_OVERLAY/HumanS_Arrogance.MDS  ")).toBe(
+      "HUMANS_ARROGANCE",
+    );
     expect(normalizeMdsToScriptKey("HUMANS")).toBe("HUMANS");
     expect(normalizeMdsToScriptKey("")).toBe("");
   });
 
   it("converts script keys to compiled MSB paths", () => {
     expect(modelScriptKeyToCompiledPath("HUMANS")).toBe("/ANIMS/_COMPILED/HUMANS.MSB");
-    expect(modelScriptKeyToCompiledPath(" humans_relaxed ")).toBe("/ANIMS/_COMPILED/HUMANS_RELAXED.MSB");
+    expect(modelScriptKeyToCompiledPath(" humans_relaxed ")).toBe(
+      "/ANIMS/_COMPILED/HUMANS_RELAXED.MSB",
+    );
   });
 });
 
@@ -74,7 +82,7 @@ describe("ModelScriptRegistry", () => {
         layer: 1,
         next: "s_Test",
         model: "HUMANS_RELAXED",
-      })
+      }),
     );
   });
 
@@ -108,7 +116,11 @@ describe("ModelScriptRegistry", () => {
     };
 
     const fetchBinary = jest.fn(async (url: string) => {
-      const key = url.split("/").pop()!.replace(/\.MSB$/i, "").toUpperCase();
+      const key = url
+        .split("/")
+        .pop()!
+        .replace(/\.MSB$/i, "")
+        .toUpperCase();
       (scriptsByKey as any).__lastKey__ = scriptsByKey[key];
       return new Uint8Array([7]);
     });
@@ -119,13 +131,22 @@ describe("ModelScriptRegistry", () => {
     await reg.loadScript("HUMANS");
     await reg.loadScript("HUMANS_RELAXED");
 
-    const meta = reg.getAnimationMetaForNpc({ baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] }, "s_WalkL");
+    const meta = reg.getAnimationMetaForNpc(
+      { baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] },
+      "s_WalkL",
+    );
     expect(meta?.model).toBe("HUMANS_RELAXED");
 
-    const meta2 = reg.getAnimationMetaForNpc({ baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] }, "s_Run");
+    const meta2 = reg.getAnimationMetaForNpc(
+      { baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] },
+      "s_Run",
+    );
     expect(meta2?.model).toBe("HUMANS_RELAXED");
 
-    const meta3 = reg.getAnimationMetaForNpc({ baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] }, "t_DOES_NOT_EXIST");
+    const meta3 = reg.getAnimationMetaForNpc(
+      { baseScript: "HUMANS", overlays: ["HUMANS_RELAXED"] },
+      "t_DOES_NOT_EXIST",
+    );
     expect(meta3).toBeNull();
   });
 });

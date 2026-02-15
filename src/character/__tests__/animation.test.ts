@@ -30,8 +30,20 @@ describe("loadAnimationSequence", () => {
     const binaryCache = new Map<string, Uint8Array>();
     const animationCache = new Map<string, any>();
 
-    const seq1 = await loadAnimationSequence(zenKit, binaryCache, animationCache, "humans", "t_walk");
-    const seq2 = await loadAnimationSequence(zenKit, binaryCache, animationCache, "humans", "t_walk");
+    const seq1 = await loadAnimationSequence(
+      zenKit,
+      binaryCache,
+      animationCache,
+      "humans",
+      "t_walk",
+    );
+    const seq2 = await loadAnimationSequence(
+      zenKit,
+      binaryCache,
+      animationCache,
+      "humans",
+      "t_walk",
+    );
 
     expect(seq1).not.toBeNull();
     expect(seq1).toBe(seq2);
@@ -52,4 +64,3 @@ describe("loadAnimationSequence", () => {
     expect(seq).toBeNull();
   });
 });
-

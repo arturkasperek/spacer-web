@@ -51,7 +51,10 @@ describe("loadHeadMesh", () => {
 
     expect(res).toBeNull();
     // At least one attempt should be made when defaults are used
-    expect(fetchBinaryCached).toHaveBeenCalledWith(`/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`, expect.any(Map));
+    expect(fetchBinaryCached).toHaveBeenCalledWith(
+      `/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`,
+      expect.any(Map),
+    );
   });
 
   it("normalizes head name and applies texture overrides for HEAD and TEETH materials", async () => {
@@ -87,8 +90,21 @@ describe("loadHeadMesh", () => {
     });
 
     expect(mesh).not.toBeNull();
-    expect(fetchBinaryCached).toHaveBeenCalledWith("/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB", expect.any(Map));
-    expect(createMeshMaterial).toHaveBeenCalledWith({ texture: "HUM_HEAD_V2_C3" }, expect.anything(), expect.any(Map), expect.any(Map));
-    expect(createMeshMaterial).toHaveBeenCalledWith({ texture: "HUM_TEETH_V1" }, expect.anything(), expect.any(Map), expect.any(Map));
+    expect(fetchBinaryCached).toHaveBeenCalledWith(
+      "/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB",
+      expect.any(Map),
+    );
+    expect(createMeshMaterial).toHaveBeenCalledWith(
+      { texture: "HUM_HEAD_V2_C3" },
+      expect.anything(),
+      expect.any(Map),
+      expect.any(Map),
+    );
+    expect(createMeshMaterial).toHaveBeenCalledWith(
+      { texture: "HUM_TEETH_V1" },
+      expect.anything(),
+      expect.any(Map),
+      expect.any(Map),
+    );
   });
 });

@@ -9,7 +9,10 @@ const normalizeNameKey = (name: string): string => (name || "").trim().toUpperCa
 
 const currentRoutineByNpc = new Map<number, NpcRoutineRuntime>();
 
-export function setNpcRoutineRuntime(npcInstanceIndex: number, runtime: NpcRoutineRuntime | null): void {
+export function setNpcRoutineRuntime(
+  npcInstanceIndex: number,
+  runtime: NpcRoutineRuntime | null,
+): void {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
   if (!runtime) {
     currentRoutineByNpc.delete(npcInstanceIndex);
@@ -36,4 +39,3 @@ export function getNpcRoutineKey(npcInstanceIndex: number): string {
   if (!r) return "";
   return `${r.stateName}|${r.waypointName}|${r.startMinute}|${r.stopMinute}`;
 }
-

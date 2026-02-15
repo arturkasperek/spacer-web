@@ -40,7 +40,7 @@ export function clearNpcEmRuntimeState(npcInstanceIndex: number): void {
 }
 
 export function __getNpcEmActiveJob(
-  npcInstanceIndex: number
+  npcInstanceIndex: number,
 ):
   | null
   | { type: "move" }
@@ -67,23 +67,37 @@ function startMessageAsJob(
   npcId: string,
   npcGroup: THREE.Group,
   msg: NpcEmMessage,
-  ctx: NpcEmUpdateContext
+  ctx: NpcEmUpdateContext,
 ): ActiveJob | null {
   const mover = ctx.mover;
   switch (msg.type) {
     case "gotoWaypoint": {
       if (!mover) return null;
-      const ok = mover.startMoveToWaypoint(npcId, npcGroup, msg.waypointName, { locomotionMode: msg.locomotionMode });
+      const ok = mover.startMoveToWaypoint(npcId, npcGroup, msg.waypointName, {
+        locomotionMode: msg.locomotionMode,
+      });
       if (!ok) return null;
       npcGroup.userData.isScriptControlled = true;
       return { type: "move" };
     }
     case "gotoPosition": {
       if (!mover) return null;
-      const ok = mover.startMoveToPosition(npcId, npcGroup, new THREE.Vector3(msg.x, msg.y, msg.z), {
-        locomotionMode: msg.locomotionMode,
-        finalQuat: msg.finalQuat ? new THREE.Quaternion(msg.finalQuat.x, msg.finalQuat.y, msg.finalQuat.z, msg.finalQuat.w) : undefined,
-      });
+      const ok = mover.startMoveToPosition(
+        npcId,
+        npcGroup,
+        new THREE.Vector3(msg.x, msg.y, msg.z),
+        {
+          locomotionMode: msg.locomotionMode,
+          finalQuat: msg.finalQuat
+            ? new THREE.Quaternion(
+                msg.finalQuat.x,
+                msg.finalQuat.y,
+                msg.finalQuat.z,
+                msg.finalQuat.w,
+              )
+            : undefined,
+        },
+      );
       if (!ok) return null;
       npcGroup.userData.isScriptControlled = true;
       return { type: "move" };
@@ -121,10 +135,16 @@ function startMessageAsJob(
       const upper = name.toUpperCase();
       const isLoop = Boolean(msg.loop);
       const meta = ctx.getAnimationMeta?.(npcInstanceIndex, name) ?? null;
-      const fallbackModel = (ctx.getFallbackAnimationModelName?.(npcInstanceIndex) || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const fallbackModel =
+        (ctx.getFallbackAnimationModelName?.(npcInstanceIndex) || "HUMANS").trim().toUpperCase() ||
+        "HUMANS";
       const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
-      const blendInMs = Number.isFinite(meta?.blendIn) ? Math.max(0, (meta!.blendIn as number) * 1000) : undefined;
-      const blendOutMs = Number.isFinite(meta?.blendOut) ? Math.max(0, (meta!.blendOut as number) * 1000) : undefined;
+      const blendInMs = Number.isFinite(meta?.blendIn)
+        ? Math.max(0, (meta!.blendIn as number) * 1000)
+        : undefined;
+      const blendOutMs = Number.isFinite(meta?.blendOut)
+        ? Math.max(0, (meta!.blendOut as number) * 1000)
+        : undefined;
 
       // Heuristic: many Daedalus states use `AI_PlayAni(T_*...)` expecting the engine to settle into a looping
       // `S_*` pose (e.g. `T_STAND_2_LGUARD` -> `S_LGUARD`). The original engine resolves this via MDS `next`.
@@ -143,8 +163,12 @@ function startMessageAsJob(
         const mdsNext = (meta?.next || "").trim();
         if (mdsNext) {
           const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, mdsNext) ?? null;
-          const nextBlendInMs = Number.isFinite(nextMeta?.blendIn) ? Math.max(0, (nextMeta!.blendIn as number) * 1000) : undefined;
-          const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut) ? Math.max(0, (nextMeta!.blendOut as number) * 1000) : undefined;
+          const nextBlendInMs = Number.isFinite(nextMeta?.blendIn)
+            ? Math.max(0, (nextMeta!.blendIn as number) * 1000)
+            : undefined;
+          const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut)
+            ? Math.max(0, (nextMeta!.blendOut as number) * 1000)
+            : undefined;
           derivedNext = {
             animationName: mdsNext,
             modelName: (nextMeta?.model || modelName).trim().toUpperCase() || modelName,
@@ -159,8 +183,12 @@ function startMessageAsJob(
             if (after) {
               const guess = `S_${after}`;
               const guessMeta = ctx.getAnimationMeta?.(npcInstanceIndex, guess) ?? null;
-              const guessBlendInMs = Number.isFinite(guessMeta?.blendIn) ? Math.max(0, (guessMeta!.blendIn as number) * 1000) : undefined;
-              const guessBlendOutMs = Number.isFinite(guessMeta?.blendOut) ? Math.max(0, (guessMeta!.blendOut as number) * 1000) : undefined;
+              const guessBlendInMs = Number.isFinite(guessMeta?.blendIn)
+                ? Math.max(0, (guessMeta!.blendIn as number) * 1000)
+                : undefined;
+              const guessBlendOutMs = Number.isFinite(guessMeta?.blendOut)
+                ? Math.max(0, (guessMeta!.blendOut as number) * 1000)
+                : undefined;
               derivedNext = {
                 animationName: guess,
                 modelName: (guessMeta?.model || modelName).trim().toUpperCase() || modelName,
@@ -173,11 +201,16 @@ function startMessageAsJob(
           } else {
             // Most `T_*` animations are short one-shots (scratch/stretch/etc). If the NPC already has a scripted idle
             // pose, return to it rather than guessing an `S_*` that might not exist (e.g. `S_PLUNDER`).
-            const existingIdle = ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
+            const existingIdle =
+              ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || "";
             if (existingIdle) {
               const idleMeta = ctx.getAnimationMeta?.(npcInstanceIndex, existingIdle) ?? null;
-              const idleBlendInMs = Number.isFinite(idleMeta?.blendIn) ? Math.max(0, (idleMeta!.blendIn as number) * 1000) : undefined;
-              const idleBlendOutMs = Number.isFinite(idleMeta?.blendOut) ? Math.max(0, (idleMeta!.blendOut as number) * 1000) : undefined;
+              const idleBlendInMs = Number.isFinite(idleMeta?.blendIn)
+                ? Math.max(0, (idleMeta!.blendIn as number) * 1000)
+                : undefined;
+              const idleBlendOutMs = Number.isFinite(idleMeta?.blendOut)
+                ? Math.max(0, (idleMeta!.blendOut as number) * 1000)
+                : undefined;
               derivedNext = {
                 animationName: existingIdle,
                 modelName: (idleMeta?.model || modelName).trim().toUpperCase() || modelName,
@@ -207,8 +240,12 @@ function startMessageAsJob(
             if (!nm) return null;
             const nextMeta = ctx.getAnimationMeta?.(npcInstanceIndex, nm) ?? null;
             const nextModel = (nextMeta?.model || modelName).trim().toUpperCase() || modelName;
-            const nextBlendInMs = Number.isFinite(nextMeta?.blendIn) ? Math.max(0, (nextMeta!.blendIn as number) * 1000) : undefined;
-            const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut) ? Math.max(0, (nextMeta!.blendOut as number) * 1000) : undefined;
+            const nextBlendInMs = Number.isFinite(nextMeta?.blendIn)
+              ? Math.max(0, (nextMeta!.blendIn as number) * 1000)
+              : undefined;
+            const nextBlendOutMs = Number.isFinite(nextMeta?.blendOut)
+              ? Math.max(0, (nextMeta!.blendOut as number) * 1000)
+              : undefined;
             return {
               animationName: nm,
               modelName: nextModel,
@@ -276,7 +313,7 @@ export function updateNpcEventManager(
   npcId: string,
   npcGroup: THREE.Group,
   deltaSeconds: number,
-  ctx: NpcEmUpdateContext
+  ctx: NpcEmUpdateContext,
 ): { moved: boolean; mode: LocomotionMode } {
   const s = __ensureNpcEmQueueState(npcInstanceIndex);
   const mover = ctx.mover;
@@ -320,7 +357,10 @@ export function updateNpcEventManager(
       }
 
       const shouldKeepMove =
-        (next.type === "gotoWaypoint" || next.type === "gotoPosition" || next.type === "gotoFreepoint") && !ctx.mover;
+        (next.type === "gotoWaypoint" ||
+          next.type === "gotoPosition" ||
+          next.type === "gotoFreepoint") &&
+        !ctx.mover;
       const shouldKeepPlayAni =
         next.type === "playAni" && !(npcGroup.userData as any).characterInstance;
       const shouldKeep = shouldKeepMove || shouldKeepPlayAni;
@@ -381,7 +421,8 @@ export function updateNpcEventManager(
 
     const nowMs = ctx.nowMs?.() ?? Date.now();
     if (!job.started) {
-      const current = ((instance as any).object?.userData?.__currentAnimationName as string | undefined) || "";
+      const current =
+        ((instance as any).object?.userData?.__currentAnimationName as string | undefined) || "";
       const currentUpper = current.trim().toUpperCase();
 
       // If we can't observe the current animation (e.g. tests/mocks), assume it started.

@@ -1,4 +1,9 @@
-import { buildWaynetGraph, findNearestWaypointIndex, findRouteAStar, findWaypointIndexByName } from "../waynet-pathfinding";
+import {
+  buildWaynetGraph,
+  findNearestWaypointIndex,
+  findRouteAStar,
+  findWaypointIndexByName,
+} from "../waynet-pathfinding";
 
 describe("waynet pathfinding", () => {
   it("buildWaynetGraph maps names case-insensitively", () => {
@@ -7,7 +12,7 @@ describe("waynet pathfinding", () => {
         { name: "WP_A", position: { x: 0, y: 0, z: 0 } },
         { name: "wp_b", position: { x: 10, y: 0, z: 0 } },
       ],
-      []
+      [],
     );
 
     expect(findWaypointIndexByName(graph, "wp_a")).toBe(0);
@@ -21,7 +26,7 @@ describe("waynet pathfinding", () => {
         { name: "B", position: { x: 100, y: 0, z: 0 } },
         { name: "C", position: { x: 50, y: 0, z: 0 } },
       ],
-      []
+      [],
     );
 
     expect(findNearestWaypointIndex(graph, { x: 49, y: 0, z: 0 })).toBe(2);
@@ -39,11 +44,10 @@ describe("waynet pathfinding", () => {
         { waypoint_a_index: 0, waypoint_b_index: 1 },
         { waypoint_a_index: 1, waypoint_b_index: 2 },
         { waypoint_a_index: 2, waypoint_b_index: 3 },
-      ]
+      ],
     );
 
     const path = findRouteAStar(graph, 0, 3);
     expect(path).toEqual([0, 1, 2, 3]);
   });
 });
-

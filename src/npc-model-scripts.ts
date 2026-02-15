@@ -32,12 +32,14 @@ export function addNpcOverlayModelScript(npcInstanceIndex: number, overlayScript
   if (!st.overlays.includes(key)) st.overlays.push(key);
 }
 
-export function removeNpcOverlayModelScript(npcInstanceIndex: number, overlayScriptKey: string): void {
+export function removeNpcOverlayModelScript(
+  npcInstanceIndex: number,
+  overlayScriptKey: string,
+): void {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
   const key = (overlayScriptKey || "").trim().toUpperCase();
   if (!key) return;
   const st = getNpcModelScriptsState(npcInstanceIndex);
-  st.overlays = st.overlays.filter(o => o !== key);
+  st.overlays = st.overlays.filter((o) => o !== key);
   npcModelScriptsByInstance.set(npcInstanceIndex, st);
 }
-

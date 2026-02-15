@@ -20,23 +20,23 @@ function useFullscreen() {
     const onFullscreenChange = () => {
       const isFS = !!document.fullscreenElement;
       setIsFullscreen(isFS);
-      
+
       // When entering fullscreen, also lock the pointer
       if (isFS) {
         document.body.requestPointerLock();
       }
     };
-    
+
     const onPointerLockChange = () => {
       setIsPointerLocked(!!document.pointerLockElement);
     };
-    
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    document.addEventListener('pointerlockchange', onPointerLockChange);
-    
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
+
     return () => {
-      document.removeEventListener('fullscreenchange', onFullscreenChange);
-      document.removeEventListener('pointerlockchange', onPointerLockChange);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
     };
   }, []);
 
@@ -187,17 +187,57 @@ export function TopMenuBar() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <MenuItem label="Vobspots" checked={view.showVobSpots} onClick={() => toggleViewSetting("showVobSpots")} />
-            <MenuItem label="Waypoints" checked={view.showWaypoints} onClick={() => toggleViewSetting("showWaypoints")} />
-            <MenuItem label="Lights" checked={view.showLights} onClick={() => toggleViewSetting("showLights")} />
-            <MenuItem label="FPS Meter" checked={view.showFpsMeter} onClick={() => toggleViewSetting("showFpsMeter")} />
-            <MenuItem label="KCC Capsule" checked={view.showKccCapsule} onClick={() => toggleViewSetting("showKccCapsule")} />
-            <MenuItem label="Ground Probe Ray" checked={view.showGroundProbeRay} onClick={() => toggleViewSetting("showGroundProbeRay")} />
-            <MenuItem label="Jump Debug Range" checked={view.showJumpDebugRange} onClick={() => toggleViewSetting("showJumpDebugRange")} />
-            <MenuItem label="Hide Hero" checked={view.hideHero} onClick={() => toggleViewSetting("hideHero")} />
+            <MenuItem
+              label="Vobspots"
+              checked={view.showVobSpots}
+              onClick={() => toggleViewSetting("showVobSpots")}
+            />
+            <MenuItem
+              label="Waypoints"
+              checked={view.showWaypoints}
+              onClick={() => toggleViewSetting("showWaypoints")}
+            />
+            <MenuItem
+              label="Lights"
+              checked={view.showLights}
+              onClick={() => toggleViewSetting("showLights")}
+            />
+            <MenuItem
+              label="FPS Meter"
+              checked={view.showFpsMeter}
+              onClick={() => toggleViewSetting("showFpsMeter")}
+            />
+            <MenuItem
+              label="KCC Capsule"
+              checked={view.showKccCapsule}
+              onClick={() => toggleViewSetting("showKccCapsule")}
+            />
+            <MenuItem
+              label="Ground Probe Ray"
+              checked={view.showGroundProbeRay}
+              onClick={() => toggleViewSetting("showGroundProbeRay")}
+            />
+            <MenuItem
+              label="Jump Debug Range"
+              checked={view.showJumpDebugRange}
+              onClick={() => toggleViewSetting("showJumpDebugRange")}
+            />
+            <MenuItem
+              label="Hide Hero"
+              checked={view.hideHero}
+              onClick={() => toggleViewSetting("hideHero")}
+            />
             <div style={{ height: 1, background: "rgba(0,0,0,0.12)", margin: "4px 0" }} />
-            <MenuItem label="VOB Tree" checked={ui.showVobTree} onClick={() => toggleUiSetting("showVobTree")} />
-            <MenuItem label="Time Bar" checked={ui.showStatusBar} onClick={() => toggleUiSetting("showStatusBar")} />
+            <MenuItem
+              label="VOB Tree"
+              checked={ui.showVobTree}
+              onClick={() => toggleUiSetting("showVobTree")}
+            />
+            <MenuItem
+              label="Time Bar"
+              checked={ui.showStatusBar}
+              onClick={() => toggleUiSetting("showStatusBar")}
+            />
           </div>
         )}
       </div>
@@ -236,7 +276,11 @@ export function TopMenuBar() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <MenuItem label="Free camera" checked={camera.freeCamera} onClick={() => toggleCameraSetting("freeCamera")} />
+            <MenuItem
+              label="Free camera"
+              checked={camera.freeCamera}
+              onClick={() => toggleCameraSetting("freeCamera")}
+            />
           </div>
         )}
       </div>
@@ -250,7 +294,8 @@ export function TopMenuBar() {
           setMotionHeld(true);
           try {
             console.log(
-              "[NPCMotionDebugJSON]" + JSON.stringify({ t: Date.now(), event: "motionDebugHold", enabled: true })
+              "[NPCMotionDebugJSON]" +
+                JSON.stringify({ t: Date.now(), event: "motionDebugHold", enabled: true }),
             );
           } catch {
             // ignore
@@ -266,7 +311,8 @@ export function TopMenuBar() {
           setMotionHeld(false);
           try {
             console.log(
-              "[NPCMotionDebugJSON]" + JSON.stringify({ t: Date.now(), event: "motionDebugHold", enabled: false })
+              "[NPCMotionDebugJSON]" +
+                JSON.stringify({ t: Date.now(), event: "motionDebugHold", enabled: false }),
             );
           } catch {
             // ignore
@@ -308,8 +354,8 @@ export function TopMenuBar() {
           userSelect: "none",
         }}
         title={
-          isFullscreen 
-            ? `Exit fullscreen (ESC)${isPointerLocked ? " - Mouse locked" : ""}` 
+          isFullscreen
+            ? `Exit fullscreen (ESC)${isPointerLocked ? " - Mouse locked" : ""}`
             : "Enter fullscreen with mouse lock (F11)"
         }
       >

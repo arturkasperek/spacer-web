@@ -67,13 +67,14 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
       n === "T_WALKL_2_WALK"
     );
   };
-  const shouldForceBlend = (name: string, prevName: string) => isFallAnim(name) || isFallAnim(prevName);
+  const shouldForceBlend = (name: string, prevName: string) =>
+    isFallAnim(name) || isFallAnim(prevName);
 
   const play = (
     instance: CharacterInstance,
     anim: LocomotionAnimationSpec,
     next?: LocomotionAnimationSpec,
-    resolve?: AnimationResolver
+    resolve?: AnimationResolver,
   ) => {
     const ref = resolve?.(anim.name) ?? { animationName: anim.name };
     const nextRef = next ? (resolve?.(next.name) ?? { animationName: next.name }) : null;
@@ -114,7 +115,8 @@ export function createLocomotionController(spec: LocomotionSpec): LocomotionCont
         initialized = true;
         lastMode = mode;
         if (mode === "walk") play(instance, spec.walkStart, spec.walkLoop, resolve);
-        else if (mode === "walkBack") play(instance, spec.walkBackStart, spec.walkBackLoop, resolve);
+        else if (mode === "walkBack")
+          play(instance, spec.walkBackStart, spec.walkBackLoop, resolve);
         else if (mode === "run") play(instance, spec.runStart, spec.runLoop, resolve);
         else if (mode === "slide") play(instance, spec.slide, undefined, resolve);
         else if (mode === "slideBack") play(instance, spec.slideBack, undefined, resolve);
@@ -206,7 +208,7 @@ export function collectLocomotionAnimationNames(spec: LocomotionSpec): string[] 
   push(spec.fallDown);
   push(spec.fall);
   push(spec.fallBack);
-  return Array.from(new Set(out.map(s => (s || "").trim()).filter(Boolean)));
+  return Array.from(new Set(out.map((s) => (s || "").trim()).filter(Boolean)));
 }
 
 export const HUMAN_LOCOMOTION_PRELOAD_ANIS = collectLocomotionAnimationNames(HUMAN_LOCOMOTION_SPEC);
