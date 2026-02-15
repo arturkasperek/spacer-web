@@ -34,10 +34,12 @@ import { setWaynetWaypointPositions } from "./waynet-index";
 import { buildNpcWorldIndices } from "./npc-world-indices";
 import { computeNpcsWithPositions } from "./npc-renderer-data";
 import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader";
-import { updateNpcStreaming as updateNpcStreamingImpl } from "./npc-streaming";
 import { tickNpcDaedalusStateLoop } from "./npc-daedalus-loop";
-import { createCombatRuntime } from "./combat/combat-runtime";
 import { setPlayerPoseFromObject3D } from "./player-runtime";
+import { useNpcManualControl } from "./npc-renderer-hooks/use-npc-manual-control";
+import { useNpcAnimationState } from "./npc-renderer-hooks/use-npc-animation-state";
+import { useNpcCombatTick } from "./npc-renderer-hooks/use-npc-combat-tick";
+import { useNpcStreaming } from "./npc-renderer-hooks/use-npc-streaming";
 
 function createJumpDebugTextSprite(initialText: string): {
   sprite: THREE.Sprite;
@@ -195,9 +197,6 @@ export function NpcRenderer({
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  // Keep arrow-key hero control available even in free camera mode.
-  const manualControlHeroEnabled = true;
-
   const motionDebugLastRef = useRef<
     | {
         isFalling: boolean;
@@ -215,20 +214,19 @@ export function NpcRenderer({
     null,
   );
 
-  const manualKeysRef = useRef({
-    up: false,
-    down: false,
-    left: false,
-    right: false,
-  });
-  const manualRunToggleRef = useRef(false);
-  const teleportHeroSeqRef = useRef(0);
-  const teleportHeroSeqAppliedRef = useRef(0);
-  const manualAttackSeqRef = useRef(0);
-  const manualAttackSeqAppliedRef = useRef(0);
-  const manualJumpSeqRef = useRef(0);
-  const manualJumpSeqAppliedRef = useRef(0);
-  const combatRuntimeRef = useRef(createCombatRuntime());
+  const {
+    manualControlHeroEnabled,
+    manualKeysRef,
+    manualRunToggleRef,
+    teleportHeroSeqRef,
+    teleportHeroSeqAppliedRef,
+    manualAttackSeqRef,
+    manualAttackSeqAppliedRef,
+    manualJumpSeqRef,
+    manualJumpSeqAppliedRef,
+  } = useNpcManualControl();
+
+  const { combatRuntimeRef, attachCombatBindings, runCombatTick } = useNpcCombatTick();
 
   const ensureJumpDebugLabel = (npcGroup: THREE.Group) => {
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
@@ -248,62 +246,6 @@ export function NpcRenderer({
     }
     return { root, setText };
   };
-
-  useEffect(() => {
-    if (!manualControlHeroEnabled) return;
-
-    const setKey = (e: KeyboardEvent, pressed: boolean) => {
-      let handled = true;
-      switch (e.code) {
-        case "ArrowUp":
-          manualKeysRef.current.up = pressed;
-          break;
-        case "ArrowDown":
-          manualKeysRef.current.down = pressed;
-          break;
-        case "ArrowLeft":
-          manualKeysRef.current.left = pressed;
-          break;
-        case "ArrowRight":
-          manualKeysRef.current.right = pressed;
-          break;
-        case "ShiftLeft":
-        case "ShiftRight":
-          // Toggle run/walk on a single press (no hold).
-          if (pressed && !e.repeat) manualRunToggleRef.current = !manualRunToggleRef.current;
-          break;
-        case "Space":
-          if (pressed && !e.repeat) manualJumpSeqRef.current += 1;
-          break;
-        default:
-          handled = false;
-      }
-
-      if (handled) e.preventDefault();
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => setKey(e, true);
-    const onKeyUp = (e: KeyboardEvent) => setKey(e, false);
-
-    window.addEventListener("keydown", onKeyDown, { passive: false });
-    window.addEventListener("keyup", onKeyUp, { passive: false });
-    return () => {
-      window.removeEventListener("keydown", onKeyDown as any);
-      window.removeEventListener("keyup", onKeyUp as any);
-    };
-  }, [manualControlHeroEnabled]);
-
-  // Debug helper: teleport the hero in front of the camera (works in both camera modes).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== "KeyT") return;
-      if (e.repeat) return;
-      teleportHeroSeqRef.current += 1;
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKeyDown, { passive: false });
-    return () => window.removeEventListener("keydown", onKeyDown as any);
-  }, []);
 
   // Create a stable serialized key from the Map for dependency tracking
   const npcsKey = getMapKey(npcs);
@@ -326,63 +268,17 @@ export function NpcRenderer({
     return out;
   }, [world, enabled, npcsKey, waypointPosIndex]);
 
-  const estimateAnimationDurationMs = useMemo(() => {
-    return (modelName: string, animationName: string): number | null => {
-      const caches = characterCachesRef.current;
-      const base = (modelName || "HUMANS").trim().toUpperCase() || "HUMANS";
-      const key = `${base}:${(animationName || "").trim().toUpperCase()}`;
-      const seq: any = caches?.animations?.get(key);
-      const dur = seq?.totalTimeMs;
-      return typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : null;
-    };
-  }, []);
-
-  const getNearestWaypointDirectionQuat = useMemo(() => {
-    return (pos: THREE.Vector3): THREE.Quaternion | null => {
-      const wpPos = waypointPosIndex;
-      const wpDir = waypointDirIndex;
-      let bestKey: string | null = null;
-      let bestD2 = Infinity;
-      for (const [k, p] of wpPos.entries()) {
-        if (!wpDir.has(k)) continue;
-        const dx = p.x - pos.x;
-        const dz = p.z - pos.z;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) {
-          bestD2 = d2;
-          bestKey = k;
-        }
-      }
-      if (!bestKey) return null;
-      const q = wpDir.get(bestKey);
-      return q ? q.clone() : null;
-    };
-  }, []);
-
-  const getAnimationMetaForNpc = useMemo(() => {
-    return (npcInstanceIndex: number, animationName: string) => {
-      const reg = modelScriptRegistryRef.current;
-      if (!reg) return null;
-      const scripts = getNpcModelScriptsState(npcInstanceIndex);
-      return reg.getAnimationMetaForNpc(scripts, animationName);
-    };
-  }, []);
-
-  const resolveNpcAnimationRef = useMemo(() => {
-    return (npcInstanceIndex: number, animationName: string) => {
-      const meta = getAnimationMetaForNpc(npcInstanceIndex, animationName);
-      const scripts = getNpcModelScriptsState(npcInstanceIndex);
-      const fallbackModel = (scripts?.baseScript || "HUMANS").trim().toUpperCase() || "HUMANS";
-      const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
-      const blendInMs = Number.isFinite(meta?.blendIn)
-        ? Math.max(0, (meta!.blendIn as number) * 1000)
-        : undefined;
-      const blendOutMs = Number.isFinite(meta?.blendOut)
-        ? Math.max(0, (meta!.blendOut as number) * 1000)
-        : undefined;
-      return { animationName: (animationName || "").trim(), modelName, blendInMs, blendOutMs };
-    };
-  }, [getAnimationMetaForNpc]);
+  const {
+    estimateAnimationDurationMs,
+    getNearestWaypointDirectionQuat,
+    getAnimationMetaForNpc,
+    resolveNpcAnimationRef,
+  } = useNpcAnimationState({
+    characterCachesRef,
+    modelScriptRegistryRef,
+    waypointPosIndex,
+    waypointDirIndex,
+  });
 
   // Convert NPC data to renderable NPCs with spawnpoint positions (only compute positions, not render)
   const npcsWithPositions = useMemo(() => {
@@ -539,35 +435,32 @@ export function NpcRenderer({
     });
   };
 
-  // Streaming NPC loader - loads/unloads based on intersection with routine wayboxes (ZenGin-like)
-  const updateNpcStreaming = () => {
-    return updateNpcStreamingImpl({
-      enabled,
-      world,
-      cameraPosition,
-      camera,
-      streamingState,
-      npcItemsRef,
-      loadedNpcsRef,
-      allNpcsRef,
-      allNpcsByIdRef,
-      npcsGroupRef,
-      scene,
-      kccConfig,
-      applyMoveConstraint,
-      trySnapNpcToGroundWithRapier,
-      loadNpcCharacter,
-      removeNpcKccCollider,
-      waypointMoverRef,
-      playerGroupRef,
-      manualControlHeroEnabled,
-      waypointDirIndex,
-      vobDirIndex,
-      NPC_LOAD_DISTANCE,
-      NPC_UNLOAD_DISTANCE,
-      NPC_ACTIVE_BBOX_HALF_Y,
-    });
-  };
+  const updateNpcStreaming = useNpcStreaming({
+    enabled,
+    world,
+    cameraPosition,
+    camera,
+    streamingState,
+    npcItemsRef,
+    loadedNpcsRef,
+    allNpcsRef,
+    allNpcsByIdRef,
+    npcsGroupRef,
+    scene,
+    kccConfig,
+    applyMoveConstraint,
+    trySnapNpcToGroundWithRapier,
+    loadNpcCharacter,
+    removeNpcKccCollider,
+    waypointMoverRef,
+    playerGroupRef,
+    manualControlHeroEnabled,
+    waypointDirIndex,
+    vobDirIndex,
+    npcLoadDistance: NPC_LOAD_DISTANCE,
+    npcUnloadDistance: NPC_UNLOAD_DISTANCE,
+    npcActiveBboxHalfY: NPC_ACTIVE_BBOX_HALF_Y,
+  });
 
   // Streaming update via useFrame
   useFrame((_state, delta) => {
@@ -741,18 +634,7 @@ export function NpcRenderer({
       }
 
       const npcId = `npc-${npcData.instanceIndex}`;
-      {
-        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-        if (typeof ud.requestMeleeAttack !== "function") {
-          ud.requestMeleeAttack = (opts?: any) => {
-            combatRuntimeRef.current.ensureNpc(npcData);
-            return combatRuntimeRef.current.requestMeleeAttack(npcData.instanceIndex, opts);
-          };
-        }
-        if (typeof ud.getCombatState !== "function") {
-          ud.getCombatState = () => combatRuntimeRef.current.getState(npcData.instanceIndex);
-        }
-      }
+      attachCombatBindings(npcGroup, npcData);
       let movedThisFrame = false;
       let locomotionMode: LocomotionMode = "idle";
       const runtimeMotionDebug =
@@ -1622,12 +1504,7 @@ export function NpcRenderer({
     }
 
     // Combat update after movement tick: for now only melee hit resolution for loaded NPCs.
-    combatRuntimeRef.current.update({
-      nowMs: Date.now(),
-      dtSeconds: Math.max(0, delta),
-      loadedNpcs: loadedNpcsRef.current.values(),
-      resolveAnim: resolveNpcAnimationRef,
-    });
+    runCombatTick(delta, loadedNpcsRef.current.values(), resolveNpcAnimationRef);
   });
 
   // Cleanup on unmount
