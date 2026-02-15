@@ -565,16 +565,34 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
   runtime.locomotionMode = locomotionMode;
 }
 
-function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
-  const {
-    npcGroup,
-    npcData,
-    instance,
-    deps: { kccConfig, resolveNpcAnimationRef, estimateAnimationDurationMs },
-    runtime,
-  } = ctx;
+type JumpType = "jump_forward" | "jump_up_low" | "jump_up_mid" | "jump_up_high";
 
-  let locomotionMode = runtime.locomotionMode;
+function resolveJumpType(ud: any): JumpType {
+  const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
+  if (jumpType === "jump_up_low") return "jump_up_low";
+  if (jumpType === "jump_up_mid") return "jump_up_mid";
+  if (jumpType === "jump_up_high") return "jump_up_high";
+  return "jump_forward";
+}
+
+function resetJumpProgressFlags(ud: any) {
+  (ud as any)._kccJumpLowStandAtMs = undefined;
+  (ud as any)._kccJumpLowStandPlayed = false;
+  (ud as any)._kccJumpMidStandAtMs = undefined;
+  (ud as any)._kccJumpMidStandPlayed = false;
+  (ud as any)._kccJumpHighHangAtMs = undefined;
+  (ud as any)._kccJumpHighHangPlayed = false;
+  (ud as any)._kccJumpHighStandAtMs = undefined;
+  (ud as any)._kccJumpHighStandPlayed = false;
+}
+
+function resolveLocomotionModeFromPhysics(params: {
+  npcGroup: THREE.Group;
+  kccConfig: CreateTickNpcDeps["kccConfig"];
+  locomotionMode: LocomotionMode;
+}): LocomotionMode {
+  const { npcGroup, kccConfig } = params;
+  let { locomotionMode } = params;
 
   // Falling has priority over ground locomotion animations.
   if (Boolean(npcGroup.userData.isFalling)) {
@@ -638,6 +656,451 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
     (npcGroup.userData as any)._fallDownDistY = 0;
   }
 
+  return locomotionMode;
+}
+
+function startJumpAnimation(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  locomotionMode: LocomotionMode;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const {
+    npcGroup,
+    npcData,
+    instance,
+    locomotionMode,
+    resolveNpcAnimationRef,
+    estimateAnimationDurationMs,
+  } = params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  ud._kccJumpAnimActive = true;
+  const jumpType = resolveJumpType(ud);
+  const isForward = jumpType === "jump_forward";
+  const isJumpUpLow = jumpType === "jump_up_low";
+  let startName: string;
+  let loopName: string;
+  if (isForward) {
+    startName =
+      locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
+        ? "T_RUNL_2_JUMP"
+        : "T_STAND_2_JUMP";
+    loopName = "S_JUMP";
+  } else {
+    switch (jumpType) {
+      case "jump_up_low":
+        startName = "T_STAND_2_JUMPUPLOW";
+        loopName = "S_JUMPUPLOW";
+        break;
+      case "jump_up_mid":
+        startName = "T_STAND_2_JUMPUPMID";
+        loopName = "S_JUMPUPMID";
+        break;
+      case "jump_up_high":
+        startName = "T_STAND_2_JUMPUP";
+        loopName = "S_JUMPUP";
+        break;
+      default:
+        startName = "T_STAND_2_JUMPUP";
+        loopName = "S_JUMPUP";
+        break;
+    }
+  }
+  ud._kccJumpStartWasRun = isForward && startName === "T_RUNL_2_JUMP";
+  const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
+  const durMs =
+    estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
+    estimateAnimationDurationMs("HUMANS", ref.animationName) ??
+    0;
+  if (durMs > 0) {
+    (ud as any)._kccJumpMinAirMs = durMs;
+  }
+  const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
+  const lowJumpBlendMs = 200;
+  const jumpUpBlendMs = isForward ? undefined : isJumpUpLow ? lowJumpBlendMs : 80;
+  const loopJumpMid = isForward;
+  instance.setAnimation(ref.animationName, {
+    modelName: ref.modelName,
+    loop: false,
+    resetTime: true,
+    blendInMs: ref.blendInMs,
+    blendOutMs: jumpUpBlendMs ?? ref.blendOutMs,
+    fallbackNames: isForward ? ["S_JUMP", "S_RUN"] : [loopName, "S_JUMP", "S_RUN"],
+    next: {
+      animationName: nextRef.animationName,
+      modelName: nextRef.modelName,
+      loop: loopJumpMid,
+      resetTime: true,
+      blendInMs: jumpUpBlendMs ?? nextRef.blendInMs,
+      blendOutMs: jumpUpBlendMs ?? nextRef.blendOutMs,
+      fallbackNames: ["S_RUN"],
+    },
+  });
+  resetJumpProgressFlags(ud);
+}
+
+function tickJumpUpLow(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
+    params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const currentAnimUpper = String(
+    (instance.object.userData as any)?.__currentAnimationName ?? "",
+  ).toUpperCase();
+  const lowStandAtMs = (ud as any)._kccJumpLowStandAtMs as number | undefined;
+  const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
+  if (lowStandPlayed) return;
+  if (
+    currentAnimUpper === "S_JUMPUPLOW" &&
+    (typeof lowStandAtMs !== "number" || !Number.isFinite(lowStandAtMs))
+  ) {
+    const lowLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPLOW");
+    const lowLoopDurMs =
+      estimateAnimationDurationMs(lowLoopRef.modelName ?? "HUMANS", lowLoopRef.animationName) ??
+      estimateAnimationDurationMs("HUMANS", lowLoopRef.animationName) ??
+      250;
+    (ud as any)._kccJumpLowStandAtMs = Date.now() + Math.max(120, lowLoopDurMs);
+    return;
+  }
+  if (
+    currentAnimUpper === "S_JUMPUPLOW" &&
+    typeof lowStandAtMs === "number" &&
+    Number.isFinite(lowStandAtMs) &&
+    Date.now() >= lowStandAtMs
+  ) {
+    const lowStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPLOW_2_STAND");
+    const jumpUpBlendMs = 120;
+    instance.setAnimation(lowStandRef.animationName, {
+      modelName: lowStandRef.modelName,
+      loop: false,
+      resetTime: true,
+      blendInMs: jumpUpBlendMs ?? lowStandRef.blendInMs,
+      blendOutMs: jumpUpBlendMs ?? lowStandRef.blendOutMs,
+      fallbackNames: ["S_RUN"],
+    });
+    (ud as any)._kccJumpLowStandPlayed = true;
+  }
+}
+
+function tickJumpUpMid(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
+    params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const currentAnimUpper = String(
+    (instance.object.userData as any)?.__currentAnimationName ?? "",
+  ).toUpperCase();
+  const midStandAtMs = (ud as any)._kccJumpMidStandAtMs as number | undefined;
+  const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
+  if (midStandPlayed) return;
+  if (
+    currentAnimUpper === "S_JUMPUPMID" &&
+    (typeof midStandAtMs !== "number" || !Number.isFinite(midStandAtMs))
+  ) {
+    const midLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPMID");
+    const midLoopDurMs =
+      estimateAnimationDurationMs(midLoopRef.modelName ?? "HUMANS", midLoopRef.animationName) ??
+      estimateAnimationDurationMs("HUMANS", midLoopRef.animationName) ??
+      250;
+    (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(120, midLoopDurMs);
+    return;
+  }
+  if (
+    currentAnimUpper === "S_JUMPUPMID" &&
+    typeof midStandAtMs === "number" &&
+    Number.isFinite(midStandAtMs) &&
+    Date.now() >= midStandAtMs
+  ) {
+    const midStandRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_JUMPUPMID_2_STAND");
+    const jumpUpBlendMs = 80;
+    instance.setAnimation(midStandRef.animationName, {
+      modelName: midStandRef.modelName,
+      loop: false,
+      resetTime: true,
+      blendInMs: jumpUpBlendMs ?? midStandRef.blendInMs,
+      blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
+      fallbackNames: ["S_RUN"],
+    });
+    (ud as any)._kccJumpMidStandPlayed = true;
+  }
+}
+
+function tickJumpUpHigh(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
+    params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const currentAnimUpper = String(
+    (instance.object.userData as any)?.__currentAnimationName ?? "",
+  ).toUpperCase();
+  const highHangAtMs = (ud as any)._kccJumpHighHangAtMs as number | undefined;
+  const highHangPlayed = Boolean((ud as any)._kccJumpHighHangPlayed);
+  const highStandAtMs = (ud as any)._kccJumpHighStandAtMs as number | undefined;
+  const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
+
+  if (!highHangPlayed) {
+    if (
+      currentAnimUpper === "S_JUMPUP" &&
+      (typeof highHangAtMs !== "number" || !Number.isFinite(highHangAtMs))
+    ) {
+      const jumpUpPhaseMs = Math.max(
+        120,
+        Number(NPC_RENDER_TUNING.jumpUpHighJumpUpPhaseSeconds ?? 0.3) * 1000,
+      );
+      (ud as any)._kccJumpHighHangAtMs = Date.now() + jumpUpPhaseMs;
+      return;
+    }
+    if (
+      currentAnimUpper === "S_JUMPUP" &&
+      typeof highHangAtMs === "number" &&
+      Number.isFinite(highHangAtMs) &&
+      Date.now() >= highHangAtMs
+    ) {
+      const hangRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_HANG");
+      const highBlendMs = 80;
+      instance.setAnimation(hangRef.animationName, {
+        modelName: hangRef.modelName,
+        loop: false,
+        resetTime: true,
+        blendInMs: highBlendMs,
+        blendOutMs: highBlendMs,
+        fallbackNames: ["S_RUN"],
+      });
+      (ud as any)._kccJumpHighHangPlayed = true;
+      return;
+    }
+  }
+
+  if (highHangPlayed && !highStandPlayed) {
+    if (
+      currentAnimUpper === "S_HANG" &&
+      (typeof highStandAtMs !== "number" || !Number.isFinite(highStandAtMs))
+    ) {
+      const hangRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_HANG");
+      const hangDurMs =
+        estimateAnimationDurationMs(hangRef.modelName ?? "HUMANS", hangRef.animationName) ??
+        estimateAnimationDurationMs("HUMANS", hangRef.animationName) ??
+        250;
+      (ud as any)._kccJumpHighStandAtMs = Date.now() + Math.max(120, hangDurMs);
+      return;
+    }
+    if (
+      currentAnimUpper === "S_HANG" &&
+      typeof highStandAtMs === "number" &&
+      Number.isFinite(highStandAtMs) &&
+      Date.now() >= highStandAtMs
+    ) {
+      const standRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_HANG_2_STAND");
+      const highBlendMs = 80;
+      instance.setAnimation(standRef.animationName, {
+        modelName: standRef.modelName,
+        loop: false,
+        resetTime: true,
+        blendInMs: highBlendMs,
+        blendOutMs: highBlendMs,
+        fallbackNames: ["S_RUN"],
+      });
+      (ud as any)._kccJumpHighStandPlayed = true;
+    }
+  }
+}
+
+function tickActiveJumpAnimation(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const { npcGroup } = params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const jumpType = resolveJumpType(ud);
+  if (jumpType === "jump_up_low") {
+    tickJumpUpLow(params);
+  } else if (jumpType === "jump_up_mid") {
+    tickJumpUpMid(params);
+  } else if (jumpType === "jump_up_high") {
+    tickJumpUpHigh(params);
+  }
+}
+
+function exitJumpAnimation(params: {
+  npcGroup: THREE.Group;
+  npcData: NpcData;
+  instance: CharacterInstance;
+  locomotionMode: LocomotionMode;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+  estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
+}) {
+  const {
+    npcGroup,
+    npcData,
+    instance,
+    locomotionMode,
+    resolveNpcAnimationRef,
+    estimateAnimationDurationMs,
+  } = params;
+  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
+  const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
+  const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
+  ud._kccJumpAnimActive = false;
+  resetJumpProgressFlags(ud);
+  const jumpType = resolveJumpType(ud);
+  const moving =
+    locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack";
+  const nextName =
+    locomotionMode === "run"
+      ? "s_RunL"
+      : locomotionMode === "walk"
+        ? "s_WalkL"
+        : locomotionMode === "walkBack"
+          ? "t_JumpB"
+          : "s_Run";
+  const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
+  const jumpStartWasRun = Boolean((ud as any)._kccJumpStartWasRun);
+  (ud as any)._kccJumpStartWasRun = false;
+
+  if (moving) {
+    (ud as any)._kccJumpBlockUntilMs = undefined;
+    instance.setAnimation(nextRef.animationName, {
+      modelName: nextRef.modelName,
+      loop: true,
+      resetTime: true,
+      blendInMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendInMs,
+      blendOutMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendOutMs,
+      fallbackNames: ["s_Run"],
+    });
+    return;
+  }
+  if (jumpType === "jump_up_low" && lowStandPlayed) {
+    (ud as any)._kccJumpBlockUntilMs = undefined;
+    const lowExitBlendMs = 120;
+    instance.setAnimation(nextRef.animationName, {
+      modelName: nextRef.modelName,
+      loop: true,
+      resetTime: true,
+      blendInMs: lowExitBlendMs,
+      blendOutMs: lowExitBlendMs,
+      fallbackNames: ["s_Run"],
+    });
+    return;
+  }
+  if (jumpType === "jump_up_mid" && midStandPlayed) {
+    (ud as any)._kccJumpBlockUntilMs = undefined;
+    const midExitBlendMs = 220;
+    instance.setAnimation(nextRef.animationName, {
+      modelName: nextRef.modelName,
+      loop: true,
+      resetTime: true,
+      blendInMs: midExitBlendMs,
+      blendOutMs: midExitBlendMs,
+      fallbackNames: ["s_Run"],
+    });
+    return;
+  }
+  if (jumpType === "jump_up_high" && highStandPlayed) {
+    (ud as any)._kccJumpBlockUntilMs = undefined;
+    const highExitBlendMs = 120;
+    instance.setAnimation(nextRef.animationName, {
+      modelName: nextRef.modelName,
+      loop: true,
+      resetTime: true,
+      blendInMs: highExitBlendMs,
+      blendOutMs: highExitBlendMs,
+      fallbackNames: ["s_Run"],
+    });
+    return;
+  }
+  const endName =
+    jumpType === "jump_up_low"
+      ? "T_JUMPUPLOW_2_STAND"
+      : jumpType === "jump_up_high"
+        ? "T_HANG_2_STAND"
+        : "T_JUMP_2_STAND";
+  const ref = resolveNpcAnimationRef(npcData.instanceIndex, endName);
+  const durMs =
+    estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
+    estimateAnimationDurationMs("HUMANS", ref.animationName) ??
+    400;
+  (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
+  instance.setAnimation(ref.animationName, {
+    modelName: ref.modelName,
+    loop: false,
+    resetTime: true,
+    blendInMs: ref.blendInMs,
+    blendOutMs: ref.blendOutMs,
+    fallbackNames: ["S_RUN"],
+    next: {
+      animationName: nextRef.animationName,
+      modelName: nextRef.modelName,
+      loop: true,
+      resetTime: true,
+      blendInMs: nextRef.blendInMs,
+      blendOutMs: nextRef.blendOutMs,
+      fallbackNames: ["s_Run"],
+    },
+  });
+}
+
+function applyGroundAnimation(params: {
+  npcData: NpcData;
+  instance: CharacterInstance;
+  locomotion: LocomotionController | undefined;
+  locomotionMode: LocomotionMode;
+  scriptIdle: string | undefined;
+  resolveNpcAnimationRef: CreateTickNpcDeps["resolveNpcAnimationRef"];
+}) {
+  const { npcData, instance, locomotion, locomotionMode, scriptIdle, resolveNpcAnimationRef } =
+    params;
+  if (scriptIdle && locomotionMode === "idle") {
+    const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
+    instance.setAnimation(ref.animationName, {
+      modelName: ref.modelName,
+      loop: true,
+      resetTime: false,
+      blendInMs: ref.blendInMs,
+      blendOutMs: ref.blendOutMs,
+    });
+    return;
+  }
+  locomotion?.update(instance, locomotionMode, (name) =>
+    resolveNpcAnimationRef(npcData.instanceIndex, name),
+  );
+}
+
+function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
+  const {
+    npcGroup,
+    npcData,
+    instance,
+    deps: { kccConfig, resolveNpcAnimationRef, estimateAnimationDurationMs },
+    runtime,
+  } = ctx;
+
+  let locomotionMode = resolveLocomotionModeFromPhysics({
+    npcGroup,
+    kccConfig,
+    locomotionMode: runtime.locomotionMode,
+  });
+
   if (instance) {
     const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
     const suppress =
@@ -651,376 +1114,43 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
       if (jumpActive) {
         const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
         if (!ud._kccJumpAnimActive) {
-          ud._kccJumpAnimActive = true;
-          const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
-          const isForward = jumpType === "jump_forward";
-          const isJumpUpLow = jumpType === "jump_up_low";
-          const isJumpUpMid = jumpType === "jump_up_mid";
-          const isJumpUpHigh = jumpType === "jump_up_high";
-          let startName: string;
-          let loopName: string;
-          if (isForward) {
-            startName =
-              locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack"
-                ? "T_RUNL_2_JUMP"
-                : "T_STAND_2_JUMP";
-            loopName = "S_JUMP";
-          } else {
-            switch (jumpType) {
-              case "jump_up_low":
-                startName = "T_STAND_2_JUMPUPLOW";
-                loopName = "S_JUMPUPLOW";
-                break;
-              case "jump_up_mid":
-                startName = "T_STAND_2_JUMPUPMID";
-                loopName = "S_JUMPUPMID";
-                break;
-              case "jump_up_high":
-                startName = "T_STAND_2_JUMPUP";
-                loopName = "S_JUMPUP";
-                break;
-              default:
-                startName = "T_STAND_2_JUMPUP";
-                loopName = "S_JUMPUP";
-                break;
-            }
-          }
-          ud._kccJumpStartWasRun = isForward && startName === "T_RUNL_2_JUMP";
-          const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
-          const durMs =
-            estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
-            estimateAnimationDurationMs("HUMANS", ref.animationName) ??
-            0;
-          if (durMs > 0) {
-            (ud as any)._kccJumpMinAirMs = durMs;
-          }
-          const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
-          const lowJumpBlendMs = 200;
-          const jumpUpBlendMs = isForward ? undefined : isJumpUpLow ? lowJumpBlendMs : 80;
-          const loopJumpMid = isForward;
-          instance.setAnimation(ref.animationName, {
-            modelName: ref.modelName,
-            loop: false,
-            resetTime: true,
-            blendInMs: ref.blendInMs,
-            blendOutMs: jumpUpBlendMs ?? ref.blendOutMs,
-            fallbackNames: isForward ? ["S_JUMP", "S_RUN"] : [loopName, "S_JUMP", "S_RUN"],
-            next: {
-              animationName: nextRef.animationName,
-              modelName: nextRef.modelName,
-              loop: loopJumpMid,
-              resetTime: true,
-              blendInMs: jumpUpBlendMs ?? nextRef.blendInMs,
-              blendOutMs: jumpUpBlendMs ?? nextRef.blendOutMs,
-              fallbackNames: ["S_RUN"],
-            },
+          startJumpAnimation({
+            npcGroup,
+            npcData,
+            instance,
+            locomotionMode,
+            resolveNpcAnimationRef,
+            estimateAnimationDurationMs,
           });
-          if (isJumpUpLow) {
-            // Arm jump end only after we really enter S_JUMPUPLOW.
-            (ud as any)._kccJumpLowStandAtMs = undefined;
-            (ud as any)._kccJumpLowStandPlayed = false;
-            (ud as any)._kccJumpMidStandAtMs = undefined;
-            (ud as any)._kccJumpMidStandPlayed = false;
-            (ud as any)._kccJumpHighHangAtMs = undefined;
-            (ud as any)._kccJumpHighHangPlayed = false;
-            (ud as any)._kccJumpHighStandAtMs = undefined;
-            (ud as any)._kccJumpHighStandPlayed = false;
-          } else if (isJumpUpMid) {
-            // Arm jump end only after we really enter S_JUMPUPMID.
-            (ud as any)._kccJumpMidStandAtMs = undefined;
-            (ud as any)._kccJumpMidStandPlayed = false;
-            (ud as any)._kccJumpLowStandAtMs = undefined;
-            (ud as any)._kccJumpLowStandPlayed = false;
-            (ud as any)._kccJumpHighHangAtMs = undefined;
-            (ud as any)._kccJumpHighHangPlayed = false;
-            (ud as any)._kccJumpHighStandAtMs = undefined;
-            (ud as any)._kccJumpHighStandPlayed = false;
-          } else if (isJumpUpHigh) {
-            // Arm high sequence only after entering S_JUMPUP, then S_HANG.
-            (ud as any)._kccJumpHighHangAtMs = undefined;
-            (ud as any)._kccJumpHighHangPlayed = false;
-            (ud as any)._kccJumpHighStandAtMs = undefined;
-            (ud as any)._kccJumpHighStandPlayed = false;
-            (ud as any)._kccJumpMidStandAtMs = undefined;
-            (ud as any)._kccJumpMidStandPlayed = false;
-            (ud as any)._kccJumpLowStandAtMs = undefined;
-            (ud as any)._kccJumpLowStandPlayed = false;
-          } else {
-            (ud as any)._kccJumpMidStandAtMs = undefined;
-            (ud as any)._kccJumpMidStandPlayed = false;
-            (ud as any)._kccJumpLowStandAtMs = undefined;
-            (ud as any)._kccJumpLowStandPlayed = false;
-            (ud as any)._kccJumpHighHangAtMs = undefined;
-            (ud as any)._kccJumpHighHangPlayed = false;
-            (ud as any)._kccJumpHighStandAtMs = undefined;
-            (ud as any)._kccJumpHighStandPlayed = false;
-          }
         } else {
-          const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
-          const isJumpUpLow = jumpType === "jump_up_low";
-          const isJumpUpMid = jumpType === "jump_up_mid";
-          const isJumpUpHigh = jumpType === "jump_up_high";
-          const currentAnimUpper = String(
-            (instance.object.userData as any)?.__currentAnimationName ?? "",
-          ).toUpperCase();
-          const lowStandAtMs = (ud as any)._kccJumpLowStandAtMs as number | undefined;
-          const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
-          const midStandAtMs = (ud as any)._kccJumpMidStandAtMs as number | undefined;
-          const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
-          const highHangAtMs = (ud as any)._kccJumpHighHangAtMs as number | undefined;
-          const highHangPlayed = Boolean((ud as any)._kccJumpHighHangPlayed);
-          const highStandAtMs = (ud as any)._kccJumpHighStandAtMs as number | undefined;
-          const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
-          if (isJumpUpLow && !lowStandPlayed) {
-            if (
-              currentAnimUpper === "S_JUMPUPLOW" &&
-              (typeof lowStandAtMs !== "number" || !Number.isFinite(lowStandAtMs))
-            ) {
-              const lowLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPLOW");
-              const lowLoopDurMs =
-                estimateAnimationDurationMs(
-                  lowLoopRef.modelName ?? "HUMANS",
-                  lowLoopRef.animationName,
-                ) ??
-                estimateAnimationDurationMs("HUMANS", lowLoopRef.animationName) ??
-                250;
-              (ud as any)._kccJumpLowStandAtMs = Date.now() + Math.max(120, lowLoopDurMs);
-            } else if (
-              currentAnimUpper === "S_JUMPUPLOW" &&
-              typeof lowStandAtMs === "number" &&
-              Number.isFinite(lowStandAtMs) &&
-              Date.now() >= lowStandAtMs
-            ) {
-              const lowStandRef = resolveNpcAnimationRef(
-                npcData.instanceIndex,
-                "T_JUMPUPLOW_2_STAND",
-              );
-              const jumpUpBlendMs = 120;
-              instance.setAnimation(lowStandRef.animationName, {
-                modelName: lowStandRef.modelName,
-                loop: false,
-                resetTime: true,
-                blendInMs: jumpUpBlendMs ?? lowStandRef.blendInMs,
-                blendOutMs: jumpUpBlendMs ?? lowStandRef.blendOutMs,
-                fallbackNames: ["S_RUN"],
-              });
-              (ud as any)._kccJumpLowStandPlayed = true;
-            }
-          }
-          if (isJumpUpMid && !midStandPlayed) {
-            if (
-              currentAnimUpper === "S_JUMPUPMID" &&
-              (typeof midStandAtMs !== "number" || !Number.isFinite(midStandAtMs))
-            ) {
-              const midLoopRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_JUMPUPMID");
-              const midLoopDurMs =
-                estimateAnimationDurationMs(
-                  midLoopRef.modelName ?? "HUMANS",
-                  midLoopRef.animationName,
-                ) ??
-                estimateAnimationDurationMs("HUMANS", midLoopRef.animationName) ??
-                250;
-              (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(120, midLoopDurMs);
-            } else if (
-              currentAnimUpper === "S_JUMPUPMID" &&
-              typeof midStandAtMs === "number" &&
-              Number.isFinite(midStandAtMs) &&
-              Date.now() >= midStandAtMs
-            ) {
-              const midStandRef = resolveNpcAnimationRef(
-                npcData.instanceIndex,
-                "T_JUMPUPMID_2_STAND",
-              );
-              const jumpUpBlendMs = 80;
-              instance.setAnimation(midStandRef.animationName, {
-                modelName: midStandRef.modelName,
-                loop: false,
-                resetTime: true,
-                blendInMs: jumpUpBlendMs ?? midStandRef.blendInMs,
-                blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
-                fallbackNames: ["S_RUN"],
-              });
-              (ud as any)._kccJumpMidStandPlayed = true;
-            }
-          }
-          if (isJumpUpHigh && !highHangPlayed) {
-            if (
-              currentAnimUpper === "S_JUMPUP" &&
-              (typeof highHangAtMs !== "number" || !Number.isFinite(highHangAtMs))
-            ) {
-              const jumpUpPhaseMs = Math.max(
-                120,
-                Number(NPC_RENDER_TUNING.jumpUpHighJumpUpPhaseSeconds ?? 0.3) * 1000,
-              );
-              (ud as any)._kccJumpHighHangAtMs = Date.now() + jumpUpPhaseMs;
-            } else if (
-              currentAnimUpper === "S_JUMPUP" &&
-              typeof highHangAtMs === "number" &&
-              Number.isFinite(highHangAtMs) &&
-              Date.now() >= highHangAtMs
-            ) {
-              const hangRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_HANG");
-              const highBlendMs = 80;
-              instance.setAnimation(hangRef.animationName, {
-                modelName: hangRef.modelName,
-                loop: false,
-                resetTime: true,
-                blendInMs: highBlendMs,
-                blendOutMs: highBlendMs,
-                fallbackNames: ["S_RUN"],
-              });
-              (ud as any)._kccJumpHighHangPlayed = true;
-            }
-          }
-          if (isJumpUpHigh && highHangPlayed && !highStandPlayed) {
-            if (
-              currentAnimUpper === "S_HANG" &&
-              (typeof highStandAtMs !== "number" || !Number.isFinite(highStandAtMs))
-            ) {
-              const hangRef = resolveNpcAnimationRef(npcData.instanceIndex, "S_HANG");
-              const hangDurMs =
-                estimateAnimationDurationMs(hangRef.modelName ?? "HUMANS", hangRef.animationName) ??
-                estimateAnimationDurationMs("HUMANS", hangRef.animationName) ??
-                250;
-              (ud as any)._kccJumpHighStandAtMs = Date.now() + Math.max(120, hangDurMs);
-            } else if (
-              currentAnimUpper === "S_HANG" &&
-              typeof highStandAtMs === "number" &&
-              Number.isFinite(highStandAtMs) &&
-              Date.now() >= highStandAtMs
-            ) {
-              const standRef = resolveNpcAnimationRef(npcData.instanceIndex, "T_HANG_2_STAND");
-              const highBlendMs = 80;
-              instance.setAnimation(standRef.animationName, {
-                modelName: standRef.modelName,
-                loop: false,
-                resetTime: true,
-                blendInMs: highBlendMs,
-                blendOutMs: highBlendMs,
-                fallbackNames: ["S_RUN"],
-              });
-              (ud as any)._kccJumpHighStandPlayed = true;
-            }
-          }
+          tickActiveJumpAnimation({
+            npcGroup,
+            npcData,
+            instance,
+            resolveNpcAnimationRef,
+            estimateAnimationDurationMs,
+          });
         }
       } else {
         const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
         if (ud._kccJumpAnimActive) {
-          ud._kccJumpAnimActive = false;
-          const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
-          (ud as any)._kccJumpMidStandAtMs = undefined;
-          (ud as any)._kccJumpMidStandPlayed = false;
-          const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
-          (ud as any)._kccJumpLowStandAtMs = undefined;
-          (ud as any)._kccJumpLowStandPlayed = false;
-          const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
-          (ud as any)._kccJumpHighHangAtMs = undefined;
-          (ud as any)._kccJumpHighHangPlayed = false;
-          (ud as any)._kccJumpHighStandAtMs = undefined;
-          (ud as any)._kccJumpHighStandPlayed = false;
-          const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
-          const moving =
-            locomotionMode === "run" || locomotionMode === "walk" || locomotionMode === "walkBack";
-          const nextName =
-            locomotionMode === "run"
-              ? "s_RunL"
-              : locomotionMode === "walk"
-                ? "s_WalkL"
-                : locomotionMode === "walkBack"
-                  ? "t_JumpB"
-                  : "s_Run";
-          const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
-          const jumpStartWasRun = Boolean((ud as any)._kccJumpStartWasRun);
-          (ud as any)._kccJumpStartWasRun = false;
-          if (moving) {
-            (ud as any)._kccJumpBlockUntilMs = undefined;
-            instance.setAnimation(nextRef.animationName, {
-              modelName: nextRef.modelName,
-              loop: true,
-              resetTime: true,
-              blendInMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendInMs,
-              blendOutMs: locomotionMode === "run" && jumpStartWasRun ? 200 : nextRef.blendOutMs,
-              fallbackNames: ["s_Run"],
-            });
-          } else if (jumpType === "jump_up_low" && lowStandPlayed) {
-            (ud as any)._kccJumpBlockUntilMs = undefined;
-            const lowExitBlendMs = 120;
-            instance.setAnimation(nextRef.animationName, {
-              modelName: nextRef.modelName,
-              loop: true,
-              resetTime: true,
-              blendInMs: lowExitBlendMs,
-              blendOutMs: lowExitBlendMs,
-              fallbackNames: ["s_Run"],
-            });
-          } else if (jumpType === "jump_up_mid" && midStandPlayed) {
-            (ud as any)._kccJumpBlockUntilMs = undefined;
-            const midExitBlendMs = 220;
-            instance.setAnimation(nextRef.animationName, {
-              modelName: nextRef.modelName,
-              loop: true,
-              resetTime: true,
-              blendInMs: midExitBlendMs,
-              blendOutMs: midExitBlendMs,
-              fallbackNames: ["s_Run"],
-            });
-          } else if (jumpType === "jump_up_high" && highStandPlayed) {
-            (ud as any)._kccJumpBlockUntilMs = undefined;
-            const highExitBlendMs = 120;
-            instance.setAnimation(nextRef.animationName, {
-              modelName: nextRef.modelName,
-              loop: true,
-              resetTime: true,
-              blendInMs: highExitBlendMs,
-              blendOutMs: highExitBlendMs,
-              fallbackNames: ["s_Run"],
-            });
-          } else {
-            const endName =
-              jumpType === "jump_up_low"
-                ? "T_JUMPUPLOW_2_STAND"
-                : jumpType === "jump_up_high"
-                  ? "T_HANG_2_STAND"
-                  : "T_JUMP_2_STAND";
-            const ref = resolveNpcAnimationRef(npcData.instanceIndex, endName);
-            const durMs =
-              estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
-              estimateAnimationDurationMs("HUMANS", ref.animationName) ??
-              400;
-            (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
-            instance.setAnimation(ref.animationName, {
-              modelName: ref.modelName,
-              loop: false,
-              resetTime: true,
-              blendInMs: ref.blendInMs,
-              blendOutMs: ref.blendOutMs,
-              fallbackNames: ["S_RUN"],
-              next: {
-                animationName: nextRef.animationName,
-                modelName: nextRef.modelName,
-                loop: true,
-                resetTime: true,
-                blendInMs: nextRef.blendInMs,
-                blendOutMs: nextRef.blendOutMs,
-                fallbackNames: ["s_Run"],
-              },
-            });
-          }
-        }
-        if (scriptIdle && locomotionMode === "idle") {
-          const ref = resolveNpcAnimationRef(npcData.instanceIndex, scriptIdle);
-          instance.setAnimation(ref.animationName, {
-            modelName: ref.modelName,
-            loop: true,
-            resetTime: false,
-            blendInMs: ref.blendInMs,
-            blendOutMs: ref.blendOutMs,
+          exitJumpAnimation({
+            npcGroup,
+            npcData,
+            instance,
+            locomotionMode,
+            resolveNpcAnimationRef,
+            estimateAnimationDurationMs,
           });
-        } else {
-          locomotion?.update(instance, locomotionMode, (name) =>
-            resolveNpcAnimationRef(npcData.instanceIndex, name),
-          );
         }
+        applyGroundAnimation({
+          npcData,
+          instance,
+          locomotion,
+          locomotionMode,
+          scriptIdle,
+          resolveNpcAnimationRef,
+        });
       }
     }
   }
