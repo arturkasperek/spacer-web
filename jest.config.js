@@ -3,7 +3,6 @@ export default {
   testEnvironment: "jsdom",
   roots: ["<rootDir>/src"],
   testMatch: [
-    "<rootDir>/src/**/__tests__/**/*.(ts|tsx)",
     "<rootDir>/src/**/*.test.(ts|tsx)",
     "<rootDir>/src/**/*.spec.(ts|tsx)",
   ],
