@@ -1,47 +1,23 @@
 import { useMemo, useEffect, useRef, type RefObject } from "react";
 import { useRapier } from "@react-three/rapier";
 import * as THREE from "three";
-import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { constrainCircleMoveXZ, type NpcCircleCollider } from "./npc-npc-collision";
 import type { NpcData } from "../../shared/types";
+import {
+  npcPhysicsDebugLog,
+  updateNpcDebugCapsuleWire,
+  updateNpcDebugJumpScanRays,
+  updateNpcDebugPoint,
+  updateNpcDebugRayLine,
+} from "./npc-physics-debug";
+import {
+  decideJumpTypeFromScan,
+  type JumpScanReport,
+  type JumpType,
+  type LedgeCandidate,
+} from "./npc-jump-decision";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
-type JumpType =
-  | "jump_forward"
-  | "jump_up_low"
-  | "jump_up_mid"
-  | "jump_up_high"
-  | "climb_up"
-  | "blocked";
-type JumpDecision = {
-  type: JumpType;
-  reason: string;
-  canJump: boolean;
-  ledgeHeight: number | null;
-  obstacleDistance: number | null;
-  ceilingClearance: number | null;
-  fullWall: boolean;
-};
-type LedgeCandidate = {
-  value: number;
-  ledgePoint: THREE.Vector3;
-  ledgeNormal: THREE.Vector3;
-  ledgeCont: THREE.Vector3;
-  ledgeHeight: number;
-  maxMoveForward: number;
-  obstacleDistance: number | null;
-};
-type JumpScanReport = {
-  y: number;
-  hit: boolean;
-  hitColliderHandle: number | null;
-  hitPoint: THREE.Vector3 | null;
-  hitNormal: THREE.Vector3 | null;
-  start: THREE.Vector3;
-  end: THREE.Vector3;
-};
 
 // Centralized NPC movement/physics tuning (hardcoded; no query params).
 // Keep this as the single place to tweak feel/thresholds.
@@ -396,354 +372,6 @@ export function useNpcPhysics({
     ud._visSmoothY = smoothY;
     visualRoot.position.y = smoothY - targetY;
     // no-op
-  };
-
-  const updateNpcDebugRayLine = (
-    npcGroup: THREE.Group,
-    key: string,
-    color: number,
-    width: number,
-    startWorld: THREE.Vector3,
-    endWorld: THREE.Vector3,
-    visible: boolean,
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let line = npcGroup.userData[key] as Line2 | undefined;
-    if (!line) {
-      const geometry = new LineGeometry();
-      const material = new LineMaterial({ color, linewidth: width, depthTest: false });
-      if (typeof window !== "undefined")
-        material.resolution.set(window.innerWidth, window.innerHeight);
-      line = new Line2(geometry, material);
-      line.frustumCulled = false;
-      line.visible = false;
-      line.renderOrder = 9999;
-      npcGroup.add(line);
-      npcGroup.userData[key] = line;
-    }
-    line.visible = visible;
-    if (!visible) return;
-    if (typeof window !== "undefined") {
-      const mat = line.material as LineMaterial;
-      mat.resolution.set(window.innerWidth, window.innerHeight);
-    }
-    const start = (
-      (npcGroup.userData._kccProbeStart as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccProbeStart = new THREE.Vector3())
-    ).copy(startWorld);
-    const end = (
-      (npcGroup.userData._kccProbeEnd as THREE.Vector3 | undefined) ??
-      (npcGroup.userData._kccProbeEnd = new THREE.Vector3())
-    ).copy(endWorld);
-    npcGroup.worldToLocal(start);
-    npcGroup.worldToLocal(end);
-    (line.geometry as LineGeometry).setPositions([start.x, start.y, start.z, end.x, end.y, end.z]);
-    line.computeLineDistances();
-  };
-
-  const updateNpcDebugPoint = (
-    npcGroup: THREE.Object3D,
-    key: string,
-    color: number,
-    radius: number,
-    position: THREE.Vector3,
-    visible: boolean,
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let mesh = npcGroup.userData[key] as THREE.Mesh | undefined;
-    const cached = npcGroup.userData[`${key}_r`] as number | undefined;
-    if (!mesh || cached !== radius) {
-      if (mesh) {
-        try {
-          mesh.geometry.dispose();
-          (mesh.material as THREE.Material).dispose();
-        } catch {
-          // ignore
-        }
-        npcGroup.remove(mesh);
-      }
-      const geom = new THREE.SphereGeometry(radius, 10, 8);
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
-      mesh = new THREE.Mesh(geom, mat);
-      mesh.renderOrder = 9999;
-      mesh.frustumCulled = false;
-      npcGroup.add(mesh);
-      npcGroup.userData[key] = mesh;
-      npcGroup.userData[`${key}_r`] = radius;
-    }
-    mesh.visible = visible;
-    if (!visible) return;
-    const local = position.clone();
-    npcGroup.worldToLocal(local);
-    mesh.position.copy(local);
-  };
-
-  const updateNpcDebugCapsuleWire = (
-    npcGroup: THREE.Group,
-    radius: number,
-    height: number,
-    color: number,
-    visible: boolean,
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let wire = npcGroup.userData._kccCapsuleWire as THREE.LineSegments | undefined;
-    const cached = npcGroup.userData._kccCapsuleWireDims as { r: number; h: number } | undefined;
-    if (!wire || !cached || cached.r !== radius || cached.h !== height) {
-      if (wire) {
-        try {
-          wire.geometry.dispose();
-          (wire.material as THREE.Material).dispose();
-        } catch {
-          // ignore
-        }
-        npcGroup.remove(wire);
-      }
-      const length = Math.max(0.001, height - radius * 2);
-      const geom = new THREE.CapsuleGeometry(radius, length, 6, 12);
-      const wireGeom = new THREE.WireframeGeometry(geom);
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 });
-      wire = new THREE.LineSegments(wireGeom, mat);
-      wire.frustumCulled = false;
-      wire.renderOrder = 9998;
-      npcGroup.add(wire);
-      npcGroup.userData._kccCapsuleWire = wire;
-      npcGroup.userData._kccCapsuleWireDims = { r: radius, h: height };
-    }
-    wire.visible = visible;
-    if (!visible) return;
-    wire.position.set(0, height / 2, 0);
-  };
-
-  type JumpDebugRay = {
-    start: THREE.Vector3;
-    end: THREE.Vector3;
-    hit: boolean;
-  };
-
-  const updateNpcDebugJumpScanRays = (
-    npcGroup: THREE.Group,
-    rays: JumpDebugRay[],
-    visible: boolean,
-  ) => {
-    if (npcGroup.userData == null) npcGroup.userData = {};
-    let group = npcGroup.userData._kccJumpScanRayGroup as THREE.Group | undefined;
-    let pool = npcGroup.userData._kccJumpScanRayPool as Line2[] | undefined;
-    if (!group) {
-      group = new THREE.Group();
-      group.name = "kcc-jump-scan-rays";
-      group.visible = false;
-      npcGroup.add(group);
-      npcGroup.userData._kccJumpScanRayGroup = group;
-    }
-    if (!pool) {
-      pool = [];
-      npcGroup.userData._kccJumpScanRayPool = pool;
-    }
-    group.visible = visible;
-    if (!visible) return;
-
-    const ensureLine = (idx: number) => {
-      let line = pool![idx];
-      if (line) return line;
-      const geometry = new LineGeometry();
-      const material = new LineMaterial({ color: 0x2ddf2d, linewidth: 2, depthTest: false });
-      if (typeof window !== "undefined")
-        material.resolution.set(window.innerWidth, window.innerHeight);
-      line = new Line2(geometry, material);
-      line.frustumCulled = false;
-      line.visible = false;
-      line.renderOrder = 9998;
-      group!.add(line);
-      pool![idx] = line;
-      return line;
-    };
-
-    for (let i = 0; i < rays.length; i++) {
-      const line = ensureLine(i);
-      const mat = line.material as LineMaterial;
-      if (typeof window !== "undefined") mat.resolution.set(window.innerWidth, window.innerHeight);
-      mat.color.setHex(rays[i].hit ? 0xff2f2f : 0x2ddf2d);
-      mat.linewidth = 2;
-
-      const s = rays[i].start.clone();
-      const e = rays[i].end.clone();
-      npcGroup.worldToLocal(s);
-      npcGroup.worldToLocal(e);
-      (line.geometry as LineGeometry).setPositions([s.x, s.y, s.z, e.x, e.y, e.z]);
-      line.computeLineDistances();
-      line.visible = true;
-    }
-    for (let i = rays.length; i < pool.length; i++) {
-      pool[i].visible = false;
-    }
-  };
-
-  const decideJumpTypeFromScan = (
-    range: {
-      floorY: number;
-      rangeTopY: number;
-      ceilingY: number;
-    },
-    reports: JumpScanReport[],
-    bestLedge: LedgeCandidate | null,
-  ): JumpDecision => {
-    if (!reports.length) {
-      return {
-        type: "jump_forward",
-        reason: "no_scan_data",
-        canJump: true,
-        ledgeHeight: null,
-        obstacleDistance: null,
-        ceilingClearance: null,
-        fullWall: false,
-      };
-    }
-
-    const sorted = reports.slice().sort((a, b) => b.y - a.y);
-    const hitReports = sorted.filter((r) => r.hit);
-    const hitCount = hitReports.length;
-    const fullWall = hitCount > 0 && hitCount === sorted.length;
-    const highestHit = hitCount > 0 ? hitReports[0] : null;
-    const obstacleDistance =
-      bestLedge?.obstacleDistance ??
-      (highestHit != null
-        ? Math.hypot(highestHit.end.x - highestHit.start.x, highestHit.end.z - highestHit.start.z)
-        : null);
-    const obstacleMin = kccConfig.jumpDecisionObstacleMinDist;
-    const obstacleMax = kccConfig.jumpDecisionObstacleMaxDist;
-    const obstacleInRange =
-      obstacleDistance != null &&
-      obstacleDistance >= obstacleMin &&
-      obstacleDistance <= obstacleMax;
-    const ceilingClearance = range.ceilingY - (range.floorY + kccConfig.capsuleHeight);
-    const hasCeilingSpace = ceilingClearance >= kccConfig.jumpDecisionCeilingClearanceMin;
-
-    let ledgeHeight: number | null = bestLedge ? bestLedge.ledgeHeight : null;
-    if (ledgeHeight == null) {
-      let ledgeY: number | null = null;
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const upper = sorted[i];
-        const lower = sorted[i + 1];
-        if (!upper.hit && lower.hit) {
-          ledgeY = (upper.y + lower.y) * 0.5;
-          break;
-        }
-      }
-      if (ledgeY == null && highestHit) ledgeY = highestHit.y;
-      ledgeHeight = ledgeY != null ? ledgeY - range.floorY : null;
-    }
-
-    if (fullWall) {
-      return {
-        type: "blocked",
-        reason: "full_wall",
-        canJump: false,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: true,
-      };
-    }
-    if (!hasCeilingSpace) {
-      return {
-        type: "blocked",
-        reason: "low_ceiling_clearance",
-        canJump: false,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (hitCount === 0) {
-      return {
-        type: "jump_forward",
-        reason: "clear_forward_path",
-        canJump: true,
-        ledgeHeight: null,
-        obstacleDistance: null,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (!bestLedge) {
-      return {
-        type: "jump_forward",
-        reason: "no_best_ledge",
-        canJump: true,
-        ledgeHeight: null,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (!obstacleInRange) {
-      return {
-        type: "jump_forward",
-        reason:
-          obstacleDistance != null && obstacleDistance < obstacleMin
-            ? "obstacle_too_close"
-            : "obstacle_too_far",
-        canJump: true,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (ledgeHeight == null || ledgeHeight <= kccConfig.stepHeight) {
-      return {
-        type: "jump_forward",
-        reason: "ledge_below_step_height",
-        canJump: true,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (ledgeHeight <= kccConfig.jumpDecisionLowMaxHeight) {
-      return {
-        type: "jump_up_low",
-        reason: "ledge_height_low",
-        canJump: true,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (ledgeHeight <= kccConfig.jumpDecisionMidMaxHeight) {
-      return {
-        type: "jump_up_mid",
-        reason: "ledge_height_mid",
-        canJump: true,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    if (ledgeHeight <= kccConfig.jumpDecisionHighMaxHeight) {
-      return {
-        type: "jump_up_high",
-        reason: "ledge_height_high",
-        canJump: true,
-        ledgeHeight,
-        obstacleDistance,
-        ceilingClearance,
-        fullWall: false,
-      };
-    }
-    return {
-      type: "climb_up",
-      reason: "ledge_above_jump_up_high",
-      canJump: true,
-      ledgeHeight,
-      obstacleDistance,
-      ceilingClearance,
-      fullWall: false,
-    };
   };
 
   useEffect(() => {
@@ -1470,7 +1098,7 @@ export function useNpcPhysics({
           ref.set(pos.x, pos.y, pos.z);
           stuckFor = 0;
           if (playerGroupRef.current === npcGroup) {
-            console.log(
+            npcPhysicsDebugLog(
               "[NPCStuckResolverJSON]" +
                 JSON.stringify({
                   t: nowMs,
@@ -1998,7 +1626,7 @@ export function useNpcPhysics({
             if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
               (ud as any)._fallSlidePushLogAtMs = nowMs;
               const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
-              console.log(
+              npcPhysicsDebugLog(
                 "[NPCFallSlidePushJSON]" +
                   JSON.stringify({
                     t: nowMs,
@@ -2600,6 +2228,7 @@ export function useNpcPhysics({
             },
             sortedReports,
             bestLedge,
+            kccConfig,
           );
 
           (ud as any)._kccLedgeScanRange = {
@@ -2819,7 +2448,7 @@ export function useNpcPhysics({
               y: next.y - prevTranslation.y,
               z: next.z - prevTranslation.z,
             };
-            console.log(
+            npcPhysicsDebugLog(
               "[NPCFallWallPushDbgJSON]" +
                 JSON.stringify({
                   t: nowMs,
@@ -3158,9 +2787,9 @@ export function useNpcPhysics({
           const nowY = npcGroup.position.y;
           if (typeof fallStartY === "number" && Number.isFinite(fallStartY)) {
             const drop = fallStartY - nowY;
-            console.log("[NPCFallDrop] " + drop);
+            npcPhysicsDebugLog("[NPCFallDrop] " + drop);
             const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
-            console.log(
+            npcPhysicsDebugLog(
               "[NPCFallDropJSON]" +
                 JSON.stringify({
                   t: Date.now(),
@@ -3264,7 +2893,7 @@ export function useNpcPhysics({
           const lastAt = (ud as any)._kccSlideExitLogAtMs as number | undefined;
           if (typeof lastAt !== "number" || nowMs - lastAt > 200) {
             (ud as any)._kccSlideExitLogAtMs = nowMs;
-            console.log(
+            npcPhysicsDebugLog(
               "[NPCSlideExitJSON]" +
                 JSON.stringify({
                   t: nowMs,
