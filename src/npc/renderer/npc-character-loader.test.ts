@@ -13,6 +13,7 @@ describe("npc-character-loader", () => {
   const mockGetNpcModelScriptsState = jest.fn();
   const mockSetNpcBaseModelScript = jest.fn();
   const mockCreateHumanLocomotionController = jest.fn(() => ({ kind: "locomotion" }));
+  const mockCreateCreatureLocomotionController = jest.fn(() => ({ kind: "creature-locomotion" }));
 
   function makeVisual(bodyMesh: string, extra?: Partial<NpcVisual>): NpcVisual {
     return {
@@ -65,6 +66,7 @@ describe("npc-character-loader", () => {
 
     jest.doMock("../physics/npc-locomotion", () => ({
       createHumanLocomotionController: () => mockCreateHumanLocomotionController(),
+      createCreatureLocomotionController: () => mockCreateCreatureLocomotionController(),
     }));
 
     THREE = await import("three");
@@ -173,6 +175,24 @@ describe("npc-character-loader", () => {
     expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(2);
     expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("DRAGON");
     expect(mockCreateCreatureCharacterInstance.mock.calls[1][0].modelKey).toBe("WOLF");
+    expect(mockCreateCreatureLocomotionController).toHaveBeenCalledTimes(1);
+    expect(mockCreateHumanLocomotionController).not.toHaveBeenCalled();
+  });
+
+  it("uses human locomotion controller for humanoid NPCs", async () => {
+    const npcGroup = new THREE.Group();
+    const npcData = makeNpcData(9, "MILITIA", { visual: makeVisual("HUM_BODY_NAKED0") });
+
+    await mod.loadNpcCharacter(npcGroup, npcData as any, {
+      zenKit: {} as any,
+      characterCachesRef: { current: {} as any },
+      modelScriptRegistryRef: { current: null },
+      waypointMoverRef: { current: null },
+      getNpcVisualRoot: (g) => g,
+    });
+
+    expect(mockCreateHumanLocomotionController).toHaveBeenCalledTimes(1);
+    expect(mockCreateCreatureLocomotionController).not.toHaveBeenCalled();
   });
 
   it("normalizes HUMANS base script into an explicit per-NPC base model script", async () => {

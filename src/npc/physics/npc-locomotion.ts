@@ -187,6 +187,30 @@ export const HUMAN_LOCOMOTION_SPEC: LocomotionSpec = {
   fallBack: { name: "s_FallB", loop: true, fallbackNames: ["s_Fall", "s_Run"] },
 };
 
+// Creature locomotion should avoid humanoid-specific fallback probes.
+// Keep candidates narrow to reduce missing MAN requests for non-human models.
+export const CREATURE_LOCOMOTION_SPEC: LocomotionSpec = {
+  idle: { name: "s_Run", loop: true, fallbackNames: ["s_Walk", "s_WalkL"] },
+
+  walkStart: { name: "t_Walk_2_WalkL", loop: false, fallbackNames: ["s_WalkL", "s_Walk"] },
+  walkLoop: { name: "s_WalkL", loop: true, fallbackNames: ["s_Walk", "s_RunL", "s_Run"] },
+  walkStop: { name: "t_WalkL_2_Walk", loop: false, fallbackNames: ["s_Walk", "s_Run"] },
+  walkBackStart: { name: "t_JumpB", loop: false, fallbackNames: ["s_Walk", "s_Run"] },
+  walkBackLoop: { name: "t_JumpB", loop: true, fallbackNames: ["s_Walk", "s_Run"] },
+  walkBackStop: { name: "s_Walk", loop: true, fallbackNames: ["s_Run"] },
+
+  runStart: { name: "t_Run_2_RunL", loop: false, fallbackNames: ["s_RunL", "s_Run"] },
+  runLoop: { name: "s_RunL", loop: true, fallbackNames: ["s_Run", "s_WalkL", "s_Walk"] },
+  runStop: { name: "t_RunL_2_Run", loop: false, fallbackNames: ["s_Run", "s_Walk"] },
+
+  slide: { name: "s_Slide", loop: true, fallbackNames: ["s_SlideB", "s_Run"] },
+  slideBack: { name: "s_SlideB", loop: true, fallbackNames: ["s_Slide", "s_Run"] },
+
+  fallDown: { name: "s_FallDn", loop: true, fallbackNames: ["s_Fall", "s_Run"] },
+  fall: { name: "s_Fall", loop: true, fallbackNames: ["s_FallB", "s_Run"] },
+  fallBack: { name: "s_FallB", loop: true, fallbackNames: ["s_Fall", "s_Run"] },
+};
+
 export function collectLocomotionAnimationNames(spec: LocomotionSpec): string[] {
   const out: string[] = [];
   const push = (a: LocomotionAnimationSpec) => {
@@ -215,4 +239,8 @@ export const HUMAN_LOCOMOTION_PRELOAD_ANIS = collectLocomotionAnimationNames(HUM
 
 export function createHumanLocomotionController(): LocomotionController {
   return createLocomotionController(HUMAN_LOCOMOTION_SPEC);
+}
+
+export function createCreatureLocomotionController(): LocomotionController {
+  return createLocomotionController(CREATURE_LOCOMOTION_SPEC);
 }

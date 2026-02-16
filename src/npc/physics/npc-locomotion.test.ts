@@ -1,4 +1,4 @@
-import { createLocomotionController } from "./npc-locomotion";
+import { createCreatureLocomotionController, createLocomotionController } from "./npc-locomotion";
 
 describe("npc locomotion controller", () => {
   it("plays walk start->loop when walk begins, and walk stop->idle when walk ends", () => {
@@ -119,5 +119,18 @@ describe("npc locomotion controller", () => {
     expect(calls).toContain("RUN_START");
     expect(calls).not.toContain("WALK_STOP");
     expect(calls).not.toContain("RUN_STOP");
+  });
+
+  it("creature locomotion does not include humanoid idle fallback", () => {
+    const controller = createCreatureLocomotionController();
+    const setAnimation = jest.fn();
+    const instance: any = { setAnimation };
+
+    controller.update(instance, "idle");
+
+    const options = setAnimation.mock.calls[0][1];
+    const fallbacks = options?.fallbackNames as string[] | undefined;
+    const upper = (fallbacks || []).map((s) => s.toUpperCase());
+    expect(upper).not.toContain("T_DANCE_01");
   });
 });

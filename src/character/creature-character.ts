@@ -16,6 +16,16 @@ function normalizeModelKey(input: string): string {
     .toUpperCase();
 }
 
+export function buildInitialCreatureAnimationCandidates(animationName: string): string[] {
+  return Array.from(
+    new Set(
+      [animationName, "s_Run", "s_RunL", "s_Walk", "s_WalkL", "s_Stand", "t_Stand"]
+        .map((s) => (s || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export async function createCreatureCharacterInstance(params: {
   zenKit: ZenKit;
   caches: CharacterCaches;
@@ -114,13 +124,7 @@ export async function createCreatureCharacterInstance(params: {
     const offsetLocal = group.worldToLocal(offsetWorld.clone());
     group.position.sub(offsetLocal);
 
-    const initialCandidates = Array.from(
-      new Set(
-        [animationName, "s_Run", "s_Walk", "s_Stand", "s_Idle", "t_Stand", "t_Dance_01"]
-          .map((s) => (s || "").trim())
-          .filter(Boolean),
-      ),
-    );
+    const initialCandidates = buildInitialCreatureAnimationCandidates(animationName);
     let initialSequence: any | null = null;
     let initialName = animationName;
     for (const cand of initialCandidates) {

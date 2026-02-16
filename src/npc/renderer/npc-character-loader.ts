@@ -11,7 +11,10 @@ import { disposeObject3D } from "../../world/distance-streaming";
 import type { NpcData } from "../../shared/types";
 import { getNpcModelScriptsState, setNpcBaseModelScript } from "../scripting/npc-model-scripts";
 import { ModelScriptRegistry } from "../../shared/model-script-registry";
-import { createHumanLocomotionController } from "../physics/npc-locomotion";
+import {
+  createCreatureLocomotionController,
+  createHumanLocomotionController,
+} from "../physics/npc-locomotion";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 
 export async function loadNpcCharacter(
@@ -122,7 +125,9 @@ export async function loadNpcCharacter(
     }
 
     npcGroup.userData.characterInstance = instance;
-    npcGroup.userData.locomotion = createHumanLocomotionController();
+    npcGroup.userData.locomotion = isHuman
+      ? createHumanLocomotionController()
+      : createCreatureLocomotionController();
     (npcGroup.userData.characterInstance as CharacterInstance).update(0);
     if (npcGroup.userData.isDisposed) return;
 
