@@ -13,6 +13,14 @@ import type { NpcData } from "../../shared/types";
 import type { CharacterInstance } from "../../character/character-instance";
 import type { ManualKeysState } from "./hooks/use-npc-manual-control";
 import type { NpcAnimationRef } from "./hooks/use-npc-animation-state";
+import {
+  clearNpcRuntimeValue,
+  ensureNpcUserData,
+  getNpcRuntimeValue,
+  setNpcRuntimeValue,
+  type NpcJumpType,
+  type NpcRendererUserData,
+} from "./npc-runtime-state";
 
 type MotionDebugState = {
   isFalling: boolean;
@@ -107,6 +115,7 @@ function tickNpcUiStage(ctx: TickNpcBaseCtx) {
     deps: { getNpcVisualRoot, playerGroupRef, hideHero, showJumpDebugRange, ensureJumpDebugLabel },
   } = ctx;
 
+  const ud = ensureNpcUserData(npcGroup);
   const visualRoot = getNpcVisualRoot(npcGroup);
   if (playerGroupRef.current === npcGroup) {
     visualRoot.visible = !hideHero;
@@ -119,14 +128,7 @@ function tickNpcUiStage(ctx: TickNpcBaseCtx) {
     sprite.lookAt(cameraPos);
   }
 
-  const healthBar = (npcGroup.userData as any)?.healthBar as
-    | {
-        root?: THREE.Object3D;
-        fill?: THREE.Object3D;
-        width?: number;
-        setText?: (text: string) => void;
-      }
-    | undefined;
+  const healthBar = ud.healthBar;
   if (healthBar?.root) {
     healthBar.root.lookAt(cameraPos);
   }
@@ -141,23 +143,8 @@ function tickNpcUiStage(ctx: TickNpcBaseCtx) {
       const { root, setText } = ensureJumpDebugLabel(npcGroup);
       root.visible = true;
       root.lookAt(cameraPos);
-      const jd = (npcGroup.userData as any)?._kccJumpDecision as
-        | {
-            type?: string;
-            reason?: string;
-            ledgeHeight?: number | null;
-            obstacleDistance?: number | null;
-            ceilingClearance?: number | null;
-            fullWall?: boolean;
-          }
-        | undefined;
-      const best = (npcGroup.userData as any)?._kccLedgeBest as
-        | {
-            value?: number;
-            ledgeHeight?: number;
-          }
-        | null
-        | undefined;
+      const jd = getNpcRuntimeValue(ud, "jumpDecision");
+      const best = getNpcRuntimeValue(ud, "ledgeBest");
       const fmt = (v: number | null | undefined) =>
         typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) : "-";
       const fmt2 = (v: number | null | undefined) =>
@@ -176,7 +163,7 @@ function tickNpcUiStage(ctx: TickNpcBaseCtx) {
       // ignore debug-label failures
     }
   } else {
-    const root = (npcGroup.userData as any)?._jumpDebugLabelRoot as THREE.Object3D | undefined;
+    const root = getNpcRuntimeValue(ud, "jumpDebugLabelRoot");
     if (root) root.visible = false;
   }
 
@@ -186,14 +173,16 @@ function tickNpcUiStage(ctx: TickNpcBaseCtx) {
     typeof healthBar.width === "number" &&
     Number.isFinite(healthBar.width)
   ) {
-    const info = (npcData.npcInfo || {}) as any;
+    const info = (npcData.npcInfo || {}) as Record<string, unknown>;
     const rawHp = Number(info.hp);
     const rawHpMax = Number(info.hpmax ?? info.hpMax);
     const hp = Number.isFinite(rawHp) ? Math.max(0, Math.floor(rawHp)) : 0;
     const hpMax = Number.isFinite(rawHpMax) ? Math.max(0, Math.floor(rawHpMax)) : 0;
     const ratio = hpMax > 0 ? Math.max(0, Math.min(1, hp / hpMax)) : 1;
 
-    const fill = healthBar.fill as any;
+    const fill = healthBar.fill as
+      | (THREE.Object3D & { scale?: { x: number }; position?: { x: number } })
+      | undefined;
     if (fill?.scale) fill.scale.x = ratio;
     if (fill?.position) fill.position.x = -healthBar.width / 2 + (healthBar.width * ratio) / 2;
     if (healthBar.setText) {
@@ -240,16 +229,16 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
   const isManualHero = runtime.isManualHero;
 
   trySnapNpcToGroundWithRapier(npcGroup);
-  const isFallingNow = Boolean(npcGroup.userData.isFalling);
+  const ud = ensureNpcUserData(npcGroup);
+  const isFallingNow = Boolean(ud.isFalling);
   if (isManualHero && isFallingNow) {
-    const manualUd: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
-    delete (manualUd as any)._manualSuppressLocomotion;
-    delete (manualUd as any)._manualTurnAnim;
-    delete (manualUd as any)._manualWasTurningInPlace;
+    const instance = ud.characterInstance;
+    clearNpcRuntimeValue(ud, "manualSuppressLocomotion");
+    clearNpcRuntimeValue(ud, "manualTurnAnim");
+    clearNpcRuntimeValue(ud, "manualWasTurningInPlace");
     if (instance?.object) {
       instance.object.rotation.z = 0;
-      manualUd._manualLeanRoll = 0;
+      setNpcRuntimeValue(ud, "manualLeanRoll", 0);
     }
   } else if (isManualHero) {
     let pendingMouseYawRad = 0;
@@ -287,25 +276,27 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
     }
     if (manualJumpSeqAppliedRef.current !== manualJumpSeqRef.current) {
       manualJumpSeqAppliedRef.current = manualJumpSeqRef.current;
-      const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-      const grounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-      const jumpUntilMs = ud._kccJumpActive as boolean | undefined;
-      const jumpActive = Boolean(jumpUntilMs);
-      const jumpDecision = ud._kccJumpDecision as
-        | { type?: string; canJump?: boolean; reason?: string }
-        | undefined;
+      const grounded = Boolean(
+        getNpcRuntimeValue(ud, "kccStableGrounded") ?? getNpcRuntimeValue(ud, "kccGrounded"),
+      );
+      const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
+      const jumpDecision = getNpcRuntimeValue(ud, "jumpDecision");
       const jumpType = String(jumpDecision?.type ?? "jump_forward");
       const canJumpByDecision = jumpDecision?.canJump !== false;
       if (grounded && !jumpActive) {
         if (canJumpByDecision) {
-          ud._kccJumpRequest = { atMs: nowMs, jumpType };
-          ud._kccJumpBlockedReason = undefined;
+          setNpcRuntimeValue(ud, "kccJumpRequest", { atMs: nowMs, jumpType });
+          clearNpcRuntimeValue(ud, "kccJumpBlockedReason");
         } else {
-          ud._kccJumpRequest = undefined;
-          ud._kccJumpBlockedReason = String(jumpDecision?.reason ?? "decision_blocked");
+          clearNpcRuntimeValue(ud, "kccJumpRequest");
+          setNpcRuntimeValue(
+            ud,
+            "kccJumpBlockedReason",
+            String(jumpDecision?.reason ?? "decision_blocked"),
+          );
         }
       } else {
-        ud._kccJumpRequest = undefined;
+        clearNpcRuntimeValue(ud, "kccJumpRequest");
       }
     }
 
@@ -313,8 +304,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
     const MAX_STEPS = 8;
     let remaining = Math.max(0, delta);
 
-    const manualUd: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
+    const instance = ud.characterInstance;
     const wantLean = true;
     let didTurnInPlaceThisFrame = false;
     let lastTurnSign = 0;
@@ -327,12 +317,12 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
 
       const keys = manualKeysRef.current;
       let mouseYawThisStep = mouseYawRate * dt;
-      const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+      const ignoreInputUntilMs = Number(getNpcRuntimeValue(ud, "kccIgnoreInputUntilMs"));
       const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
       // In Gothic: ArrowRight turns right (clockwise when looking from above).
       let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
       let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-      if (npcGroup.userData?.isSliding || ignoreInput) {
+      if (ud.isSliding || ignoreInput) {
         turn = 0;
         move = 0;
         mouseYawThisStep = 0;
@@ -378,7 +368,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
 
       const r = applyMoveConstraint(npcGroup, desiredX, desiredZ, dt);
       if (r.moved)
-        npcGroup.userData.lastMoveDirXZ = {
+        ud.lastMoveDirXZ = {
           x: tmpManualForward.x * move,
           z: tmpManualForward.z * move,
         };
@@ -388,8 +378,8 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
       if (move === 0 && (turn !== 0 || Math.abs(mouseYawThisStep) >= 1e-6)) {
         didTurnInPlaceThisFrame = true;
         lastTurnSign = turn !== 0 ? turn : mouseYawThisStep < 0 ? -1 : 1;
-        (manualUd as any)._manualLastTurnAtMs = nowMs;
-        (manualUd as any)._manualLastTurnSign = lastTurnSign;
+        setNpcRuntimeValue(ud, "manualLastTurnAtMs", nowMs);
+        setNpcRuntimeValue(ud, "manualLastTurnSign", lastTurnSign);
       }
     }
 
@@ -399,20 +389,20 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
       const keys = manualKeysRef.current;
       let turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
       let move = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
-      const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+      const ignoreInputUntilMs = Number(getNpcRuntimeValue(ud, "kccIgnoreInputUntilMs"));
       const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
-      if (npcGroup.userData?.isSliding || ignoreInput) {
+      if (ud.isSliding || ignoreInput) {
         turn = 0;
         move = 0;
       }
       const maxLeanRad = manualRunToggleRef.current ? 0.17 : 0.12; // ~10deg / ~7deg
       const targetRoll = move !== 0 ? -turn * maxLeanRad : 0;
 
-      let roll = manualUd._manualLeanRoll as number | undefined;
+      let roll = getNpcRuntimeValue(ud, "manualLeanRoll");
       if (typeof roll !== "number" || !Number.isFinite(roll)) roll = 0;
       const k = 1 - Math.exp(-14 * Math.max(0, delta));
       roll = roll + (targetRoll - roll) * k;
-      manualUd._manualLeanRoll = roll;
+      setNpcRuntimeValue(ud, "manualLeanRoll", roll);
 
       // Apply only to the visual model so UI (name/HP) doesn't tilt.
       instance.object.rotation.z = roll;
@@ -421,9 +411,9 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
     const keysNow = manualKeysRef.current;
     let turnNow = (keysNow.left ? 1 : 0) - (keysNow.right ? 1 : 0);
     let moveNow = (keysNow.up ? 1 : 0) - (keysNow.down ? 1 : 0);
-    const ignoreInputUntilMs = Number((npcGroup.userData as any)?._kccIgnoreInputUntilMs);
+    const ignoreInputUntilMs = Number(getNpcRuntimeValue(ud, "kccIgnoreInputUntilMs"));
     const ignoreInput = Number.isFinite(ignoreInputUntilMs) && nowMs < ignoreInputUntilMs;
-    if (npcGroup.userData?.isSliding || ignoreInput) {
+    if (ud.isSliding || ignoreInput) {
       turnNow = 0;
       moveNow = 0;
     }
@@ -439,11 +429,11 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
     // Turn-in-place animation (Gothic/Zengin uses dedicated turn animations).
     // Keep this separate from `_emSuppressLocomotion` used by combat and script one-shots.
     if (instance) {
-      const suppressByCombatOrScript = Boolean((npcGroup.userData as any)._emSuppressLocomotion);
-      const jumpActive = Boolean((npcGroup.userData as any)._kccJumpActive);
-      const jumpAnimActive = Boolean((npcGroup.userData as any)?._kccJumpAnimActive);
-      const wasTurning = Boolean((manualUd as any)._manualWasTurningInPlace);
-      const lastTurnAtMs = Number((manualUd as any)._manualLastTurnAtMs);
+      const suppressByCombatOrScript = Boolean(getNpcRuntimeValue(ud, "emSuppressLocomotion"));
+      const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
+      const jumpAnimActive = Boolean(getNpcRuntimeValue(ud, "kccJumpAnimActive"));
+      const wasTurning = Boolean(getNpcRuntimeValue(ud, "manualWasTurningInPlace"));
+      const lastTurnAtMs = Number(getNpcRuntimeValue(ud, "manualLastTurnAtMs"));
       const graceMs = 300;
       const withinGrace =
         moveNow === 0 &&
@@ -452,11 +442,11 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
         nowMs - lastTurnAtMs < graceMs;
       const shouldTurnAnim =
         !jumpActive && !jumpAnimActive && moveNow === 0 && (didTurnInPlaceThisFrame || withinGrace);
-      (manualUd as any)._manualWasTurningInPlace = shouldTurnAnim;
+      setNpcRuntimeValue(ud, "manualWasTurningInPlace", shouldTurnAnim);
 
       if (shouldTurnAnim && !suppressByCombatOrScript) {
-        (manualUd as any)._manualSuppressLocomotion = true;
-        const signFromHistory = Number((manualUd as any)._manualLastTurnSign);
+        setNpcRuntimeValue(ud, "manualSuppressLocomotion", true);
+        const signFromHistory = Number(getNpcRuntimeValue(ud, "manualLastTurnSign"));
         const effSign = didTurnInPlaceThisFrame
           ? lastTurnSign
           : Number.isFinite(signFromHistory) && signFromHistory !== 0
@@ -466,8 +456,8 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
 
         // Use actual human anim names present in `/ANIMS/_COMPILED` (no `S_TURN*` in the base set).
         const name = rightTurn ? "t_RunTurnR" : "t_RunTurnL";
-        const prev = (manualUd as any)._manualTurnAnim as string | undefined;
-        (manualUd as any)._manualTurnAnim = name;
+        const prev = getNpcRuntimeValue(ud, "manualTurnAnim");
+        setNpcRuntimeValue(ud, "manualTurnAnim", name);
 
         if ((prev || "").toUpperCase() !== name.toUpperCase()) {
           const ref = resolveNpcAnimationRef(npcData.instanceIndex, name);
@@ -485,8 +475,8 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
           });
         }
       } else {
-        delete (manualUd as any)._manualSuppressLocomotion;
-        delete (manualUd as any)._manualTurnAnim;
+        clearNpcRuntimeValue(ud, "manualSuppressLocomotion");
+        clearNpcRuntimeValue(ud, "manualTurnAnim");
 
         // When we stop turning:
         // - if we start moving this frame (even while holding turn), force locomotion to re-apply so we
@@ -495,7 +485,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
         if (wasTurning && !suppressByCombatOrScript) {
           if (manualLocomotionMode !== "idle") {
             const fresh = createHumanLocomotionController();
-            npcGroup.userData.locomotion = fresh;
+            ud.locomotion = fresh;
             fresh.update(instance, manualLocomotionMode, (name) =>
               resolveNpcAnimationRef(npcData.instanceIndex, name),
             );
@@ -530,7 +520,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
 
   // Apply animation root motion during script-driven one-shot animations (AI_PlayAni / Npc_PlayAni).
   // This makes e.g. dance/attack "step" animations move the NPC like in the original engine.
-  if (!isManualHero && instance && Boolean((npcGroup.userData as any)._emSuppressLocomotion)) {
+  if (!isManualHero && instance && Boolean(getNpcRuntimeValue(ud, "emSuppressLocomotion"))) {
     const d = (instance.object as any)?.userData?.__rootMotionDelta as
       | { x: number; y: number; z: number }
       | undefined;
@@ -545,7 +535,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
           tmpEmRootMotionWorld.z * tmpEmRootMotionWorld.z;
         if (lenSq > 1e-8) {
           const inv = 1 / Math.sqrt(lenSq);
-          npcGroup.userData.lastMoveDirXZ = {
+          ud.lastMoveDirXZ = {
             x: tmpEmRootMotionWorld.x * inv,
             z: tmpEmRootMotionWorld.z * inv,
           };
@@ -557,7 +547,7 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
 
   // Ensure KCC is stepped at least once per frame for gravity/snap-to-ground,
   // even if scripts didn't request any movement this tick.
-  if ((npcGroup.userData as any)._kccLastFrame !== physicsFrame) {
+  if (getNpcRuntimeValue(ud, "kccLastFrame") !== physicsFrame) {
     applyMoveConstraint(npcGroup, npcGroup.position.x, npcGroup.position.z, delta);
   }
 
@@ -565,25 +555,25 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
   runtime.locomotionMode = locomotionMode;
 }
 
-type JumpType = "jump_forward" | "jump_up_low" | "jump_up_mid" | "jump_up_high";
+type JumpType = NpcJumpType;
 
-function resolveJumpType(ud: any): JumpType {
-  const jumpType = String((ud as any)._kccJumpType ?? "jump_forward");
+function resolveJumpType(ud: NpcRendererUserData): JumpType {
+  const jumpType = String(getNpcRuntimeValue(ud, "kccJumpType") ?? "jump_forward");
   if (jumpType === "jump_up_low") return "jump_up_low";
   if (jumpType === "jump_up_mid") return "jump_up_mid";
   if (jumpType === "jump_up_high") return "jump_up_high";
   return "jump_forward";
 }
 
-function resetJumpProgressFlags(ud: any) {
-  (ud as any)._kccJumpLowStandAtMs = undefined;
-  (ud as any)._kccJumpLowStandPlayed = false;
-  (ud as any)._kccJumpMidStandAtMs = undefined;
-  (ud as any)._kccJumpMidStandPlayed = false;
-  (ud as any)._kccJumpHighHangAtMs = undefined;
-  (ud as any)._kccJumpHighHangPlayed = false;
-  (ud as any)._kccJumpHighStandAtMs = undefined;
-  (ud as any)._kccJumpHighStandPlayed = false;
+function resetJumpProgressFlags(ud: NpcRendererUserData) {
+  clearNpcRuntimeValue(ud, "kccJumpLowStandAtMs");
+  setNpcRuntimeValue(ud, "kccJumpLowStandPlayed", false);
+  clearNpcRuntimeValue(ud, "kccJumpMidStandAtMs");
+  setNpcRuntimeValue(ud, "kccJumpMidStandPlayed", false);
+  clearNpcRuntimeValue(ud, "kccJumpHighHangAtMs");
+  setNpcRuntimeValue(ud, "kccJumpHighHangPlayed", false);
+  clearNpcRuntimeValue(ud, "kccJumpHighStandAtMs");
+  setNpcRuntimeValue(ud, "kccJumpHighStandPlayed", false);
 }
 
 function resolveLocomotionModeFromPhysics(params: {
@@ -595,65 +585,65 @@ function resolveLocomotionModeFromPhysics(params: {
   let { locomotionMode } = params;
 
   // Falling has priority over ground locomotion animations.
-  if (Boolean(npcGroup.userData.isFalling)) {
-    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const wasFalling = Boolean(ud._wasFalling);
-    ud._wasFalling = true;
-    let fallFor = (ud._kccFallFor as number | undefined) ?? 0;
+  const ud = ensureNpcUserData(npcGroup);
+  if (Boolean(ud.isFalling)) {
+    const wasFalling = Boolean(getNpcRuntimeValue(ud, "wasFalling"));
+    setNpcRuntimeValue(ud, "wasFalling", true);
+    let fallFor = Number(getNpcRuntimeValue(ud, "kccFallFor") ?? 0);
     const fallDelay = (kccConfig as any).fallEntryDelaySeconds ?? 0;
     // Distance-based fallDown like ZenGin: switch after a vertical drop threshold.
     const yNow = npcGroup.position.y;
-    let startY = ud._fallDownStartY as number | undefined;
-    let minY = ud._fallDownMinY as number | undefined;
+    let startY = getNpcRuntimeValue(ud, "fallDownStartY");
+    let minY = getNpcRuntimeValue(ud, "fallDownMinY");
     if (!wasFalling || typeof startY !== "number" || !Number.isFinite(startY)) startY = yNow;
     if (!wasFalling || typeof minY !== "number" || !Number.isFinite(minY)) minY = yNow;
     if (yNow < minY) minY = yNow;
     let distY = Math.max(0, startY - minY);
-    const skipFallDown = Boolean((ud as any)._kccSkipFallDownPhase);
+    const skipFallDown = Boolean(getNpcRuntimeValue(ud, "kccSkipFallDownPhase"));
     if (skipFallDown) {
       const h = kccConfig.fallDownHeight ?? 0;
       if (h > 0) distY = h + 1;
       fallFor = Math.max(fallFor, fallDelay);
-      (ud as any)._kccFallFor = fallFor;
-      (ud as any)._fallDownStartY = yNow;
-      (ud as any)._fallDownMinY = yNow;
+      setNpcRuntimeValue(ud, "kccFallFor", fallFor);
+      setNpcRuntimeValue(ud, "fallDownStartY", yNow);
+      setNpcRuntimeValue(ud, "fallDownMinY", yNow);
       distY = 0;
-      (ud as any)._kccForceFallMode = true;
+      setNpcRuntimeValue(ud, "kccForceFallMode", true);
     }
-    ud._fallDownStartY = startY;
-    ud._fallDownMinY = minY;
-    ud._fallDownDistY = distY;
-    ud._fallAnimT = 0;
+    setNpcRuntimeValue(ud, "fallDownStartY", startY);
+    setNpcRuntimeValue(ud, "fallDownMinY", minY);
+    setNpcRuntimeValue(ud, "fallDownDistY", distY);
+    setNpcRuntimeValue(ud, "fallAnimT", 0);
     if (fallDelay <= 0 || fallFor >= fallDelay - 1e-6) {
-      if (Boolean((ud as any)._kccForceFallMode)) {
+      if (Boolean(getNpcRuntimeValue(ud, "kccForceFallMode"))) {
         locomotionMode = "fall";
       } else {
         locomotionMode = distY < (kccConfig.fallDownHeight ?? 0) - 1e-6 ? "fallDown" : "fall";
       }
       if (skipFallDown) {
-        (ud as any)._kccSkipFallDownPhase = false;
+        setNpcRuntimeValue(ud, "kccSkipFallDownPhase", false);
       }
     }
   }
   // Sliding has priority over walk/run/idle (but not over falling).
-  else if (Boolean(npcGroup.userData.isSliding)) {
-    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-    const slideFor = (ud._kccSlideFor as number | undefined) ?? 0;
+  else if (Boolean(ud.isSliding)) {
+    const slideFor = Number(getNpcRuntimeValue(ud, "kccSlideFor") ?? 0);
     const slideDelay = kccConfig.slideEntryDelaySeconds ?? 0;
-    (ud as any)._kccForceFallMode = false;
-    (npcGroup.userData as any)._wasFalling = false;
-    (npcGroup.userData as any)._fallAnimT = 0;
-    (npcGroup.userData as any)._fallDownStartY = undefined;
-    (npcGroup.userData as any)._fallDownMinY = undefined;
-    (npcGroup.userData as any)._fallDownDistY = 0;
+    setNpcRuntimeValue(ud, "kccForceFallMode", false);
+    setNpcRuntimeValue(ud, "wasFalling", false);
+    setNpcRuntimeValue(ud, "fallAnimT", 0);
+    clearNpcRuntimeValue(ud, "fallDownStartY");
+    clearNpcRuntimeValue(ud, "fallDownMinY");
+    setNpcRuntimeValue(ud, "fallDownDistY", 0);
     if (slideDelay <= 0 || slideFor >= slideDelay - 1e-6) locomotionMode = "slide";
   } else {
-    (npcGroup.userData as any)._kccForceFallMode = false;
-    (npcGroup.userData as any)._wasFalling = false;
-    (npcGroup.userData as any)._fallAnimT = 0;
-    (npcGroup.userData as any)._fallDownStartY = undefined;
-    (npcGroup.userData as any)._fallDownMinY = undefined;
-    (npcGroup.userData as any)._fallDownDistY = 0;
+    const ud = ensureNpcUserData(npcGroup);
+    setNpcRuntimeValue(ud, "kccForceFallMode", false);
+    setNpcRuntimeValue(ud, "wasFalling", false);
+    setNpcRuntimeValue(ud, "fallAnimT", 0);
+    clearNpcRuntimeValue(ud, "fallDownStartY");
+    clearNpcRuntimeValue(ud, "fallDownMinY");
+    setNpcRuntimeValue(ud, "fallDownDistY", 0);
   }
 
   return locomotionMode;
@@ -675,8 +665,8 @@ function startJumpAnimation(params: {
     resolveNpcAnimationRef,
     estimateAnimationDurationMs,
   } = params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-  ud._kccJumpAnimActive = true;
+  const ud = ensureNpcUserData(npcGroup);
+  setNpcRuntimeValue(ud, "kccJumpAnimActive", true);
   const jumpType = resolveJumpType(ud);
   const isForward = jumpType === "jump_forward";
   const isJumpUpLow = jumpType === "jump_up_low";
@@ -708,14 +698,14 @@ function startJumpAnimation(params: {
         break;
     }
   }
-  ud._kccJumpStartWasRun = isForward && startName === "T_RUNL_2_JUMP";
+  setNpcRuntimeValue(ud, "kccJumpStartWasRun", isForward && startName === "T_RUNL_2_JUMP");
   const ref = resolveNpcAnimationRef(npcData.instanceIndex, startName);
   const durMs =
     estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
     estimateAnimationDurationMs("HUMANS", ref.animationName) ??
     0;
   if (durMs > 0) {
-    (ud as any)._kccJumpMinAirMs = durMs;
+    setNpcRuntimeValue(ud, "kccJumpMinAirMs", durMs);
   }
   const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, loopName);
   const lowJumpBlendMs = 200;
@@ -750,12 +740,12 @@ function tickJumpUpLow(params: {
 }) {
   const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
     params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const ud = ensureNpcUserData(npcGroup);
   const currentAnimUpper = String(
     (instance.object.userData as any)?.__currentAnimationName ?? "",
   ).toUpperCase();
-  const lowStandAtMs = (ud as any)._kccJumpLowStandAtMs as number | undefined;
-  const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
+  const lowStandAtMs = getNpcRuntimeValue(ud, "kccJumpLowStandAtMs");
+  const lowStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpLowStandPlayed"));
   if (lowStandPlayed) return;
   if (
     currentAnimUpper === "S_JUMPUPLOW" &&
@@ -766,7 +756,7 @@ function tickJumpUpLow(params: {
       estimateAnimationDurationMs(lowLoopRef.modelName ?? "HUMANS", lowLoopRef.animationName) ??
       estimateAnimationDurationMs("HUMANS", lowLoopRef.animationName) ??
       250;
-    (ud as any)._kccJumpLowStandAtMs = Date.now() + Math.max(120, lowLoopDurMs);
+    setNpcRuntimeValue(ud, "kccJumpLowStandAtMs", Date.now() + Math.max(120, lowLoopDurMs));
     return;
   }
   if (
@@ -785,7 +775,7 @@ function tickJumpUpLow(params: {
       blendOutMs: jumpUpBlendMs ?? lowStandRef.blendOutMs,
       fallbackNames: ["S_RUN"],
     });
-    (ud as any)._kccJumpLowStandPlayed = true;
+    setNpcRuntimeValue(ud, "kccJumpLowStandPlayed", true);
   }
 }
 
@@ -798,12 +788,12 @@ function tickJumpUpMid(params: {
 }) {
   const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
     params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const ud = ensureNpcUserData(npcGroup);
   const currentAnimUpper = String(
     (instance.object.userData as any)?.__currentAnimationName ?? "",
   ).toUpperCase();
-  const midStandAtMs = (ud as any)._kccJumpMidStandAtMs as number | undefined;
-  const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
+  const midStandAtMs = getNpcRuntimeValue(ud, "kccJumpMidStandAtMs");
+  const midStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpMidStandPlayed"));
   if (midStandPlayed) return;
   if (
     currentAnimUpper === "S_JUMPUPMID" &&
@@ -814,7 +804,7 @@ function tickJumpUpMid(params: {
       estimateAnimationDurationMs(midLoopRef.modelName ?? "HUMANS", midLoopRef.animationName) ??
       estimateAnimationDurationMs("HUMANS", midLoopRef.animationName) ??
       250;
-    (ud as any)._kccJumpMidStandAtMs = Date.now() + Math.max(120, midLoopDurMs);
+    setNpcRuntimeValue(ud, "kccJumpMidStandAtMs", Date.now() + Math.max(120, midLoopDurMs));
     return;
   }
   if (
@@ -833,7 +823,7 @@ function tickJumpUpMid(params: {
       blendOutMs: jumpUpBlendMs ?? midStandRef.blendOutMs,
       fallbackNames: ["S_RUN"],
     });
-    (ud as any)._kccJumpMidStandPlayed = true;
+    setNpcRuntimeValue(ud, "kccJumpMidStandPlayed", true);
   }
 }
 
@@ -846,14 +836,14 @@ function tickJumpUpHigh(params: {
 }) {
   const { npcGroup, npcData, instance, resolveNpcAnimationRef, estimateAnimationDurationMs } =
     params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const ud = ensureNpcUserData(npcGroup);
   const currentAnimUpper = String(
     (instance.object.userData as any)?.__currentAnimationName ?? "",
   ).toUpperCase();
-  const highHangAtMs = (ud as any)._kccJumpHighHangAtMs as number | undefined;
-  const highHangPlayed = Boolean((ud as any)._kccJumpHighHangPlayed);
-  const highStandAtMs = (ud as any)._kccJumpHighStandAtMs as number | undefined;
-  const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
+  const highHangAtMs = getNpcRuntimeValue(ud, "kccJumpHighHangAtMs");
+  const highHangPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpHighHangPlayed"));
+  const highStandAtMs = getNpcRuntimeValue(ud, "kccJumpHighStandAtMs");
+  const highStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpHighStandPlayed"));
 
   if (!highHangPlayed) {
     if (
@@ -864,7 +854,7 @@ function tickJumpUpHigh(params: {
         120,
         Number(NPC_RENDER_TUNING.jumpUpHighJumpUpPhaseSeconds ?? 0.3) * 1000,
       );
-      (ud as any)._kccJumpHighHangAtMs = Date.now() + jumpUpPhaseMs;
+      setNpcRuntimeValue(ud, "kccJumpHighHangAtMs", Date.now() + jumpUpPhaseMs);
       return;
     }
     if (
@@ -883,7 +873,7 @@ function tickJumpUpHigh(params: {
         blendOutMs: highBlendMs,
         fallbackNames: ["S_RUN"],
       });
-      (ud as any)._kccJumpHighHangPlayed = true;
+      setNpcRuntimeValue(ud, "kccJumpHighHangPlayed", true);
       return;
     }
   }
@@ -898,7 +888,7 @@ function tickJumpUpHigh(params: {
         estimateAnimationDurationMs(hangRef.modelName ?? "HUMANS", hangRef.animationName) ??
         estimateAnimationDurationMs("HUMANS", hangRef.animationName) ??
         250;
-      (ud as any)._kccJumpHighStandAtMs = Date.now() + Math.max(120, hangDurMs);
+      setNpcRuntimeValue(ud, "kccJumpHighStandAtMs", Date.now() + Math.max(120, hangDurMs));
       return;
     }
     if (
@@ -917,7 +907,7 @@ function tickJumpUpHigh(params: {
         blendOutMs: highBlendMs,
         fallbackNames: ["S_RUN"],
       });
-      (ud as any)._kccJumpHighStandPlayed = true;
+      setNpcRuntimeValue(ud, "kccJumpHighStandPlayed", true);
     }
   }
 }
@@ -957,11 +947,11 @@ function exitJumpAnimation(params: {
     resolveNpcAnimationRef,
     estimateAnimationDurationMs,
   } = params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-  const midStandPlayed = Boolean((ud as any)._kccJumpMidStandPlayed);
-  const lowStandPlayed = Boolean((ud as any)._kccJumpLowStandPlayed);
-  const highStandPlayed = Boolean((ud as any)._kccJumpHighStandPlayed);
-  ud._kccJumpAnimActive = false;
+  const ud = ensureNpcUserData(npcGroup);
+  const midStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpMidStandPlayed"));
+  const lowStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpLowStandPlayed"));
+  const highStandPlayed = Boolean(getNpcRuntimeValue(ud, "kccJumpHighStandPlayed"));
+  setNpcRuntimeValue(ud, "kccJumpAnimActive", false);
   resetJumpProgressFlags(ud);
   const jumpType = resolveJumpType(ud);
   const moving =
@@ -975,11 +965,11 @@ function exitJumpAnimation(params: {
           ? "t_JumpB"
           : "s_Run";
   const nextRef = resolveNpcAnimationRef(npcData.instanceIndex, nextName);
-  const jumpStartWasRun = Boolean((ud as any)._kccJumpStartWasRun);
-  (ud as any)._kccJumpStartWasRun = false;
+  const jumpStartWasRun = Boolean(getNpcRuntimeValue(ud, "kccJumpStartWasRun"));
+  setNpcRuntimeValue(ud, "kccJumpStartWasRun", false);
 
   if (moving) {
-    (ud as any)._kccJumpBlockUntilMs = undefined;
+    clearNpcRuntimeValue(ud, "kccJumpBlockUntilMs");
     instance.setAnimation(nextRef.animationName, {
       modelName: nextRef.modelName,
       loop: true,
@@ -991,7 +981,7 @@ function exitJumpAnimation(params: {
     return;
   }
   if (jumpType === "jump_up_low" && lowStandPlayed) {
-    (ud as any)._kccJumpBlockUntilMs = undefined;
+    clearNpcRuntimeValue(ud, "kccJumpBlockUntilMs");
     const lowExitBlendMs = 120;
     instance.setAnimation(nextRef.animationName, {
       modelName: nextRef.modelName,
@@ -1004,7 +994,7 @@ function exitJumpAnimation(params: {
     return;
   }
   if (jumpType === "jump_up_mid" && midStandPlayed) {
-    (ud as any)._kccJumpBlockUntilMs = undefined;
+    clearNpcRuntimeValue(ud, "kccJumpBlockUntilMs");
     const midExitBlendMs = 220;
     instance.setAnimation(nextRef.animationName, {
       modelName: nextRef.modelName,
@@ -1017,7 +1007,7 @@ function exitJumpAnimation(params: {
     return;
   }
   if (jumpType === "jump_up_high" && highStandPlayed) {
-    (ud as any)._kccJumpBlockUntilMs = undefined;
+    clearNpcRuntimeValue(ud, "kccJumpBlockUntilMs");
     const highExitBlendMs = 120;
     instance.setAnimation(nextRef.animationName, {
       modelName: nextRef.modelName,
@@ -1040,7 +1030,7 @@ function exitJumpAnimation(params: {
     estimateAnimationDurationMs(ref.modelName ?? "HUMANS", ref.animationName) ??
     estimateAnimationDurationMs("HUMANS", ref.animationName) ??
     400;
-  (ud as any)._kccJumpBlockUntilMs = Date.now() + Math.max(0, durMs);
+  setNpcRuntimeValue(ud, "kccJumpBlockUntilMs", Date.now() + Math.max(0, durMs));
   instance.setAnimation(ref.animationName, {
     modelName: ref.modelName,
     loop: false,
@@ -1102,18 +1092,17 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
   });
 
   if (instance) {
-    const locomotion = npcGroup.userData.locomotion as LocomotionController | undefined;
+    const ud = ensureNpcUserData(npcGroup);
+    const locomotion = ud.locomotion as LocomotionController | undefined;
     const suppress =
-      Boolean((npcGroup.userData as any)._emSuppressLocomotion) ||
-      Boolean((npcGroup.userData as any)._manualSuppressLocomotion);
-    const scriptIdle =
-      ((npcGroup.userData as any)._emIdleAnimation as string | undefined) || undefined;
-    const jumpActive = Boolean((npcGroup.userData as any)._kccJumpActive);
+      Boolean(getNpcRuntimeValue(ud, "emSuppressLocomotion")) ||
+      Boolean(getNpcRuntimeValue(ud, "manualSuppressLocomotion"));
+    const scriptIdle = getNpcRuntimeValue(ud, "emIdleAnimation") || undefined;
+    const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
     // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
     if (!suppress) {
       if (jumpActive) {
-        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-        if (!ud._kccJumpAnimActive) {
+        if (!getNpcRuntimeValue(ud, "kccJumpAnimActive")) {
           startJumpAnimation({
             npcGroup,
             npcData,
@@ -1132,8 +1121,7 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
           });
         }
       } else {
-        const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-        if (ud._kccJumpAnimActive) {
+        if (getNpcRuntimeValue(ud, "kccJumpAnimActive")) {
           exitJumpAnimation({
             npcGroup,
             npcData,
@@ -1169,10 +1157,11 @@ function tickNpcDebugStage(ctx: TickNpcBaseCtx) {
   const shouldLogMotion = runtime.shouldLogMotion;
   const runtimeMotionDebug = runtime.runtimeMotionDebug;
   const locomotionMode = runtime.locomotionMode;
+  const ud = ensureNpcUserData(npcGroup);
 
   if (shouldLogMotion) {
-    const isFallingNow = Boolean(npcGroup.userData.isFalling);
-    const isSlidingNow = Boolean(npcGroup.userData.isSliding);
+    const isFallingNow = Boolean(ud.isFalling);
+    const isSlidingNow = Boolean(ud.isSliding);
     const last = motionDebugLastRef.current;
     const lastMode = last?.locomotionMode ?? "idle";
     const shouldEmit =
@@ -1194,10 +1183,10 @@ function tickNpcDebugStage(ctx: TickNpcBaseCtx) {
         locomotionMode,
         isFalling: isFallingNow,
         isSliding: isSlidingNow,
-        kcc: (npcGroup.userData as any)._kccDbg,
+        kcc: getNpcRuntimeValue(ud, "kccDbg"),
         locomotionRequested: instance ? (instance as any).__debugLocomotionRequested : undefined,
-        fallDbg: (npcGroup.userData as any)._fallDbg,
-        slideDbg: (npcGroup.userData as any)._slideDbg,
+        fallDbg: getNpcRuntimeValue(ud, "fallDbg"),
+        slideDbg: getNpcRuntimeValue(ud, "slideDbg"),
       };
       try {
         console.log("[NPCMotionDebugJSON]" + JSON.stringify(payload));
@@ -1208,10 +1197,9 @@ function tickNpcDebugStage(ctx: TickNpcBaseCtx) {
 
     // Throttled warning when we are falling but we can't find a floor to land on.
     const lastWarnAtMs = last?.lastWarnAtMs ?? 0;
-    const floorTargetY = (npcGroup.userData as any)?._fallDbg?.floorTargetY as
-      | number
-      | null
-      | undefined;
+    const floorTargetY = (
+      getNpcRuntimeValue(ud, "fallDbg") as { floorTargetY?: number | null } | undefined
+    )?.floorTargetY as number | null | undefined;
     const lastWarnNext =
       isFallingNow && floorTargetY == null && nowMs - lastWarnAtMs > 500 ? nowMs : lastWarnAtMs;
     if (lastWarnNext !== lastWarnAtMs) {
@@ -1226,7 +1214,7 @@ function tickNpcDebugStage(ctx: TickNpcBaseCtx) {
                 y: npcGroup.position.y,
                 z: npcGroup.position.z,
               },
-              fallDbg: (npcGroup.userData as any)._fallDbg,
+              fallDbg: getNpcRuntimeValue(ud, "fallDbg"),
             }),
         );
       } catch {
@@ -1249,8 +1237,9 @@ export function createTickNpc(deps: CreateTickNpcDeps) {
 
   return (delta: number, physicsFrame: number, cameraPos: THREE.Vector3) => {
     for (const npcGroup of loadedNpcsRef.current.values()) {
-      const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
-      const npcData = npcGroup.userData.npcData as NpcData | undefined;
+      const ud = ensureNpcUserData(npcGroup);
+      const instance = ud.characterInstance as CharacterInstance | undefined;
+      const npcData = ud.npcData as NpcData | undefined;
       if (!npcData) continue;
 
       const npcId = `npc-${npcData.instanceIndex}`;

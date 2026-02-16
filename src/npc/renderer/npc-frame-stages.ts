@@ -6,6 +6,7 @@ import { setPlayerPoseFromObject3D } from "../../player/player-runtime";
 import type { NpcData } from "../../shared/types";
 import type { Aabb } from "../world/npc-routine-waybox";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
+import { ensureNpcUserData, setNpcRuntimeValue } from "./npc-runtime-state";
 
 export type FrameContext = {
   loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
@@ -32,8 +33,10 @@ export function tickWorldSyncStage(ctx: FrameContext) {
   // Sync current world positions for all loaded NPCs before the VM/state-loop tick.
   // This ensures builtins like `Npc_IsOnFP` / `Wld_IsFPAvailable` see up-to-date coordinates.
   for (const g of ctx.loadedNpcsRef.current.values()) {
-    if (!g || g.userData.isDisposed) continue;
-    const npcData = g.userData.npcData as NpcData | undefined;
+    if (!g) continue;
+    const ud = ensureNpcUserData(g);
+    if (ud.isDisposed) continue;
+    const npcData = ud.npcData as NpcData | undefined;
     if (!npcData) continue;
     updateNpcWorldPosition(npcData.instanceIndex, {
       x: g.position.x,
@@ -88,15 +91,16 @@ export function tickTeleportDebugStage(params: {
       params.tmpTeleportDesiredQuat.setFromAxisAngle(params.tmpManualUp, yaw);
       player.quaternion.copy(params.tmpTeleportDesiredQuat);
 
-      player.userData._kccSnapped = false;
-      player.userData._kccVy = 0;
-      player.userData._kccGrounded = false;
-      player.userData._kccStableGrounded = false;
-      player.userData._kccGroundedFor = 0;
-      player.userData._kccUngroundedFor = 0;
-      player.userData._kccSlideSpeed = 0;
-      player.userData.isFalling = true;
-      player.userData.isSliding = false;
+      const ud = ensureNpcUserData(player);
+      setNpcRuntimeValue(ud, "kccGrounded", false);
+      setNpcRuntimeValue(ud, "kccStableGrounded", false);
+      ud._kccSnapped = false;
+      ud._kccVy = 0;
+      ud._kccGroundedFor = 0;
+      ud._kccUngroundedFor = 0;
+      ud._kccSlideSpeed = 0;
+      ud.isFalling = true;
+      ud.isSliding = false;
 
       params.persistNpcPosition(player);
       params.teleportHeroSeqAppliedRef.current = params.teleportHeroSeqRef.current;

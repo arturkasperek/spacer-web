@@ -6,7 +6,7 @@ import type { World, ZenKit } from "@kolarz3/zenkit";
 import { createStreamingState, disposeObject3D } from "../../world/distance-streaming";
 import type { NpcData } from "../../shared/types";
 import { getMapKey } from "../data/npc-utils";
-import { type CharacterCaches, type CharacterInstance } from "../../character/character-instance";
+import { type CharacterCaches } from "../../character/character-instance";
 import { preloadAnimationSequences } from "../../character/animation";
 import { fetchBinaryCached } from "../../character/binary-cache";
 import { HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionMode } from "../physics/npc-locomotion";
@@ -43,6 +43,12 @@ import {
   tickWorldSyncStage,
 } from "./npc-frame-stages";
 import { createJumpDebugTextSprite } from "./npc-jump-debug-label";
+import {
+  clearNpcRuntimeValue,
+  ensureNpcUserData,
+  getNpcRuntimeValue,
+  setNpcRuntimeValue,
+} from "./npc-runtime-state";
 
 export interface NpcRendererProps {
   world: World | null;
@@ -173,19 +179,19 @@ export function NpcRenderer({
   const { combatRuntimeRef, attachCombatBindings, runCombatTick } = useNpcCombatTick();
 
   const ensureJumpDebugLabel = (npcGroup: THREE.Group) => {
-    const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
-    let root = ud._jumpDebugLabelRoot as THREE.Group | undefined;
-    let setText = ud._jumpDebugLabelSetText as ((text: string) => void) | undefined;
+    const ud = ensureNpcUserData(npcGroup);
+    let root = getNpcRuntimeValue(ud, "jumpDebugLabelRoot") as THREE.Group | undefined;
+    let setText = getNpcRuntimeValue(ud, "jumpDebugLabelSetText");
     if (!root || !setText) {
-      const visualRoot = (ud.visualRoot as THREE.Object3D | undefined) ?? npcGroup;
+      const visualRoot = ud.visualRoot ?? npcGroup;
       const label = createJumpDebugTextSprite("jump_debug");
       root = new THREE.Group();
       root.name = "jump-debug-label-root";
       root.position.set(0, 178, 0);
       root.add(label.sprite);
       visualRoot.add(root);
-      ud._jumpDebugLabelRoot = root;
-      ud._jumpDebugLabelSetText = label.setText;
+      setNpcRuntimeValue(ud, "jumpDebugLabelRoot", root);
+      setNpcRuntimeValue(ud, "jumpDebugLabelSetText", label.setText);
       setText = label.setText;
     }
     return { root, setText };
@@ -279,8 +285,9 @@ export function NpcRenderer({
     for (const npcId of toRemove) {
       const npcGroup = loadedNpcsRef.current.get(npcId);
       if (!npcGroup) continue;
-      npcGroup.userData.isDisposed = true;
-      const npcData = npcGroup.userData.npcData as NpcData | undefined;
+      const ud = ensureNpcUserData(npcGroup);
+      ud.isDisposed = true;
+      const npcData = ud.npcData;
       if (npcData) {
         clearNpcFreepointReservations(npcData.instanceIndex);
         removeNpcWorldPosition(npcData.instanceIndex);
@@ -288,8 +295,8 @@ export function NpcRenderer({
         clearNpcEmQueueState(npcData.instanceIndex);
         waypointMoverRef.current?.clearForNpc?.(npcId);
       }
-      const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
-      const isLoading = Boolean(npcGroup.userData.modelLoading);
+      const instance = ud.characterInstance;
+      const isLoading = Boolean(ud.modelLoading);
       if (instance && !isLoading) instance.dispose();
       if (npcsGroupRef.current) npcsGroupRef.current.remove(npcGroup);
       disposeObject3D(npcGroup);
@@ -327,7 +334,7 @@ export function NpcRenderer({
   }, [world]);
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
-    const npcData = npcGroup.userData.npcData as NpcData | undefined;
+    const npcData = ensureNpcUserData(npcGroup).npcData;
     if (!npcData) return;
     const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
     if (entry) entry.position.copy(npcGroup.position);
@@ -490,10 +497,13 @@ export function NpcRenderer({
         scene.remove(npcsGroupRef.current);
         // Dispose all NPCs
         for (const npcGroup of loadedNpcsRef.current.values()) {
-          npcGroup.userData.isDisposed = true;
+          const ud = ensureNpcUserData(npcGroup);
+          ud.isDisposed = true;
+          clearNpcRuntimeValue(ud, "jumpDebugLabelRoot");
+          clearNpcRuntimeValue(ud, "jumpDebugLabelSetText");
           removeNpcKccCollider(npcGroup);
-          const instance = npcGroup.userData.characterInstance as CharacterInstance | undefined;
-          const isLoading = Boolean(npcGroup.userData.modelLoading);
+          const instance = ud.characterInstance;
+          const isLoading = Boolean(ud.modelLoading);
           if (instance && !isLoading) instance.dispose();
           disposeObject3D(npcGroup);
         }
