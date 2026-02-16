@@ -6,6 +6,7 @@ import type { LocomotionController } from "../physics/npc-locomotion";
 type RawUserData = Record<string, unknown>;
 
 export type NpcJumpType = "jump_forward" | "jump_up_low" | "jump_up_mid" | "jump_up_high";
+export type NpcJumpAnimState = "idle" | "start" | "loop" | "hang" | "exit";
 
 export type NpcJumpDecision = {
   type?: string;
@@ -27,6 +28,7 @@ export type NpcRuntimeState = {
   jumpDebugLabelSetText?: (text: string) => void;
   jumpDecision?: NpcJumpDecision;
   ledgeBest?: NpcLedgeBest | null;
+  jumpAnimState?: NpcJumpAnimState;
   manualSuppressLocomotion?: boolean;
   manualTurnAnim?: string;
   manualWasTurningInPlace?: boolean;
@@ -76,6 +78,7 @@ const RUNTIME_KEY_MAP: Record<RuntimeField, string> = {
   jumpDebugLabelSetText: "_jumpDebugLabelSetText",
   jumpDecision: "_kccJumpDecision",
   ledgeBest: "_kccLedgeBest",
+  jumpAnimState: "_kccJumpAnimState",
   manualSuppressLocomotion: "_manualSuppressLocomotion",
   manualTurnAnim: "_manualTurnAnim",
   manualWasTurningInPlace: "_manualWasTurningInPlace",

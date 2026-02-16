@@ -21,6 +21,7 @@ import {
   type NpcJumpType,
   type NpcRendererUserData,
 } from "./npc-runtime-state";
+import { tickJumpAnimationFsm } from "./npc-jump-fsm";
 
 type MotionDebugState = {
   isFalling: boolean;
@@ -920,7 +921,7 @@ function tickActiveJumpAnimation(params: {
   estimateAnimationDurationMs: CreateTickNpcDeps["estimateAnimationDurationMs"];
 }) {
   const { npcGroup } = params;
-  const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+  const ud = ensureNpcUserData(npcGroup);
   const jumpType = resolveJumpType(ud);
   if (jumpType === "jump_up_low") {
     tickJumpUpLow(params);
@@ -1101,8 +1102,10 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
     const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
     // While the event-manager plays a one-shot animation, do not override it with locomotion/idle updates.
     if (!suppress) {
-      if (jumpActive) {
-        if (!getNpcRuntimeValue(ud, "kccJumpAnimActive")) {
+      tickJumpAnimationFsm({
+        userData: ud,
+        jumpActive,
+        onStartJumpAnimation: () =>
           startJumpAnimation({
             npcGroup,
             npcData,
@@ -1110,18 +1113,16 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
             locomotionMode,
             resolveNpcAnimationRef,
             estimateAnimationDurationMs,
-          });
-        } else {
+          }),
+        onTickActiveJumpAnimation: () =>
           tickActiveJumpAnimation({
             npcGroup,
             npcData,
             instance,
             resolveNpcAnimationRef,
             estimateAnimationDurationMs,
-          });
-        }
-      } else {
-        if (getNpcRuntimeValue(ud, "kccJumpAnimActive")) {
+          }),
+        onExitJumpAnimation: () =>
           exitJumpAnimation({
             npcGroup,
             npcData,
@@ -1129,8 +1130,10 @@ function tickNpcAnimationStage(ctx: TickNpcBaseCtx) {
             locomotionMode,
             resolveNpcAnimationRef,
             estimateAnimationDurationMs,
-          });
-        }
+          }),
+      });
+
+      if (!jumpActive) {
         applyGroundAnimation({
           npcData,
           instance,
