@@ -65,6 +65,21 @@ export class ModelScriptRegistry {
     return this.loaded.get(k) ?? null;
   }
 
+  /**
+   * Checks whether animation exists in already loaded script metadata.
+   * - `true`: animation exists for this model key
+   * - `false`: script is loaded and animation is missing
+   * - `null`: script isn't loaded yet (unknown)
+   */
+  hasAnimation(modelKey: string, animationName: string): boolean | null {
+    const k = (modelKey || "").trim().toUpperCase();
+    const nameKey = (animationName || "").trim().toUpperCase();
+    if (!k || !nameKey) return null;
+    const loaded = this.loaded.get(k);
+    if (!loaded) return null;
+    return loaded.animationsByName.has(nameKey);
+  }
+
   startLoadScript(key: string): void {
     void this.loadScript(key);
   }

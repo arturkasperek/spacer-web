@@ -96,6 +96,8 @@ export async function loadNpcCharacter(
         rootMotionTarget: "self",
         applyRootMotion: false,
         align: "ground",
+        canLoadAnimation: (modelName, animationName) =>
+          modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
       });
 
       if (!instance && modelKey !== bodyMesh) {
@@ -111,6 +113,8 @@ export async function loadNpcCharacter(
           rootMotionTarget: "self",
           applyRootMotion: false,
           align: "ground",
+          canLoadAnimation: (modelName, animationName) =>
+            modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
         });
       }
     }

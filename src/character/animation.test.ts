@@ -8,6 +8,10 @@ jest.mock("./binary-cache", () => ({
 import { fetchBinaryCached } from "./binary-cache";
 
 describe("loadAnimationSequence", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it("loads, parses, and caches animation sequence", async () => {
     (fetchBinaryCached as unknown as jest.Mock).mockResolvedValue(new Uint8Array([1, 2, 3]));
 
@@ -62,5 +66,17 @@ describe("loadAnimationSequence", () => {
 
     const seq = await loadAnimationSequence(zenKit, new Map(), new Map(), "humans", "missing");
     expect(seq).toBeNull();
+  });
+
+  it("skips MAN fetch when precheck says animation is unavailable", async () => {
+    const zenKit = {
+      createModelAnimation: jest.fn(),
+    } as unknown as ZenKit;
+
+    const seq = await loadAnimationSequence(zenKit, new Map(), new Map(), "GIANT_BUG", "S_STAND", {
+      canLoadAnimation: () => false,
+    });
+    expect(seq).toBeNull();
+    expect(fetchBinaryCached).not.toHaveBeenCalled();
   });
 });

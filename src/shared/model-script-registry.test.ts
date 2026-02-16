@@ -148,5 +148,9 @@ describe("ModelScriptRegistry", () => {
       "t_DOES_NOT_EXIST",
     );
     expect(meta3).toBeNull();
+
+    expect(reg.hasAnimation("HUMANS_RELAXED", "s_WalkL")).toBe(true);
+    expect(reg.hasAnimation("HUMANS_RELAXED", "t_DOES_NOT_EXIST")).toBe(false);
+    expect(reg.hasAnimation("UNKNOWN_MODEL", "s_WalkL")).toBeNull();
   });
 });

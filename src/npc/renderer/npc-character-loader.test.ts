@@ -161,7 +161,7 @@ describe("npc-character-loader", () => {
     mockCreateCreatureCharacterInstance.mockReturnValueOnce(null);
     mockCreateCreatureCharacterInstance.mockReturnValueOnce(creatureInstance);
 
-    const modelScriptRegistry = { startLoadScript: jest.fn() };
+    const modelScriptRegistry = { startLoadScript: jest.fn(), hasAnimation: jest.fn(() => true) };
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,
@@ -175,6 +175,13 @@ describe("npc-character-loader", () => {
     expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(2);
     expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("DRAGON");
     expect(mockCreateCreatureCharacterInstance.mock.calls[1][0].modelKey).toBe("WOLF");
+    expect(typeof mockCreateCreatureCharacterInstance.mock.calls[0][0].canLoadAnimation).toBe(
+      "function",
+    );
+    expect(
+      mockCreateCreatureCharacterInstance.mock.calls[0][0].canLoadAnimation("DRAGON", "S_RUN"),
+    ).toBe(true);
+    expect(modelScriptRegistry.hasAnimation).toHaveBeenCalledWith("DRAGON", "S_RUN");
     expect(mockCreateCreatureLocomotionController).toHaveBeenCalledTimes(1);
     expect(mockCreateHumanLocomotionController).not.toHaveBeenCalled();
   });

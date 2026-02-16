@@ -39,6 +39,7 @@ export async function createCreatureCharacterInstance(params: {
   applyRootMotion?: boolean;
   rootMotionTarget?: "self" | "parent";
   align?: "center" | "ground";
+  canLoadAnimation?: (modelName: string, animationName: string) => boolean | null | undefined;
 }): Promise<CharacterInstance | null> {
   const {
     zenKit,
@@ -53,6 +54,7 @@ export async function createCreatureCharacterInstance(params: {
     applyRootMotion = true,
     rootMotionTarget = "parent",
     align = "ground",
+    canLoadAnimation,
   } = params;
 
   const model = normalizeModelKey(modelKey);
@@ -134,6 +136,7 @@ export async function createCreatureCharacterInstance(params: {
         caches.animations,
         model,
         cand,
+        { canLoadAnimation },
       );
       if (seq) {
         initialSequence = seq;
@@ -189,6 +192,7 @@ export async function createCreatureCharacterInstance(params: {
               caches.animations,
               next.modelName,
               cand,
+              { canLoadAnimation },
             );
             if (seq) {
               loaded = { seq, name: cand };

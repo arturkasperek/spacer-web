@@ -55,10 +55,16 @@ export async function loadAnimationSequence(
   animationCache: AnimationCache,
   baseName: string,
   animationName: string,
+  options?: {
+    canLoadAnimation?: (modelName: string, animationName: string) => boolean | null | undefined;
+  },
 ): Promise<AnimationSequence | null> {
   const cacheKey = `${baseName.toUpperCase()}:${animationName.toUpperCase()}`;
   const cached = animationCache.get(cacheKey);
   if (cached) return cached;
+
+  const canLoad = options?.canLoadAnimation?.(baseName, animationName);
+  if (canLoad === false) return null;
 
   const manFileName = `${baseName}-${animationName}.MAN`.toUpperCase();
   const manPath = `/ANIMS/_COMPILED/${manFileName}`;
