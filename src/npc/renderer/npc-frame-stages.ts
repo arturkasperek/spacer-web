@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import { updateNpcWorldPosition } from "../world/npc-freepoints";
 import { tickNpcDaedalusStateLoop } from "../scripting/npc-daedalus-loop";
@@ -9,16 +9,16 @@ import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 import { ensureNpcUserData, setNpcRuntimeValue } from "./npc-runtime-state";
 
 export type FrameContext = {
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
-  waypointMoverRef: MutableRefObject<WaypointMover | null>;
-  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
+  waypointMoverRef: RefObject<WaypointMover | null>;
+  playerGroupRef: RefObject<THREE.Group | null>;
 };
 
 export function tickStreamingStage(params: {
-  physicsFrameRef: MutableRefObject<number>;
-  allNpcsRef: MutableRefObject<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
+  physicsFrameRef: RefObject<number>;
+  allNpcsRef: RefObject<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
   updateNpcStreaming: () => unknown;
-  freepointOwnerOverlayRef: MutableRefObject<{ update: (enabled: boolean) => void } | null>;
+  freepointOwnerOverlayRef: RefObject<{ update: (enabled: boolean) => void } | null>;
   enabled: boolean;
 }) {
   const physicsFrame = ++params.physicsFrameRef.current;
@@ -59,9 +59,9 @@ export function tickScriptsStage(ctx: FrameContext) {
 }
 
 export function tickTeleportDebugStage(params: {
-  teleportHeroSeqAppliedRef: MutableRefObject<number>;
-  teleportHeroSeqRef: MutableRefObject<number>;
-  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  teleportHeroSeqAppliedRef: RefObject<number>;
+  teleportHeroSeqRef: RefObject<number>;
+  playerGroupRef: RefObject<THREE.Group | null>;
   camera: THREE.Camera;
   tmpTeleportForward: THREE.Vector3;
   tmpTeleportDesiredQuat: THREE.Quaternion;
@@ -110,7 +110,7 @@ export function tickTeleportDebugStage(params: {
 
 export function tickCombatStage(params: {
   delta: number;
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
   runCombatTick: (
     delta: number,
     loadedNpcs: Iterable<THREE.Group>,

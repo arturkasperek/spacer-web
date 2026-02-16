@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import {
   createHumanLocomotionController,
@@ -32,9 +32,9 @@ type MotionDebugState = {
 };
 
 export type CreateTickNpcDeps = {
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
   getNpcVisualRoot: (npcGroup: THREE.Group) => THREE.Object3D;
-  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  playerGroupRef: RefObject<THREE.Group | null>;
   hideHero: boolean;
   showJumpDebugRange: boolean;
   ensureJumpDebugLabel: (npcGroup: THREE.Group) => {
@@ -45,11 +45,11 @@ export type CreateTickNpcDeps = {
   manualControlHeroEnabled: boolean;
   trySnapNpcToGroundWithRapier: (npcGroup: THREE.Group) => boolean;
   playerInput: { consumeMouseYawDelta: () => number };
-  manualAttackSeqRef: MutableRefObject<number>;
-  manualAttackSeqAppliedRef: MutableRefObject<number>;
-  manualJumpSeqRef: MutableRefObject<number>;
-  manualJumpSeqAppliedRef: MutableRefObject<number>;
-  combatRuntimeRef: MutableRefObject<{
+  manualAttackSeqRef: RefObject<number>;
+  manualAttackSeqAppliedRef: RefObject<number>;
+  manualJumpSeqRef: RefObject<number>;
+  manualJumpSeqAppliedRef: RefObject<number>;
+  combatRuntimeRef: RefObject<{
     ensureNpc: (npcData: NpcData) => void;
     requestMeleeAttack: (npcInstanceIndex: number, opts?: any) => boolean;
     getState: (npcInstanceIndex: number) => unknown;
@@ -61,8 +61,8 @@ export type CreateTickNpcDeps = {
     }) => void;
   }>;
   resolveNpcAnimationRef: (npcInstanceIndex: number, animationName: string) => NpcAnimationRef;
-  manualKeysRef: MutableRefObject<ManualKeysState>;
-  manualRunToggleRef: MutableRefObject<boolean>;
+  manualKeysRef: RefObject<ManualKeysState>;
+  manualRunToggleRef: RefObject<boolean>;
   manualControlSpeeds: { walk: number; run: number; back: number };
   tmpManualForward: THREE.Vector3;
   tmpEmRootMotionWorld: THREE.Vector3;
@@ -74,7 +74,7 @@ export type CreateTickNpcDeps = {
     desiredZ: number,
     deltaSeconds: number,
   ) => { moved: boolean };
-  waypointMoverRef: MutableRefObject<WaypointMover | null>;
+  waypointMoverRef: RefObject<WaypointMover | null>;
   estimateAnimationDurationMs: (modelName: string, animationName: string) => number | null;
   getNearestWaypointDirectionQuat: (pos: THREE.Vector3) => THREE.Quaternion | null;
   getAnimationMetaForNpc: (npcInstanceIndex: number, animationName: string) => any;
@@ -83,7 +83,7 @@ export type CreateTickNpcDeps = {
     fallDownHeight?: number;
     slideEntryDelaySeconds?: number;
   };
-  motionDebugLastRef: MutableRefObject<MotionDebugState | undefined>;
+  motionDebugLastRef: RefObject<MotionDebugState | undefined>;
 };
 
 type TickNpcRuntime = {

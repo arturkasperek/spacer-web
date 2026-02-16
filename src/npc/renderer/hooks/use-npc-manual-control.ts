@@ -1,4 +1,4 @@
-import { useEffect, useRef, type MutableRefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 export type ManualKeysState = {
   up: boolean;
@@ -9,14 +9,14 @@ export type ManualKeysState = {
 
 export type UseNpcManualControlResult = {
   manualControlHeroEnabled: boolean;
-  manualKeysRef: MutableRefObject<ManualKeysState>;
-  manualRunToggleRef: MutableRefObject<boolean>;
-  teleportHeroSeqRef: MutableRefObject<number>;
-  teleportHeroSeqAppliedRef: MutableRefObject<number>;
-  manualAttackSeqRef: MutableRefObject<number>;
-  manualAttackSeqAppliedRef: MutableRefObject<number>;
-  manualJumpSeqRef: MutableRefObject<number>;
-  manualJumpSeqAppliedRef: MutableRefObject<number>;
+  manualKeysRef: RefObject<ManualKeysState>;
+  manualRunToggleRef: RefObject<boolean>;
+  teleportHeroSeqRef: RefObject<number>;
+  teleportHeroSeqAppliedRef: RefObject<number>;
+  manualAttackSeqRef: RefObject<number>;
+  manualAttackSeqAppliedRef: RefObject<number>;
+  manualJumpSeqRef: RefObject<number>;
+  manualJumpSeqAppliedRef: RefObject<number>;
 };
 
 export function useNpcManualControl(): UseNpcManualControlResult {

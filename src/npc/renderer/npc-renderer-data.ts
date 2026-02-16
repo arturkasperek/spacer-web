@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
 import { findActiveRoutineWaypoint } from "../data/npc-utils";
@@ -25,7 +25,7 @@ export function computeNpcsWithPositions({
   npcRoutineWayboxIndex: Map<number, Aabb | null>;
   waypointPosIndex: Map<string, THREE.Vector3>;
   vobPosIndex: Map<string, THREE.Vector3>;
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
 }): Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }> {
   if (!world || !enabled || npcs.size === 0) {
     return [];

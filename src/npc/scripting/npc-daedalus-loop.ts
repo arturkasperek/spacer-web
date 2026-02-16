@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 import type { NpcData } from "../../shared/types";
@@ -17,8 +17,8 @@ export function tickNpcDaedalusStateLoop({
   loadedNpcsRef,
   waypointMoverRef,
 }: {
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
-  waypointMoverRef: MutableRefObject<WaypointMover | null>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
+  waypointMoverRef: RefObject<WaypointMover | null>;
 }) {
   // Run a minimal Daedalus "state loop" tick for loaded NPCs.
   // This is what triggers scripts like `zs_bandit_loop()` that call `AI_GotoFP(...)`.

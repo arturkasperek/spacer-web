@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, type MutableRefObject } from "react";
+import { useMemo, useEffect, useRef, type RefObject } from "react";
 import { useRapier } from "@react-three/rapier";
 import * as THREE from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -157,9 +157,9 @@ export const NPC_RENDER_TUNING = {
 } as const;
 
 export type UseNpcPhysicsArgs = {
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
-  physicsFrameRef: MutableRefObject<number>;
-  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
+  physicsFrameRef: RefObject<number>;
+  playerGroupRef: RefObject<THREE.Group | null>;
   showKccCapsule?: boolean;
   showGroundProbeRay?: boolean;
   showJumpDebugRange?: boolean;

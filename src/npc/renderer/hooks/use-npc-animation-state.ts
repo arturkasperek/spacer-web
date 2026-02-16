@@ -1,4 +1,4 @@
-import { useMemo, type MutableRefObject } from "react";
+import { useMemo, type RefObject } from "react";
 import * as THREE from "three";
 import type { CharacterCaches } from "../../../character/character-instance";
 import { getNpcModelScriptsState } from "../../scripting/npc-model-scripts";
@@ -12,8 +12,8 @@ export type NpcAnimationRef = {
 };
 
 export function useNpcAnimationState(params: {
-  characterCachesRef: MutableRefObject<CharacterCaches>;
-  modelScriptRegistryRef: MutableRefObject<ModelScriptRegistry | null>;
+  characterCachesRef: RefObject<CharacterCaches>;
+  modelScriptRegistryRef: RefObject<ModelScriptRegistry | null>;
   waypointPosIndex: Map<string, THREE.Vector3>;
   waypointDirIndex: Map<string, THREE.Quaternion>;
 }) {

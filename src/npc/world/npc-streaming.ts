@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import type { World } from "@kolarz3/zenkit";
 import {
@@ -48,14 +48,14 @@ export function updateNpcStreaming({
   world: World | null;
   cameraPosition: THREE.Vector3 | undefined;
   camera: THREE.Camera | undefined;
-  streamingState: MutableRefObject<StreamingState>;
-  npcItemsRef: MutableRefObject<Array<{ id: string; waybox: Aabb }>>;
-  loadedNpcsRef: MutableRefObject<Map<string, THREE.Group>>;
-  allNpcsRef: MutableRefObject<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
-  allNpcsByIdRef: MutableRefObject<
+  streamingState: RefObject<StreamingState>;
+  npcItemsRef: RefObject<Array<{ id: string; waybox: Aabb }>>;
+  loadedNpcsRef: RefObject<Map<string, THREE.Group>>;
+  allNpcsRef: RefObject<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>;
+  allNpcsByIdRef: RefObject<
     Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>
   >;
-  npcsGroupRef: MutableRefObject<THREE.Group | null>;
+  npcsGroupRef: RefObject<THREE.Group | null>;
   scene: THREE.Scene;
   kccConfig: { radius: number };
   applyMoveConstraint: (
@@ -67,8 +67,8 @@ export function updateNpcStreaming({
   trySnapNpcToGroundWithRapier: (npcGroup: THREE.Group) => boolean;
   loadNpcCharacter: (npcGroup: THREE.Group, npcData: NpcData) => Promise<void> | void;
   removeNpcKccCollider: (npcGroup: THREE.Object3D) => void;
-  waypointMoverRef: MutableRefObject<WaypointMover | null>;
-  playerGroupRef: MutableRefObject<THREE.Group | null>;
+  waypointMoverRef: RefObject<WaypointMover | null>;
+  playerGroupRef: RefObject<THREE.Group | null>;
   manualControlHeroEnabled: boolean;
   waypointDirIndex: Map<string, THREE.Quaternion>;
   vobDirIndex: Map<string, THREE.Quaternion>;

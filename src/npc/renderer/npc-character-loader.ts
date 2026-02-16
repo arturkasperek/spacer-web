@@ -1,4 +1,4 @@
-import type { MutableRefObject } from "react";
+import type { RefObject } from "react";
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import {
@@ -25,9 +25,9 @@ export async function loadNpcCharacter(
     getNpcVisualRoot,
   }: {
     zenKit: ZenKit | null;
-    characterCachesRef: MutableRefObject<CharacterCaches>;
-    modelScriptRegistryRef: MutableRefObject<ModelScriptRegistry | null>;
-    waypointMoverRef: MutableRefObject<WaypointMover | null>;
+    characterCachesRef: RefObject<CharacterCaches>;
+    modelScriptRegistryRef: RefObject<ModelScriptRegistry | null>;
+    waypointMoverRef: RefObject<WaypointMover | null>;
     getNpcVisualRoot: (npcGroup: THREE.Group) => THREE.Object3D;
   },
 ) {
