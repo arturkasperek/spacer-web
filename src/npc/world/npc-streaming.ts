@@ -120,15 +120,18 @@ export function updateNpcStreaming({
     toLoad.push(item.id);
   }
   toLoad.sort((a, b) => {
-    const ai = Number(String(a).slice(4));
-    const bi = Number(String(b).slice(4));
-    if (!Number.isFinite(ai) || !Number.isFinite(bi)) return a.localeCompare(b);
-    const ao = getNpcSpawnOrder(ai);
-    const bo = getNpcSpawnOrder(bi);
+    const aEntry = allNpcsByIdRef.current.get(a);
+    const bEntry = allNpcsByIdRef.current.get(b);
+    if (!aEntry || !bEntry) return a.localeCompare(b);
+    const ar = aEntry.npcData.spawnRuntimeId;
+    const br = bEntry.npcData.spawnRuntimeId;
+    if (typeof ar === "number" && typeof br === "number" && ar !== br) return ar - br;
+    const ao = getNpcSpawnOrder(aEntry.npcData.instanceIndex);
+    const bo = getNpcSpawnOrder(bEntry.npcData.instanceIndex);
     if (ao != null && bo != null && ao !== bo) return ao - bo;
     if (ao != null && bo == null) return -1;
     if (ao == null && bo != null) return 1;
-    return ai - bi;
+    return aEntry.npcData.instanceIndex - bEntry.npcData.instanceIndex;
   });
 
   const toUnload: string[] = [];
@@ -213,6 +216,7 @@ export function updateNpcStreaming({
     }
 
     const npcGroup = createNpcMesh(npc.npcData, npc.position, rotation);
+    npcGroup.userData.npcId = npcId;
     loadedNpcsRef.current.set(npcId, npcGroup);
     npcGroup.userData.moveConstraint = applyMoveConstraint;
     {

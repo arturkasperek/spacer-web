@@ -12,6 +12,7 @@ import {
   setNpcStateTime,
 } from "../../vm-manager";
 import { getWorldTime } from "../../world/world-time";
+import { getNpcRuntimeId } from "../renderer/npc-renderer-utils";
 
 export function tickNpcDaedalusStateLoop({
   loadedNpcsRef,
@@ -83,7 +84,7 @@ export function tickNpcDaedalusStateLoop({
         const currentKey = (g.userData as any)._aiActiveRoutineKey as string | undefined;
         const currentState = (g.userData as any)._aiActiveStateName as string | undefined;
 
-        const npcId = `npc-${npcData.instanceIndex}`;
+        const npcId = ((g.userData as any).npcId as string | undefined) ?? getNpcRuntimeId(npcData);
         const mover = waypointMoverRef.current;
         const moveState = mover?.getMoveState?.(npcId);
         const emJob = __getNpcEmActiveJob(npcData.instanceIndex);

@@ -350,6 +350,7 @@ export function App() {
 
   // NPC state management
   const [npcs, setNpcs] = useState<Map<number, NpcData>>(new Map());
+  const nextNpcSpawnRuntimeIdRef = useRef(1);
 
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
@@ -433,8 +434,11 @@ export function App() {
   const handleNpcSpawn = useCallback<NpcSpawnCallback>((npcData) => {
     setNpcs((prev) => {
       const newMap = new Map(prev);
-      // Replace existing NPC if same instance index (move to new spawnpoint)
-      newMap.set(npcData.instanceIndex, npcData);
+      const spawnRuntimeId = nextNpcSpawnRuntimeIdRef.current++;
+      newMap.set(spawnRuntimeId, {
+        ...npcData,
+        spawnRuntimeId,
+      });
       return newMap;
     });
   }, []);

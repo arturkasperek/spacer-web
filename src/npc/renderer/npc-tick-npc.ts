@@ -21,6 +21,7 @@ import {
   type NpcJumpType,
   type NpcRendererUserData,
 } from "./npc-runtime-state";
+import { getNpcRuntimeId } from "./npc-renderer-utils";
 import { tickJumpAnimationFsm } from "./npc-jump-fsm";
 
 type MotionDebugState = {
@@ -1245,7 +1246,7 @@ export function createTickNpc(deps: CreateTickNpcDeps) {
       const npcData = ud.npcData as NpcData | undefined;
       if (!npcData) continue;
 
-      const npcId = `npc-${npcData.instanceIndex}`;
+      const npcId = getNpcRuntimeId(npcData);
       attachCombatBindings(npcGroup, npcData);
 
       const runtimeMotionDebug =

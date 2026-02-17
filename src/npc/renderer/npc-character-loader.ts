@@ -16,6 +16,7 @@ import {
   createHumanLocomotionController,
 } from "../physics/npc-locomotion";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
+import { getNpcRuntimeId } from "./npc-renderer-utils";
 
 export async function loadNpcCharacter(
   npcGroup: THREE.Group,
@@ -135,7 +136,7 @@ export async function loadNpcCharacter(
     (npcGroup.userData.characterInstance as CharacterInstance).update(0);
     if (npcGroup.userData.isDisposed) return;
 
-    const npcId = `npc-${npcData.instanceIndex}`;
+    const npcId = getNpcRuntimeId(npcData);
     npcGroup.userData.startMoveToWaypoint = (targetWaypointName: string, options?: any) => {
       return (
         waypointMoverRef.current?.startMoveToWaypoint(

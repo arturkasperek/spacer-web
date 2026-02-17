@@ -12,6 +12,7 @@ export interface RoutineEntry {
 }
 
 export interface NpcData {
+  spawnRuntimeId?: number;
   instanceIndex: number;
   symbolName: string;
   name?: string;

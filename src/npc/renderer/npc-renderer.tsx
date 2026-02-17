@@ -30,6 +30,7 @@ import { computeNpcsWithPositions } from "./npc-renderer-data";
 import { loadNpcCharacter as loadNpcCharacterImpl } from "./npc-character-loader";
 import { setPlayerPoseFromObject3D } from "../../player/player-runtime";
 import { createTickNpc } from "./npc-tick-npc";
+import { getNpcRuntimeId } from "./npc-renderer-utils";
 import { useNpcManualControl } from "./hooks/use-npc-manual-control";
 import { useNpcAnimationState } from "./hooks/use-npc-animation-state";
 import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
@@ -136,9 +137,6 @@ export function NpcRenderer({
   const allNpcsByIdRef = useRef(
     new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>(),
   );
-  const allNpcsByInstanceIndexRef = useRef(
-    new Map<number, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>(),
-  );
   const npcItemsRef = useRef<Array<{ id: string; waybox: Aabb }>>([]);
   const NPC_LOAD_DISTANCE = 5000; // Active-area half size in X/Z for loading
   const NPC_UNLOAD_DISTANCE = 6000; // Active-area half size in X/Z for unloading (hysteresis)
@@ -211,9 +209,9 @@ export function NpcRenderer({
     const out = new Map<number, Aabb | null>();
     if (!world || !enabled || npcs.size === 0) return out;
 
-    for (const [, npcData] of npcs.entries()) {
+    for (const [npcRuntimeId, npcData] of npcs.entries()) {
       const waybox = buildRoutineWaybox(npcData.dailyRoutine, waypointPosIndex);
-      out.set(npcData.instanceIndex, waybox);
+      out.set(npcRuntimeId, waybox);
     }
     return out;
   }, [world, enabled, npcsKey, waypointPosIndex]);
@@ -258,12 +256,10 @@ export function NpcRenderer({
   useEffect(() => {
     allNpcsRef.current = npcsWithPositions;
     const byId = new Map<string, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>();
-    const byIdx = new Map<number, { npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>();
     const items: Array<{ id: string; waybox: Aabb }> = [];
     for (const entry of npcsWithPositions) {
-      const id = `npc-${entry.npcData.instanceIndex}`;
+      const id = getNpcRuntimeId(entry.npcData);
       byId.set(id, entry);
-      byIdx.set(entry.npcData.instanceIndex, entry);
       items.push({ id, waybox: entry.waybox });
       updateNpcWorldPosition(entry.npcData.instanceIndex, {
         x: entry.position.x,
@@ -272,7 +268,6 @@ export function NpcRenderer({
       });
     }
     allNpcsByIdRef.current = byId;
-    allNpcsByInstanceIndexRef.current = byIdx;
     npcItemsRef.current = items;
     streamingState.current.isFirstUpdate.current = true;
 
@@ -334,9 +329,10 @@ export function NpcRenderer({
   }, [world]);
 
   const persistNpcPosition = (npcGroup: THREE.Group) => {
-    const npcData = ensureNpcUserData(npcGroup).npcData;
-    if (!npcData) return;
-    const entry = allNpcsByInstanceIndexRef.current.get(npcData.instanceIndex);
+    const ud = ensureNpcUserData(npcGroup);
+    const npcId = ud.npcId as string | undefined;
+    if (!npcId) return;
+    const entry = allNpcsByIdRef.current.get(npcId);
     if (entry) entry.position.copy(npcGroup.position);
   };
 

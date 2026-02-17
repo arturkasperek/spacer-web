@@ -4,7 +4,7 @@ import type { World } from "@kolarz3/zenkit";
 import { findActiveRoutineWaypoint } from "../data/npc-utils";
 import { createAabbAroundPoint, type Aabb } from "../world/npc-routine-waybox";
 import type { NpcData } from "../../shared/types";
-import { normalizeNameKey } from "./npc-renderer-utils";
+import { getNpcRuntimeId, normalizeNameKey } from "./npc-renderer-utils";
 
 export function computeNpcsWithPositions({
   world,
@@ -35,11 +35,11 @@ export function computeNpcsWithPositions({
   const CURRENT_HOUR = hour;
   const CURRENT_MINUTE = minute;
 
-  for (const [, npcData] of npcs.entries()) {
+  for (const [npcRuntimeId, npcData] of npcs.entries()) {
     let position: [number, number, number] | null = null;
     let waypointName: string | null = null;
 
-    const routineWaybox = npcRoutineWayboxIndex.get(npcData.instanceIndex) ?? null;
+    const routineWaybox = npcRoutineWayboxIndex.get(npcRuntimeId) ?? null;
 
     // ZenGin-like behavior: routine-driven NPC spawning depends on routine "wayboxes" derived from
     // existing waynet waypoints. If a routine references no existing waypoint at all, the original game
@@ -59,7 +59,7 @@ export function computeNpcsWithPositions({
       waypointName = npcData.spawnpoint;
     }
 
-    const npcId = `npc-${npcData.instanceIndex}`;
+    const npcId = getNpcRuntimeId(npcData);
     const loaded = loadedNpcsRef.current.get(npcId);
     if (loaded && !loaded.userData.isDisposed) {
       position = [loaded.position.x, loaded.position.y, loaded.position.z];

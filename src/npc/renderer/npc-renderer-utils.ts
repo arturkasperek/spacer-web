@@ -9,3 +9,9 @@ export const isHeroNpcData = (npcData: NpcData | undefined): boolean => {
   const symbolName = normalizeNameKey(npcData.symbolName || "");
   return symbolName === HERO_SYMBOL_NAME;
 };
+
+export const getNpcRuntimeId = (npcData: NpcData | undefined): string => {
+  if (!npcData) return "npc-unknown";
+  const runtimeId = npcData.spawnRuntimeId ?? npcData.instanceIndex;
+  return `npc-${runtimeId}`;
+};
