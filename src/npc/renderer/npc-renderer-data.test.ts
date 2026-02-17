@@ -164,4 +164,73 @@ describe("npc-renderer-data", () => {
     expect(res).toEqual([]);
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it("handles multiple spawns of the same instanceIndex using spawnRuntimeId", () => {
+    const npcA = {
+      spawnRuntimeId: 1001,
+      instanceIndex: 12469,
+      symbolName: "SHEEP",
+      spawnpoint: "SPAWN_A",
+    };
+    const npcB = {
+      spawnRuntimeId: 1002,
+      instanceIndex: 12469,
+      symbolName: "SHEEP",
+      spawnpoint: "SPAWN_B",
+    };
+    const loadedB = new THREE.Group();
+    loadedB.position.set(40, 50, 60);
+    (loadedB as any).userData = { isDisposed: false };
+
+    const res = mod.computeNpcsWithPositions({
+      world: {} as any,
+      enabled: true,
+      npcs: new Map<number, any>([
+        [1001, npcA],
+        [1002, npcB],
+      ]),
+      hour: 10,
+      minute: 0,
+      npcRoutineWayboxIndex: new Map<number, Aabb | null>(),
+      waypointPosIndex: new Map([["SPAWN_A", new THREE.Vector3(1, 2, 3)]]),
+      vobPosIndex: new Map([["SPAWN_B", new THREE.Vector3(7, 8, 9)]]),
+      loadedNpcsRef: { current: new Map([["npc-1002", loadedB]]) },
+    });
+
+    expect(res).toHaveLength(2);
+    const a = res.find((x) => x.npcData.spawnRuntimeId === 1001)!;
+    const b = res.find((x) => x.npcData.spawnRuntimeId === 1002)!;
+    expect(a.position.x).toBe(1);
+    expect(a.position.y).toBe(2);
+    expect(a.position.z).toBe(3);
+    expect(b.position.x).toBe(40);
+    expect(b.position.y).toBe(50);
+    expect(b.position.z).toBe(60);
+  });
+
+  it("uses routine waybox indexed by runtime key", () => {
+    const npcData = {
+      spawnRuntimeId: 5001,
+      instanceIndex: 12469,
+      symbolName: "SHEEP",
+      spawnpoint: "SPAWN_A",
+      dailyRoutine: [{ start_h: 9, stop_h: 11, waypoint: "ROUTINE_WP" }],
+    };
+    const runtimeWaybox: Aabb = aabbAround(10, 0, 0, 2);
+    const res = mod.computeNpcsWithPositions({
+      world: {} as any,
+      enabled: true,
+      npcs: new Map<number, any>([[5001, npcData]]),
+      hour: 10,
+      minute: 0,
+      npcRoutineWayboxIndex: new Map<number, Aabb | null>([[5001, runtimeWaybox]]),
+      waypointPosIndex: new Map([["ROUTINE_WP", new THREE.Vector3(5, 0, 0)]]),
+      vobPosIndex: new Map(),
+      loadedNpcsRef: { current: new Map() },
+    });
+
+    expect(res).toHaveLength(1);
+    expect(res[0].waybox).toBe(runtimeWaybox);
+    expect(res[0].position.x).toBe(5);
+  });
 });
