@@ -261,7 +261,14 @@ export function tickNpcDaedalusStateLoop({
         if (!loopFn) continue;
 
         vm.setGlobalSelf(npcData.symbolName);
-        vm.callFunction(loopFn, []);
+        try {
+          vm.callFunction(loopFn, []);
+        } catch (error) {
+          console.warn(
+            `[VM loop error] npc=${npcData.symbolName} idx=${npcData.instanceIndex} runtimeId=${npcData.spawnRuntimeId ?? "?"} state=${runningState} loopFn=${loopFn}`,
+            error,
+          );
+        }
       }
     }
   }
