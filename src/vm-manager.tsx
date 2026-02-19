@@ -333,6 +333,20 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     return { npcIndex, name };
   };
 
+  // Resolve Daedalus C_NPC argument into a VM instance object.
+  // Scripts often assign globals like `hero = Hlp_GetNpc(PC_HERO)`.
+  const hlpGetNpcImpl = (arg: any) => {
+    const idx = getInstanceIndexFromArg(arg);
+    if (idx != null && idx > 0) return { symbol_index: idx };
+    if (typeof arg === "string" && arg.trim()) {
+      const byName = findSymbolIndexByName(vm, arg.trim());
+      if (byName != null && byName > 0) return { symbol_index: byName };
+    }
+    return { symbol_index: -1 };
+  };
+  registerExternalSafe(vm, "Hlp_GetNpc", hlpGetNpcImpl);
+  registerExternalSafe(vm, "HLP_GETNPC", hlpGetNpcImpl);
+
   const normalizeVisualName = (name: string): string => {
     if (!name) return "";
     return name
@@ -940,11 +954,14 @@ export function registerEmptyExternals(vm: DaedalusVm): void {
     "AI_RemoveWeapon",
     "AI_SetNpcsToState",
     "AI_SetWalkmode",
+    "AI_SetWalkMode",
     "AI_ShootAt",
     "AI_Snd_Play",
     "AI_Snd_Play3D",
     "AI_StandUp",
+    "AI_Standup",
     "AI_StandUpQuick",
+    "AI_StandupQuick",
     "AI_StartState",
     "AI_StopAim",
     "AI_StopFX",
@@ -1300,9 +1317,32 @@ export async function loadVm(
   if (vm.hasSymbol(otherNpcName)) {
     vm.setGlobalOther(otherNpcName);
   }
+  // Optional ZenKit extension: bind Daedalus hero globals explicitly (OpenGothic-style).
+  try {
+    const pcHeroSymbolIdx = findSymbolIndexByName(vm, HERO_SYMBOL_NAME);
+    if (pcHeroSymbolIdx != null && pcHeroSymbolIdx > 0) {
+      vm.initInstanceByIndex(pcHeroSymbolIdx);
+    }
+    if (vm.hasSymbol(HERO_SYMBOL_NAME)) {
+      vm.setGlobalHero(HERO_SYMBOL_NAME);
+    }
+    if (vm.hasSymbol("HERO")) {
+      vm.setSymbolInstance("HERO", HERO_SYMBOL_NAME);
+    }
+  } catch (e) {
+    console.warn("[VM] Failed to prebind hero globals:", e);
+  }
 
   // Call startup function
   callStartupFunction(vm, startupFunction);
+  // In Gothic scripts, world setup is typically split into `startup_*` (spawn/content)
+  // and `init_*` (globals/attitudes/runtime init). Call matching `init_*` too.
+  if (startupFunction.startsWith("startup_")) {
+    const initFunction = `init_${startupFunction.slice("startup_".length)}`;
+    if (vm.hasSymbol(initFunction)) {
+      callStartupFunction(vm, initFunction);
+    }
+  }
 
   // Spawn the player hero explicitly. In the original engine, the player character is created by the engine
   // (not by Daedalus scripts calling `Wld_InsertNpc`), so we replicate that here.

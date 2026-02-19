@@ -5,6 +5,7 @@ import type { NpcData } from "../../shared/types";
 import { __getNpcEmActiveJob } from "../combat/npc-em-runtime";
 import { __getNpcEmQueueState, requestNpcEmClear } from "../combat/npc-em-queue";
 import { setNpcRoutineRuntime } from "./npc-routine-runtime";
+import { HERO_SYMBOL_NAME } from "../renderer/npc-renderer-utils";
 import {
   advanceNpcStateTime,
   getNpcSpawnOrder,
@@ -261,13 +262,13 @@ export function tickNpcDaedalusStateLoop({
         if (!loopFn) continue;
 
         vm.setGlobalSelf(npcData.symbolName);
+        if (vm.hasSymbol(HERO_SYMBOL_NAME)) {
+          vm.setGlobalOther(HERO_SYMBOL_NAME);
+        }
         try {
           vm.callFunction(loopFn, []);
         } catch (error) {
-          console.warn(
-            `[VM loop error] npc=${npcData.symbolName} idx=${npcData.instanceIndex} runtimeId=${npcData.spawnRuntimeId ?? "?"} state=${runningState} loopFn=${loopFn}`,
-            error,
-          );
+          console.warn(`[VM loop error] state loop call failed: ${loopFn}`, error);
         }
       }
     }
