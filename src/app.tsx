@@ -21,7 +21,7 @@ import { TopMenuBar, TOP_MENU_HEIGHT } from "./ui/top-menu-bar";
 import { setUiSettings, useUiSettings } from "./ui/ui-settings";
 import { useViewSettings } from "./ui/view-settings";
 import type { World, ZenKit, Vob, WayPointData } from "@kolarz3/zenkit";
-import type { NpcData, NpcSpawnCallback } from "./shared/types";
+import type { ItemSpawnCallback, NpcData, NpcSpawnCallback, SpawnedItemData } from "./shared/types";
 import { setFreepointsWorld } from "./npc/world/npc-freepoints";
 import { PlayerInputProvider } from "./player/player-input-context";
 import { FpsOverlay } from "./ui/fps-overlay";
@@ -69,7 +69,9 @@ function Scene({
   onWaypointClickFromScene,
   onNpcClickFromScene,
   npcs,
+  spawnedItems,
   onNpcSpawn,
+  onItemSpawn,
   viewSettings,
 }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
@@ -96,7 +98,9 @@ function Scene({
   onWaypointClickFromScene?: (waypoint: WayPointData) => void;
   onNpcClickFromScene?: (npc: NpcData, npcRoot: THREE.Object3D) => void;
   npcs: Map<number, NpcData>;
+  spawnedItems: Map<number, SpawnedItemData>;
   onNpcSpawn: NpcSpawnCallback;
+  onItemSpawn: ItemSpawnCallback;
   viewSettings: {
     showWaypoints: boolean;
     showVobSpots: boolean;
@@ -223,6 +227,7 @@ function Scene({
         onLoadingStatus={onLoadingStatus}
         onWorldLoaded={onWorldLoaded}
         onNpcSpawn={onNpcSpawn}
+        onItemSpawn={onItemSpawn}
       />
 
       {/* Camera position tracker */}
@@ -252,6 +257,7 @@ function Scene({
           onSelectedVobBoundingBox={onSelectedVobBoundingBox}
           showVobSpots={viewSettings.showVobSpots}
           showLights={viewSettings.showLights}
+          dynamicItems={Array.from(spawnedItems.values())}
         />
       )}
 
@@ -318,6 +324,7 @@ export function App() {
   const handleWorldLoaded = useCallback((loadedWorld: World, loadedZenKit: ZenKit) => {
     setWorld(loadedWorld);
     setZenKit(loadedZenKit);
+    setSpawnedItems(new Map());
     setFreepointsWorld(loadedWorld);
   }, []);
 
@@ -351,6 +358,8 @@ export function App() {
   // NPC state management
   const [npcs, setNpcs] = useState<Map<number, NpcData>>(new Map());
   const nextNpcSpawnRuntimeIdRef = useRef(1);
+  const [spawnedItems, setSpawnedItems] = useState<Map<number, SpawnedItemData>>(new Map());
+  const nextItemSpawnRuntimeIdRef = useRef(1);
 
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
@@ -437,6 +446,18 @@ export function App() {
       const spawnRuntimeId = nextNpcSpawnRuntimeIdRef.current++;
       newMap.set(spawnRuntimeId, {
         ...npcData,
+        spawnRuntimeId,
+      });
+      return newMap;
+    });
+  }, []);
+
+  const handleItemSpawn = useCallback<ItemSpawnCallback>((itemData) => {
+    setSpawnedItems((prev) => {
+      const newMap = new Map(prev);
+      const spawnRuntimeId = nextItemSpawnRuntimeIdRef.current++;
+      newMap.set(spawnRuntimeId, {
+        ...itemData,
         spawnRuntimeId,
       });
       return newMap;
@@ -544,7 +565,9 @@ export function App() {
               onWaypointClickFromScene={handleWaypointClickFromScene}
               onNpcClickFromScene={handleNpcClickFromScene}
               npcs={npcs}
+              spawnedItems={spawnedItems}
               onNpcSpawn={handleNpcSpawn}
+              onItemSpawn={handleItemSpawn}
               viewSettings={viewSettings}
             />
             <FpsOverlay enabled={viewSettings.showFpsMeter} />

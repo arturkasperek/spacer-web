@@ -111,4 +111,51 @@ describe("loadVm", () => {
     expect(vm.setGlobalHero).toHaveBeenCalledWith("PC_HERO");
     expect(vm.setSymbolInstance).toHaveBeenCalledWith("HERO", "PC_HERO");
   });
+
+  it("emits onItemSpawn from Wld_InsertItem external", async () => {
+    const vm = createVmMock({
+      symbols: {
+        11471: "PC_HERO",
+        7812: "ITWR_STONEPLATECOMMON_ADDON",
+      },
+      hasSymbolNames: [
+        "NONE_100_XARDAS",
+        "PC_HERO",
+        "startup_newworld",
+        "init_newworld",
+        "Wld_InsertItem",
+      ],
+    });
+
+    // Simulate script calling Wld_InsertItem during startup.
+    vm.callFunction.mockImplementation((fn: string) => {
+      if (fn === "startup_newworld") {
+        const insertCall = vm.registerExternal.mock.calls.find(
+          (c: any[]) => c[0] === "Wld_InsertItem",
+        );
+        if (insertCall) {
+          const cb = insertCall[1] as (itemInstanceIndex: number, spawnpoint: string) => void;
+          cb(7812, "FP_ITEM_XARDAS_STPLATE_01");
+        }
+      }
+      return { success: true };
+    });
+
+    const { zenKit } = createZenKitMock(vm);
+    const onItemSpawn = jest.fn();
+
+    await loadVm(
+      zenKit as any,
+      "/SCRIPTS/_COMPILED/GOTHIC.DAT",
+      "startup_newworld",
+      undefined,
+      onItemSpawn,
+    );
+
+    expect(onItemSpawn).toHaveBeenCalledWith({
+      instanceIndex: 7812,
+      symbolName: "ITWR_STONEPLATECOMMON_ADDON",
+      spawnpoint: "FP_ITEM_XARDAS_STPLATE_01",
+    });
+  });
 });

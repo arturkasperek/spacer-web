@@ -1,5 +1,5 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from "@kolarz3/zenkit";
-import type { NpcSpawnCallback, RoutineEntry, NpcVisual } from "./shared/types";
+import type { ItemSpawnCallback, NpcSpawnCallback, RoutineEntry, NpcVisual } from "./shared/types";
 import {
   getNpcWorldPosition,
   isFreepointAvailableForNpc,
@@ -18,7 +18,7 @@ import { getWaynetWaypointPosition } from "./waynet/waynet-index";
 import { HERO_SYMBOL_NAME, normalizeNameKey } from "./npc/renderer/npc-renderer-utils";
 
 // Re-export types for consumers
-export type { NpcSpawnCallback } from "./shared/types";
+export type { ItemSpawnCallback, NpcSpawnCallback } from "./shared/types";
 
 export interface VmLoadResult {
   script: DaedalusScript;
@@ -27,16 +27,6 @@ export interface VmLoadResult {
 
 let runtimeVm: DaedalusVm | null = null;
 const npcVisualsByIndex = new Map<number, NpcVisual>();
-type VmInsertedItem = {
-  instanceIndex: number;
-  symbolName: string;
-  spawnpoint: string;
-};
-const vmInsertedItems: VmInsertedItem[] = [];
-
-export function getVmInsertedItems(): ReadonlyArray<VmInsertedItem> {
-  return vmInsertedItems;
-}
 
 // ---------------------------------------------------------------------------
 // NPC spawn order (Wld_InsertNpc call order)
@@ -279,7 +269,11 @@ function findSymbolIndexByName(vm: DaedalusVm, name: string): number | null {
 /**
  * Register external functions with specific implementations
  */
-export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallback): void {
+export function registerVmExternals(
+  vm: DaedalusVm,
+  onNpcSpawn?: NpcSpawnCallback,
+  onItemSpawn?: ItemSpawnCallback,
+): void {
   const verboseVmLogsEnabled = (() => {
     try {
       if (typeof window === "undefined") return false;
@@ -548,11 +542,13 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
       } catch {
         // Ignore symbol lookup failures in trace path.
       }
-      vmInsertedItems.push({
-        instanceIndex: itemInstanceIndex,
-        symbolName: itemSymbol,
-        spawnpoint: spawnpoint || "",
-      });
+      if (onItemSpawn) {
+        onItemSpawn({
+          instanceIndex: itemInstanceIndex,
+          symbolName: itemSymbol,
+          spawnpoint: spawnpoint || "",
+        });
+      }
     });
   };
 
@@ -1327,9 +1323,9 @@ export async function loadVm(
   scriptPath: string = "/SCRIPTS/_COMPILED/GOTHIC.DAT",
   startupFunction: string = "startup_newworld",
   onNpcSpawn?: NpcSpawnCallback,
+  onItemSpawn?: ItemSpawnCallback,
   heroSpawnpointName: string = "START",
 ): Promise<VmLoadResult> {
-  vmInsertedItems.length = 0;
   // Load script
   const { script } = await loadDaedalusScript(zenKit, scriptPath);
 
@@ -1337,7 +1333,7 @@ export async function loadVm(
   const vm = createVm(zenKit, script);
 
   // Register external functions with specific implementations
-  registerVmExternals(vm, onNpcSpawn);
+  registerVmExternals(vm, onNpcSpawn, onItemSpawn);
 
   // Register empty external functions to prevent warnings
   registerEmptyExternals(vm);

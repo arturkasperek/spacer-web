@@ -19,7 +19,8 @@ import {
   disposeObject3D,
 } from "../world/distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
-import { getRuntimeVm, getVmInsertedItems } from "../vm-manager";
+import { getRuntimeVm } from "../vm-manager";
+import type { SpawnedItemData } from "../shared/types";
 
 interface VobData {
   id: string;
@@ -40,6 +41,7 @@ function VOBRenderer({
   onSelectedVobBoundingBox,
   showVobSpots = true,
   showLights = true,
+  dynamicItems = [],
 }: Readonly<{
   world: World | null;
   zenKit: ZenKit | null;
@@ -58,6 +60,7 @@ function VOBRenderer({
   onSelectedVobBoundingBox?: (center: THREE.Vector3, size: THREE.Vector3) => void;
   showVobSpots?: boolean;
   showLights?: boolean;
+  dynamicItems?: SpawnedItemData[];
 }>) {
   const { scene } = useThree();
   const { world: rapierWorld, rapier } = useRapier();
@@ -88,8 +91,7 @@ function VOBRenderer({
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
   const vobColliderHandlesRef = useRef(new Map<string, number>());
-  const hasVmRescanRef = useRef(false);
-  const consumedVmInsertSignaturesRef = useRef(new Set<string>());
+  const consumedDynamicItemSignaturesRef = useRef(new Set<string>());
   const ITEM_VOB_TYPE = 2; // oCItem
 
   const findWaypointPosition = (
@@ -176,8 +178,7 @@ function VOBRenderer({
     get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] ?? 0,
   });
 
-  const collectInsertedItemsFromVm = (worldObj: World): VobData[] => {
-    const inserted = getVmInsertedItems();
+  const collectDynamicItems = (worldObj: World, inserted: SpawnedItemData[]): VobData[] => {
     if (!inserted.length) return [];
     const out: VobData[] = [];
     for (let i = 0; i < inserted.length; i++) {
@@ -185,11 +186,11 @@ function VOBRenderer({
       const instance = (item.symbolName || "").trim().toUpperCase();
       const spawnpoint = (item.spawnpoint || "").trim();
       const sig = `${instance}|${spawnpoint}`;
-      if (consumedVmInsertSignaturesRef.current.has(sig)) continue;
+      if (consumedDynamicItemSignaturesRef.current.has(sig)) continue;
       const wpPos =
         findWaypointPosition(worldObj, spawnpoint) ?? findVobNamedPosition(worldObj, spawnpoint);
       if (!wpPos) continue;
-      consumedVmInsertSignaturesRef.current.add(sig);
+      consumedDynamicItemSignaturesRef.current.add(sig);
       const syntheticVob: any = {
         id: `vm-item-${instance}-${spawnpoint}-${i}`,
         type: ITEM_VOB_TYPE,
@@ -411,9 +412,8 @@ function VOBRenderer({
         onLoadingStatus("🔧 Collecting VOBs...");
 
         // Collect VOBs from world
-        consumedVmInsertSignaturesRef.current.clear();
+        consumedDynamicItemSignaturesRef.current.clear();
         allVOBsRef.current = await collectVOBs(world);
-        hasVmRescanRef.current = Boolean(getRuntimeVm());
 
         // Start the streaming loader
         onLoadingStatus(`🎬 Starting streaming VOB loader (${allVOBsRef.current.length} VOBs)...`);
@@ -615,20 +615,18 @@ function VOBRenderer({
 
   // Alternative approach: use useFrame for continuous streaming updates
   useFrame(() => {
-    // Scripts can insert VOBs/items during startup; refresh collection once after VM becomes available.
-    if (world && !hasVmRescanRef.current && getRuntimeVm()) {
-      hasVmRescanRef.current = true;
-      const newItems = collectInsertedItemsFromVm(world);
-      if (newItems.length > 0) {
-        allVOBsRef.current = [...allVOBsRef.current, ...newItems];
-        vobLoadQueueRef.current = [...newItems, ...vobLoadQueueRef.current];
-      }
-    }
-
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
       updateVOBStreaming();
     }
   });
+
+  useEffect(() => {
+    if (!world || !hasLoadedRef.current || dynamicItems.length === 0) return;
+    const newItems = collectDynamicItems(world, dynamicItems);
+    if (newItems.length === 0) return;
+    allVOBsRef.current = [...allVOBsRef.current, ...newItems];
+    vobLoadQueueRef.current = [...newItems, ...vobLoadQueueRef.current];
+  }, [world, dynamicItems]);
 
   useEffect(() => {
     return () => {

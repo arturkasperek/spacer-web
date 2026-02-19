@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import type { World, ZenKit } from "@kolarz3/zenkit";
 import { useRapier } from "@react-three/rapier";
-import { loadVm, type NpcSpawnCallback } from "../vm-manager";
+import { loadVm, type ItemSpawnCallback, type NpcSpawnCallback } from "../vm-manager";
 import { loadCameraModes } from "../camera/camera-daedalus";
 import {
   buildThreeJSGeometry,
@@ -17,11 +17,13 @@ function WorldRenderer({
   onLoadingStatus,
   onWorldLoaded,
   onNpcSpawn,
+  onItemSpawn,
 }: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
   onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
   onNpcSpawn?: NpcSpawnCallback;
+  onItemSpawn?: ItemSpawnCallback;
 }>) {
   const { world: rapierWorld, rapier } = useRapier();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -271,6 +273,7 @@ function WorldRenderer({
             "/SCRIPTS/_COMPILED/GOTHIC.DAT",
             "startup_newworld",
             onNpcSpawn,
+            onItemSpawn,
             resolveHeroSpawnpoint(),
           );
           await cameraModesPromise;
@@ -289,7 +292,7 @@ function WorldRenderer({
     };
 
     loadWorld();
-  }, [worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn]);
+  }, [worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn, onItemSpawn]);
 
   return worldMesh ? <primitive object={worldMesh as THREE.Object3D} ref={meshRef} /> : null;
 }

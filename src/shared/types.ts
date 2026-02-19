@@ -32,7 +32,15 @@ export interface NpcVisual {
   armorInst: number;
 }
 
+export interface SpawnedItemData {
+  spawnRuntimeId?: number;
+  instanceIndex: number;
+  symbolName: string;
+  spawnpoint: string;
+}
+
 /**
  * NPC spawn callback type
  */
 export type NpcSpawnCallback = (npcData: NpcData) => void;
+export type ItemSpawnCallback = (itemData: SpawnedItemData) => void;
