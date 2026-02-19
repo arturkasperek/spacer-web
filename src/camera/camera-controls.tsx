@@ -196,11 +196,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      // Space is reserved for hero actions (jump/attack), never for free-camera elevation.
+      if (event.code === "Space") return;
       const freeCamera = getCameraSettings().freeCamera;
-      // In manual NPC control mode, Space is used for melee attack.
-      if (event.code === "Space" && !freeCamera) {
-        return;
-      }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if ((event.code === "ShiftLeft" || event.code === "ShiftRight") && !freeCamera) {
         return;
@@ -221,11 +219,9 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
       }
       // Arrow keys are reserved for other interactions (e.g. NPC debug/manual control).
       if (event.code.startsWith("Arrow")) return;
+      // Space is reserved for hero actions (jump/attack), never for free-camera elevation.
+      if (event.code === "Space") return;
       const freeCamera = getCameraSettings().freeCamera;
-      // In manual NPC control mode, Space is used for melee attack.
-      if (event.code === "Space" && !freeCamera) {
-        return;
-      }
       // In manual NPC control mode, Shift is used as a run/walk toggle.
       if ((event.code === "ShiftLeft" || event.code === "ShiftRight") && !freeCamera) {
         return;
@@ -411,7 +407,7 @@ export const CameraControls = forwardRef<CameraControlsRef>((_props, ref) => {
     if (keys["KeyD"]) {
       velocity.add(right);
     }
-    if (keys["KeyQ"] || keys["Space"]) {
+    if (keys["KeyQ"]) {
       velocity.add(up);
     }
     if (keys["KeyZ"] || keys["ShiftLeft"]) {
