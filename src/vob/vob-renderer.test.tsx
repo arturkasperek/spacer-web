@@ -3,6 +3,7 @@ import { VOBRenderer } from "./vob-renderer";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import type { World, ZenKit, Vob } from "@kolarz3/zenkit";
+import { getRuntimeVm } from "../vm-manager";
 
 jest.mock("../shared/mesh-utils", () => ({
   loadMeshCached: jest.fn(),
@@ -10,6 +11,10 @@ jest.mock("../shared/mesh-utils", () => ({
 }));
 
 import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
+
+jest.mock("../vm-manager", () => ({
+  getRuntimeVm: jest.fn(() => null),
+}));
 
 // Mock VOBBoundingBox component
 jest.mock("./vob-bounding-box", () => ({
@@ -547,6 +552,53 @@ describe("VOBRenderer", () => {
     );
 
     // Should only collect the valid mesh VOB
+    expect(mockConsoleLog).toHaveBeenCalledWith("📊 Renderable VOBs: 1");
+  });
+
+  it("collects oCItem VOBs using C_ITEM.visual from VM when vob.visual is empty", () => {
+    const vmMock = {
+      symbolCount: 2,
+      getSymbolNameByIndex: jest.fn((idx: number) =>
+        idx === 1 ? { success: true, data: "ITFO_APPLE" } : { success: false },
+      ),
+      initInstanceByIndex: jest.fn(() => ({ success: true })),
+      getSymbolString: jest.fn((symbol: string, instanceName?: string) =>
+        symbol === "C_ITEM.visual" && instanceName === "ITFO_APPLE" ? "ITFO_APPLE.3DS" : "",
+      ),
+    };
+    (getRuntimeVm as unknown as jest.Mock).mockReturnValue(vmMock);
+
+    const mockWorldWithItem = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => ({
+          id: 1,
+          type: 2, // oCItem
+          itemInstance: "ITFO_APPLE",
+          showVisual: true,
+          visual: { type: 0, name: "" }, // no direct VOB visual
+          position: { x: 0, y: 0, z: 0 },
+          rotation: {
+            toArray: () => ({
+              size: () => 9,
+              get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0,
+            }),
+          },
+          children: { size: () => 0, get: () => null as any },
+        }),
+      }),
+    }) as unknown as World;
+    const mockZenKit = createMockZenKit();
+
+    render(
+      <VOBRenderer
+        world={mockWorldWithItem}
+        zenKit={mockZenKit}
+        onLoadingStatus={mockOnLoadingStatus}
+      />,
+    );
+
+    expect(vmMock.getSymbolString).toHaveBeenCalledWith("C_ITEM.visual", "ITFO_APPLE");
     expect(mockConsoleLog).toHaveBeenCalledWith("📊 Renderable VOBs: 1");
   });
 

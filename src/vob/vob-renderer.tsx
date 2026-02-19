@@ -19,6 +19,7 @@ import {
   disposeObject3D,
 } from "../world/distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
+import { getRuntimeVm } from "../vm-manager";
 
 interface VobData {
   id: string;
@@ -79,12 +80,63 @@ function VOBRenderer({
   const morphMeshCacheRef = useRef(
     new Map<string, { morphMesh: MorphMesh; processed: ProcessedMeshData; animations: string[] }>(),
   ); // path -> { morphMesh, processed, animations }
+  const itemVisualCacheRef = useRef(new Map<string, string>());
+  const vmSymbolIndexCacheRef = useRef(new Map<string, number | null>());
 
   // Streaming loader state
   const vobLoadQueueRef = useRef<VobData[]>([]);
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
   const vobColliderHandlesRef = useRef(new Map<string, number>());
+  const ITEM_VOB_TYPE = 2; // oCItem
+
+  const getSymbolIndexByName = (name: string): number | null => {
+    const key = (name || "").trim().toUpperCase();
+    if (!key) return null;
+    if (vmSymbolIndexCacheRef.current.has(key)) {
+      return vmSymbolIndexCacheRef.current.get(key) ?? null;
+    }
+    const vm = getRuntimeVm();
+    if (!vm) return null;
+    const count = Number(vm.symbolCount);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    for (let i = 0; i < count; i++) {
+      const r = vm.getSymbolNameByIndex(i);
+      if (!r.success || !r.data) continue;
+      if ((r.data || "").trim().toUpperCase() === key) {
+        vmSymbolIndexCacheRef.current.set(key, i);
+        return i;
+      }
+    }
+    return null;
+  };
+
+  // OG-style item visuals come from C_ITEM instance (`C_ITEM.visual`), not always from vob.visual.
+  const resolveItemVisualFromVm = (vob: Vob, vobType: number | undefined): string => {
+    if (vobType !== ITEM_VOB_TYPE) return "";
+    const instanceName = ((vob as any).itemInstance || "").trim().toUpperCase();
+    if (!instanceName) return "";
+    if (itemVisualCacheRef.current.has(instanceName)) {
+      const cached = itemVisualCacheRef.current.get(instanceName) || "";
+      if (cached) return cached;
+      // Empty cache entries are treated as transient misses; retry on next pass.
+      itemVisualCacheRef.current.delete(instanceName);
+    }
+    const vm = getRuntimeVm();
+    if (!vm) return "";
+
+    try {
+      const instanceIdx = getSymbolIndexByName(instanceName);
+      if (instanceIdx != null && instanceIdx > 0) {
+        vm.initInstanceByIndex(instanceIdx);
+      }
+      const visual = (vm.getSymbolString("C_ITEM.visual", instanceName) || "").trim();
+      if (visual) itemVisualCacheRef.current.set(instanceName, visual);
+      return visual;
+    } catch {
+      return "";
+    }
+  };
 
   const shouldCreateVobCollider = (vob: Vob) => {
     const vobType = getVobType(vob);
@@ -261,6 +313,9 @@ function VOBRenderer({
     let totalCount = 0;
     const visualTypeCounts: { [key: string]: number } = {};
 
+    const isSupportedVisualType = (visualType: number): boolean =>
+      visualType === 1 || visualType === 2 || visualType === 5 || visualType === 6;
+
     // Recursive function to collect VOB data
     function collectVobTree(vob: Vob, vobId = 0) {
       totalCount++;
@@ -271,23 +326,23 @@ function VOBRenderer({
 
       // Get VOB type
       const vobType = getVobType(vob);
+      const itemVisualName = resolveItemVisualFromVm(vob, vobType);
+      const resolvedVisualName = (vob.visual.name || itemVisualName || "").trim();
 
       // Determine if visual is available
       const hasVisual =
         vob.showVisual &&
-        vob.visual.name &&
-        (vob.visual.type === 1 ||
-          vob.visual.type === 2 ||
-          vob.visual.type === 5 ||
-          vob.visual.type === 6) &&
-        !vob.visual.name.toUpperCase().endsWith(".TEX") &&
-        !vob.visual.name.toUpperCase().endsWith(".TGA");
+        resolvedVisualName &&
+        (isSupportedVisualType(vob.visual.type) ||
+          (vobType === ITEM_VOB_TYPE && !!itemVisualName)) &&
+        !resolvedVisualName.toUpperCase().endsWith(".TEX") &&
+        !resolvedVisualName.toUpperCase().endsWith(".TGA");
 
       // Determine visual name: use actual visual if available, otherwise use INVISIBLE_{VOBTYPENAME}.MRM
       // But exclude certain VOB types from getting helper visuals (zCVob, oCItem, oCNpc, zCVobStair)
       let visualName: string;
       if (hasVisual) {
-        visualName = vob.visual.name;
+        visualName = resolvedVisualName;
       } else if (shouldUseHelperVisual(vobType)) {
         const vobTypeName = getVobTypeName(vobType);
         visualName = vobTypeName ? `INVISIBLE_${vobTypeName}.MRM` : "";
@@ -295,8 +350,15 @@ function VOBRenderer({
         visualName = "";
       }
 
-      // Only store VOBs that have visible meshes OR have a valid VOB type (for invisible helper visuals)
-      if (hasVisual || (visualName && vobType !== undefined && vobType !== null)) {
+      // Keep oCItem entries even if visual is unresolved yet; we'll retry once VM is ready.
+      const shouldKeepItemForLateResolve = vobType === ITEM_VOB_TYPE;
+      // Only store VOBs that have visible meshes OR have a valid VOB type (for invisible helper visuals),
+      // plus oCItem entries for late visual resolve.
+      if (
+        hasVisual ||
+        (visualName && vobType !== undefined && vobType !== null) ||
+        shouldKeepItemForLateResolve
+      ) {
         allVOBsRef.current.push({
           id: `${vobId}_${totalCount}`,
           vob: vob,
@@ -457,25 +519,31 @@ function VOBRenderer({
     vobData?: VobData,
   ): Promise<boolean> => {
     // Get visual name from vobData if available, otherwise from vob
-    const visualName = vobData?.visualName ?? vob.visual.name;
+    let visualName = vobData?.visualName ?? vob.visual.name;
+    const vobType = vobData?.vobType ?? getVobType(vob);
+    const isItemVisualFallback = vobType === ITEM_VOB_TYPE;
+
+    // Late resolve for items collected before VM was ready.
+    if (!visualName && isItemVisualFallback) {
+      const lateVisual = resolveItemVisualFromVm(vob, vobType);
+      if (lateVisual) {
+        visualName = lateVisual;
+        if (vobData) vobData.visualName = lateVisual;
+      }
+    }
 
     // Skip if no visual name
-    if (!visualName) {
-      return false;
-    }
+    if (!visualName) return false;
 
     // Check if this is a helper visual (visual name starts with INVISIBLE_)
     const isHelperVisual = shouldUseHelperVisual(vobData?.vobType);
 
-    // Skip if visual disabled (unless it's a helper visual)
-    if (!isHelperVisual && !vob.showVisual) {
-      return false;
-    }
+    // Skip if visual disabled (unless it's a helper visual or oCItem fallback visual)
+    if (!isHelperVisual && !isItemVisualFallback && !vob.showVisual) return false;
 
     // Skip if visual name has texture extension (indicates it's not a mesh)
-    if (visualName.toUpperCase().endsWith(".TEX") || visualName.toUpperCase().endsWith(".TGA")) {
+    if (visualName.toUpperCase().endsWith(".TEX") || visualName.toUpperCase().endsWith(".TGA"))
       return false;
-    }
 
     // For helper visuals, treat as regular mesh
     if (isHelperVisual) {
@@ -486,12 +554,13 @@ function VOBRenderer({
       return await renderMeshVOB(vob, vobId, meshPath);
     }
 
-    // Only render mesh visuals
+    // Only render mesh/model/morph visuals
     // Type 0 = DECAL (sprite/texture, not 3D mesh)
     // Type 1 = MESH (static 3D mesh)
     // Type 2 = MULTI_RESOLUTION_MESH (LOD mesh)
     // Type 3 = PARTICLE_EFFECT, 4 = AI_CAMERA, 5 = MODEL, 6 = MORPH_MESH
     if (
+      !isItemVisualFallback &&
       vob.visual.type !== 1 &&
       vob.visual.type !== 2 &&
       vob.visual.type !== 5 &&
@@ -500,13 +569,27 @@ function VOBRenderer({
       return false; // Skip non-mesh visuals (decals, particles, etc.)
     }
 
+    // Item visuals frequently come from C_ITEM.visual and may not match vob.visual.type.
+    if (isItemVisualFallback && ![1, 2, 5, 6].includes(vob.visual.type)) {
+      const upper = visualName.toUpperCase();
+      if (upper.endsWith(".MDL") || upper.endsWith(".MDS")) {
+        return await renderModelVOB(vob, vobId, visualName);
+      }
+      if (upper.endsWith(".MMB") || upper.endsWith(".MMS") || upper.endsWith(".MMSB")) {
+        return await renderMorphMeshVOB(vob, vobId, visualName);
+      }
+      const meshPath = getMeshPath(visualName);
+      if (!meshPath) return false;
+      return await renderMeshVOB(vob, vobId, meshPath);
+    }
+
     // Handle different visual types
     if (vob.visual.type === 5) {
       // MODEL (5) - load .MDL file
-      return await renderModelVOB(vob, vobId);
+      return await renderModelVOB(vob, vobId, visualName);
     } else if (vob.visual.type === 6) {
       // MORPH_MESH (6) - load .MMB file
-      return await renderMorphMeshVOB(vob, vobId);
+      return await renderMorphMeshVOB(vob, vobId, visualName);
     } else {
       // MESH (1) or MULTI_RES_MESH (2) - load mesh file
       const meshPath = getMeshPath(visualName);
@@ -588,11 +671,15 @@ function VOBRenderer({
   };
 
   // Render model VOB
-  const renderModelVOB = async (vob: Vob, vobId: string | null): Promise<boolean> => {
+  const renderModelVOB = async (
+    vob: Vob,
+    vobId: string | null,
+    visualNameOverride?: string,
+  ): Promise<boolean> => {
     if (!zenKit) return false;
 
     try {
-      const visualName = vob.visual.name;
+      const visualName = visualNameOverride ?? vob.visual.name;
 
       // Build model path - convert to .MDL file
       const modelPath = getModelPath(visualName);
@@ -792,17 +879,21 @@ function VOBRenderer({
 
       return true;
     } catch (error) {
-      console.warn(`Failed to render model VOB ${vob.visual.name}:`, error);
+      console.warn(`Failed to render model VOB ${visualNameOverride ?? vob.visual.name}:`, error);
       return false;
     }
   };
 
   // Render morph mesh VOB
-  const renderMorphMeshVOB = async (vob: Vob, vobId: string | null): Promise<boolean> => {
+  const renderMorphMeshVOB = async (
+    vob: Vob,
+    vobId: string | null,
+    visualNameOverride?: string,
+  ): Promise<boolean> => {
     if (!zenKit) return false;
 
     try {
-      const visualName = vob.visual.name;
+      const visualName = visualNameOverride ?? vob.visual.name;
 
       // Build morph mesh path - convert to .MMB file
       const morphPath = getMorphMeshPath(visualName);
@@ -854,7 +945,10 @@ function VOBRenderer({
 
       return true;
     } catch (error) {
-      console.warn(`Failed to render morph mesh VOB ${vob.visual.name}:`, error);
+      console.warn(
+        `Failed to render morph mesh VOB ${visualNameOverride ?? vob.visual.name}:`,
+        error,
+      );
       return false;
     }
   };
