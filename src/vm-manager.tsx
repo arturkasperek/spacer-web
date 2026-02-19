@@ -27,6 +27,16 @@ export interface VmLoadResult {
 
 let runtimeVm: DaedalusVm | null = null;
 const npcVisualsByIndex = new Map<number, NpcVisual>();
+type VmInsertedItem = {
+  instanceIndex: number;
+  symbolName: string;
+  spawnpoint: string;
+};
+const vmInsertedItems: VmInsertedItem[] = [];
+
+export function getVmInsertedItems(): ReadonlyArray<VmInsertedItem> {
+  return vmInsertedItems;
+}
 
 // ---------------------------------------------------------------------------
 // NPC spawn order (Wld_InsertNpc call order)
@@ -523,6 +533,29 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
     });
   };
 
+  // Register Wld_InsertItem and store requests for renderer-side dynamic item spawning.
+  const registerWldInsertItem = (name: string) => {
+    registerExternalSafe(vm, name, (itemInstanceIndex: number, spawnpoint: string) => {
+      if (itemInstanceIndex <= 0) {
+        console.warn(`⚠️  ${name}: Invalid item instance index: ${itemInstanceIndex}`);
+        return;
+      }
+
+      let itemSymbol = `ITEM[${itemInstanceIndex}]`;
+      try {
+        const r = vm.getSymbolNameByIndex(itemInstanceIndex);
+        if (r.success && r.data) itemSymbol = r.data;
+      } catch {
+        // Ignore symbol lookup failures in trace path.
+      }
+      vmInsertedItems.push({
+        instanceIndex: itemInstanceIndex,
+        symbolName: itemSymbol,
+        spawnpoint: spawnpoint || "",
+      });
+    });
+  };
+
   // -----------------------------------------------------------------------------------
   // Freepoints (zCVobSpot) - ZenGin-like externals
   // -----------------------------------------------------------------------------------
@@ -686,6 +719,8 @@ export function registerVmExternals(vm: DaedalusVm, onNpcSpawn?: NpcSpawnCallbac
   // Register both PascalCase (from externals.d) and UPPERCASE (legacy) versions
   registerWldInsertNpc("Wld_InsertNpc");
   registerWldInsertNpc("WLD_INSERTNPC");
+  registerWldInsertItem("Wld_InsertItem");
+  registerWldInsertItem("WLD_INSERTITEM");
 
   registerMdlSetVisual("Mdl_SetVisual");
   registerMdlSetVisual("MDL_SETVISUAL");
@@ -1294,6 +1329,7 @@ export async function loadVm(
   onNpcSpawn?: NpcSpawnCallback,
   heroSpawnpointName: string = "START",
 ): Promise<VmLoadResult> {
+  vmInsertedItems.length = 0;
   // Load script
   const { script } = await loadDaedalusScript(zenKit, scriptPath);
 

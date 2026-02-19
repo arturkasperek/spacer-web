@@ -19,7 +19,7 @@ import {
   disposeObject3D,
 } from "../world/distance-streaming";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
-import { getRuntimeVm } from "../vm-manager";
+import { getRuntimeVm, getVmInsertedItems } from "../vm-manager";
 
 interface VobData {
   id: string;
@@ -88,7 +88,128 @@ function VOBRenderer({
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
   const vobColliderHandlesRef = useRef(new Map<string, number>());
+  const hasVmRescanRef = useRef(false);
+  const consumedVmInsertSignaturesRef = useRef(new Set<string>());
   const ITEM_VOB_TYPE = 2; // oCItem
+
+  const findWaypointPosition = (
+    worldObj: World,
+    name: string,
+  ): { x: number; y: number; z: number } | null => {
+    const key = (name || "").trim().toUpperCase();
+    if (!key) return null;
+    try {
+      const waypoints = (worldObj as any).getAllWaypoints?.();
+      if (
+        !waypoints ||
+        typeof waypoints.size !== "function" ||
+        typeof waypoints.get !== "function"
+      ) {
+        return null;
+      }
+      const n = waypoints.size();
+      for (let i = 0; i < n; i++) {
+        const wp = waypoints.get(i);
+        const wpName = String(wp?.name || "")
+          .trim()
+          .toUpperCase();
+        if (wpName !== key) continue;
+        const pos = wp?.position;
+        if (!pos) return null;
+        return { x: Number(pos.x) || 0, y: Number(pos.y) || 0, z: Number(pos.z) || 0 };
+      }
+    } catch {
+      // ignore lookup failures
+    }
+    return null;
+  };
+
+  const findVobNamedPosition = (
+    worldObj: World,
+    name: string,
+  ): { x: number; y: number; z: number } | null => {
+    const key = (name || "").trim().toUpperCase();
+    if (!key) return null;
+
+    const visit = (v: any): { x: number; y: number; z: number } | null => {
+      if (!v) return null;
+      const names = [v?.vobName, v?.name, v?.objectName]
+        .map((n) =>
+          String(n || "")
+            .trim()
+            .toUpperCase(),
+        )
+        .filter(Boolean);
+      if (names.includes(key)) {
+        const pos = v?.position;
+        if (pos) return { x: Number(pos.x) || 0, y: Number(pos.y) || 0, z: Number(pos.z) || 0 };
+      }
+      const children = v?.children;
+      if (children && typeof children.size === "function" && typeof children.get === "function") {
+        const n = children.size();
+        for (let i = 0; i < n; i++) {
+          const found = visit(children.get(i));
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    try {
+      const roots = (worldObj as any).getVobs?.();
+      if (!roots || typeof roots.size !== "function" || typeof roots.get !== "function") {
+        return null;
+      }
+      const n = roots.size();
+      for (let i = 0; i < n; i++) {
+        const found = visit(roots.get(i));
+        if (found) return found;
+      }
+    } catch {
+      // ignore lookup failures
+    }
+    return null;
+  };
+
+  const createIdentityRotationArray = () => ({
+    size: () => 9,
+    get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] ?? 0,
+  });
+
+  const collectInsertedItemsFromVm = (worldObj: World): VobData[] => {
+    const inserted = getVmInsertedItems();
+    if (!inserted.length) return [];
+    const out: VobData[] = [];
+    for (let i = 0; i < inserted.length; i++) {
+      const item = inserted[i];
+      const instance = (item.symbolName || "").trim().toUpperCase();
+      const spawnpoint = (item.spawnpoint || "").trim();
+      const sig = `${instance}|${spawnpoint}`;
+      if (consumedVmInsertSignaturesRef.current.has(sig)) continue;
+      const wpPos =
+        findWaypointPosition(worldObj, spawnpoint) ?? findVobNamedPosition(worldObj, spawnpoint);
+      if (!wpPos) continue;
+      consumedVmInsertSignaturesRef.current.add(sig);
+      const syntheticVob: any = {
+        id: `vm-item-${instance}-${spawnpoint}-${i}`,
+        type: ITEM_VOB_TYPE,
+        itemInstance: instance,
+        showVisual: true,
+        visual: { type: 1, name: "" },
+        position: { x: wpPos.x, y: wpPos.y, z: wpPos.z },
+        rotation: { toArray: createIdentityRotationArray },
+        children: { size: () => 0, get: () => null },
+      };
+      out.push({
+        id: syntheticVob.id,
+        vob: syntheticVob as Vob,
+        position: new THREE.Vector3(-wpPos.x, wpPos.y, wpPos.z),
+        visualName: "",
+        vobType: ITEM_VOB_TYPE,
+      });
+    }
+    return out;
+  };
 
   const getSymbolIndexByName = (name: string): number | null => {
     const key = (name || "").trim().toUpperCase();
@@ -290,7 +411,9 @@ function VOBRenderer({
         onLoadingStatus("🔧 Collecting VOBs...");
 
         // Collect VOBs from world
-        await collectVOBs(world);
+        consumedVmInsertSignaturesRef.current.clear();
+        allVOBsRef.current = await collectVOBs(world);
+        hasVmRescanRef.current = Boolean(getRuntimeVm());
 
         // Start the streaming loader
         onLoadingStatus(`🎬 Starting streaming VOB loader (${allVOBsRef.current.length} VOBs)...`);
@@ -305,7 +428,8 @@ function VOBRenderer({
   }, [world, zenKit, onLoadingStatus]);
 
   // Collect VOB data from world
-  const collectVOBs = async (world: World) => {
+  const collectVOBs = async (world: World): Promise<VobData[]> => {
+    const collectedVOBs: VobData[] = [];
     const vobs = world.getVobs();
     const vobCount = vobs.size();
     console.log(`Found ${vobCount} root VOBs`);
@@ -359,7 +483,7 @@ function VOBRenderer({
         (visualName && vobType !== undefined && vobType !== null) ||
         shouldKeepItemForLateResolve
       ) {
-        allVOBsRef.current.push({
+        collectedVOBs.push({
           id: `${vobId}_${totalCount}`,
           vob: vob,
           position: new THREE.Vector3(-vob.position.x, vob.position.y, vob.position.z),
@@ -382,7 +506,7 @@ function VOBRenderer({
     }
 
     console.log(`📊 Total VOBs (including children): ${totalCount}`);
-    console.log(`📊 Renderable VOBs: ${allVOBsRef.current.length}`);
+    console.log(`📊 Renderable VOBs: ${collectedVOBs.length}`);
 
     const typeNames = [
       "DECAL",
@@ -402,6 +526,7 @@ function VOBRenderer({
         const typeName = typeNames[typeNum] || "UNKNOWN";
         console.log(`   ${typeName} (${typeNum}): ${visualTypeCounts[key]}`);
       });
+    return collectedVOBs;
   };
 
   // Streaming VOB loader - loads/unloads based on camera distance
@@ -490,6 +615,16 @@ function VOBRenderer({
 
   // Alternative approach: use useFrame for continuous streaming updates
   useFrame(() => {
+    // Scripts can insert VOBs/items during startup; refresh collection once after VM becomes available.
+    if (world && !hasVmRescanRef.current && getRuntimeVm()) {
+      hasVmRescanRef.current = true;
+      const newItems = collectInsertedItemsFromVm(world);
+      if (newItems.length > 0) {
+        allVOBsRef.current = [...allVOBsRef.current, ...newItems];
+        vobLoadQueueRef.current = [...newItems, ...vobLoadQueueRef.current];
+      }
+    }
+
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
       updateVOBStreaming();
     }
