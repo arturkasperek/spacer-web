@@ -801,6 +801,138 @@ describe("VOBRenderer", () => {
     expect(onVobStats).toHaveBeenCalled();
   });
 
+  it("prefers .MMS item visual extension and loads morph mesh even when visual type is MESH-like", async () => {
+    configureThreeForVobRendererTests();
+    configureStableSceneForTest();
+
+    const vmMock = {
+      symbolCount: 2,
+      getSymbolNameByIndex: jest.fn((idx: number) =>
+        idx === 1 ? { success: true, data: "ITRW_CROSSBOW_L_02" } : { success: false },
+      ),
+      initInstanceByIndex: jest.fn(() => ({ success: true })),
+      getSymbolString: jest.fn((symbol: string, instanceName?: string) =>
+        symbol === "C_ITEM.visual" && instanceName === "ITRW_CROSSBOW_L_02"
+          ? "ItRw_Crossbow_L_02.mms"
+          : "",
+      ),
+    };
+    (getRuntimeVm as unknown as jest.Mock).mockReturnValue(vmMock);
+
+    (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
+      geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+      materials: [],
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      headers: { get: jest.fn(() => "application/octet-stream") },
+      arrayBuffer: jest.fn(() => Promise.resolve(new ArrayBuffer(64))),
+    });
+
+    const itemVob = {
+      id: 4,
+      type: 2, // oCItem
+      itemInstance: "ITRW_CROSSBOW_L_02",
+      showVisual: true,
+      visual: { type: 2, name: "" }, // would normally route to MRM if extension is ignored
+      position: { x: 0, y: 0, z: 0 },
+      rotation: {
+        toArray: () => ({ size: () => 9, get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0 }),
+      },
+      children: { size: () => 0, get: () => null as any },
+    };
+    const world = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => itemVob,
+      }),
+    }) as unknown as World;
+    const mockZenKit = createMockZenKit();
+
+    render(<VOBRenderer world={world} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const frameCb = (useFrame as unknown as jest.Mock).mock.calls[0][0] as () => void;
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith("/ANIMS/_COMPILED/ITRW_CROSSBOW_L_02.MMB");
+    expect(loadMeshCached).not.toHaveBeenCalledWith(
+      "/MESHES/_COMPILED/ITRW_CROSSBOW_L_02.MRM",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("prefers .MDS item visual extension and loads model even when visual type is MESH-like", async () => {
+    configureThreeForVobRendererTests();
+    configureStableSceneForTest();
+
+    const vmMock = {
+      symbolCount: 2,
+      getSymbolNameByIndex: jest.fn((idx: number) =>
+        idx === 1 ? { success: true, data: "ITRW_CROSSBOW_L_02" } : { success: false },
+      ),
+      initInstanceByIndex: jest.fn(() => ({ success: true })),
+      getSymbolString: jest.fn((symbol: string, instanceName?: string) =>
+        symbol === "C_ITEM.visual" && instanceName === "ITRW_CROSSBOW_L_02"
+          ? "ItRw_Crossbow_L_02.mds"
+          : "",
+      ),
+    };
+    (getRuntimeVm as unknown as jest.Mock).mockReturnValue(vmMock);
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      headers: { get: jest.fn(() => "application/octet-stream") },
+      arrayBuffer: jest.fn(() => Promise.resolve(new ArrayBuffer(64))),
+    });
+
+    const itemVob = {
+      id: 5,
+      type: 2, // oCItem
+      itemInstance: "ITRW_CROSSBOW_L_02",
+      showVisual: true,
+      visual: { type: 2, name: "" }, // would normally route to MRM if extension is ignored
+      position: { x: 0, y: 0, z: 0 },
+      rotation: {
+        toArray: () => ({ size: () => 9, get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0 }),
+      },
+      children: { size: () => 0, get: () => null as any },
+    };
+    const world = addWorldProperties({
+      getVobs: () => ({
+        size: () => 1,
+        get: () => itemVob,
+      }),
+    }) as unknown as World;
+    const mockZenKit = createMockZenKit();
+
+    render(<VOBRenderer world={world} zenKit={mockZenKit} onLoadingStatus={mockOnLoadingStatus} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const frameCb = (useFrame as unknown as jest.Mock).mock.calls[0][0] as () => void;
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith("/ANIMS/_COMPILED/ITRW_CROSSBOW_L_02.MDL");
+    expect(loadMeshCached).not.toHaveBeenCalledWith(
+      "/MESHES/_COMPILED/ITRW_CROSSBOW_L_02.MRM",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("renders helper visual VOBs even when showVisual is false", async () => {
     configureThreeForVobRendererTests();
     configureStableSceneForTest();

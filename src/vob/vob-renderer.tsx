@@ -703,12 +703,19 @@ function VOBRenderer({
     }
 
     // Item visuals frequently come from C_ITEM.visual and may not match vob.visual.type.
-    if (isItemVisualFallback && ![1, 2, 5, 6].includes(vob.visual.type)) {
+    // For items, prefer the visual extension over vob.visual.type.
+    if (isItemVisualFallback) {
       const upper = visualName.toUpperCase();
       if (upper.endsWith(".MDL") || upper.endsWith(".MDS")) {
         return await renderModelVOB(vob, vobId, visualName);
       }
       if (upper.endsWith(".MMB") || upper.endsWith(".MMS") || upper.endsWith(".MMSB")) {
+        return await renderMorphMeshVOB(vob, vobId, visualName);
+      }
+      if (vob.visual.type === 5) {
+        return await renderModelVOB(vob, vobId, visualName);
+      }
+      if (vob.visual.type === 6) {
         return await renderMorphMeshVOB(vob, vobId, visualName);
       }
       const meshPath = getMeshPath(visualName);
