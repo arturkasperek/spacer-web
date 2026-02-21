@@ -33,6 +33,7 @@ describe("npc-streaming", () => {
   const mockCreateNpcMesh = jest.fn();
   const mockSpreadSpawnXZ = jest.fn();
   const mockGetNpcSpawnOrder = jest.fn();
+  const mockGetNpcVisualStateVersion = jest.fn();
   const mockClearNpcFreepointReservations = jest.fn();
   const mockClearNpcEmRuntimeState = jest.fn();
   const mockClearNpcEmQueueState = jest.fn();
@@ -64,6 +65,7 @@ describe("npc-streaming", () => {
     }));
     jest.doMock("../../vm-manager", () => ({
       getNpcSpawnOrder: (...args: any[]) => mockGetNpcSpawnOrder(...args),
+      getNpcVisualStateVersion: (...args: any[]) => mockGetNpcVisualStateVersion(...args),
     }));
     jest.doMock("./npc-freepoints", () => ({
       clearNpcFreepointReservations: (...args: any[]) => mockClearNpcFreepointReservations(...args),
@@ -92,6 +94,7 @@ describe("npc-streaming", () => {
       tries: 0,
     }));
     mockGetNpcSpawnOrder.mockReturnValue(null);
+    mockGetNpcVisualStateVersion.mockReturnValue(0);
   });
 
   it("loads NPCs that intersect the load box", () => {
@@ -371,7 +374,7 @@ describe("npc-streaming", () => {
     expect(heroPos.z).toBe(20);
   });
 
-  it("retries loading character for already-loaded placeholder NPCs with cooldown", () => {
+  it("retries loading character for already-loaded placeholder NPCs only after visual state version changes", () => {
     const npcData = makeNpcData(41, "MEATBUG");
     const npcId = "npc-41";
     const npcGroup = new THREE.Group();
@@ -425,7 +428,7 @@ describe("npc-streaming", () => {
     mod.updateNpcStreaming(baseParams);
     expect(loadNpcCharacter).toHaveBeenCalledTimes(1);
 
-    npcGroup.userData.modelRetryAtMs = 0;
+    mockGetNpcVisualStateVersion.mockReturnValue(1);
     mod.updateNpcStreaming(baseParams);
     expect(loadNpcCharacter).toHaveBeenCalledTimes(2);
   });

@@ -11,7 +11,7 @@ import { isHeroNpcData, normalizeNameKey } from "../renderer/npc-renderer-utils"
 import { aabbIntersects, createAabbAroundPoint, type Aabb } from "./npc-routine-waybox";
 import { createNpcMesh } from "../data/npc-utils";
 import { spreadSpawnXZ } from "./npc-spawn-spread";
-import { getNpcSpawnOrder } from "../../vm-manager";
+import { getNpcSpawnOrder, getNpcVisualStateVersion } from "../../vm-manager";
 import { clearNpcFreepointReservations } from "./npc-freepoints";
 import { clearNpcEmRuntimeState } from "../combat/npc-em-runtime";
 import { clearNpcEmQueueState } from "../combat/npc-em-queue";
@@ -238,6 +238,7 @@ export function updateNpcStreaming({
     trySnapNpcToGroundWithRapier(npcGroup);
 
     // Load real model asynchronously (replaces placeholder)
+    npcGroup.userData.modelRetryVisualVersion = getNpcVisualStateVersion(npc.npcData.instanceIndex);
     void loadNpcCharacter(npcGroup, npc.npcData);
   }
 
@@ -264,21 +265,16 @@ export function updateNpcStreaming({
     }
   }
 
-  // Retry character loading for already-loaded NPC placeholders.
-  // This closes races where VM visual externals arrive shortly after Wld_InsertNpc.
-  const nowMs =
-    typeof performance !== "undefined" && typeof performance.now === "function"
-      ? performance.now()
-      : Date.now();
-  const RETRY_INTERVAL_MS = 250;
+  // Retry character loading for placeholders only after a real VM visual-state change.
   for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
     if (!npcGroup || npcGroup.userData.isDisposed) continue;
     if (npcGroup.userData.characterInstance || npcGroup.userData.modelLoading) continue;
-    const retryAt = Number(npcGroup.userData.modelRetryAtMs || 0);
-    if (retryAt > nowMs) continue;
-    npcGroup.userData.modelRetryAtMs = nowMs + RETRY_INTERVAL_MS;
     const entry = allNpcsByIdRef.current.get(npcId);
     if (!entry) continue;
+    const currentVersion = getNpcVisualStateVersion(entry.npcData.instanceIndex);
+    const lastTriedVersion = Number(npcGroup.userData.modelRetryVisualVersion ?? -1);
+    if (currentVersion <= lastTriedVersion) continue;
+    npcGroup.userData.modelRetryVisualVersion = currentVersion;
     void loadNpcCharacter(npcGroup, entry.npcData);
   }
 }

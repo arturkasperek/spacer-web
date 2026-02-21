@@ -125,7 +125,7 @@ export type NpcRendererUserData = RawUserData & {
   npcData?: NpcData;
   characterInstance?: CharacterInstance;
   modelLoading?: boolean;
-  modelRetryAtMs?: number;
+  modelRetryVisualVersion?: number;
   visualRoot?: THREE.Object3D;
   healthBar?: {
     root?: THREE.Object3D;

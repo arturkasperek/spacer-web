@@ -1,4 +1,4 @@
-import { loadVm } from "./vm-manager";
+import { getNpcVisualStateVersion, loadVm } from "./vm-manager";
 
 type VmMock = {
   symbolCount: number;
@@ -157,5 +157,60 @@ describe("loadVm", () => {
       symbolName: "ITWR_STONEPLATECOMMON_ADDON",
       spawnpoint: "FP_ITEM_XARDAS_STPLATE_01",
     });
+  });
+
+  it("bumps npc visual state version only when Mdl_SetVisual/Mdl_SetVisualBody actually change state", async () => {
+    const vm = createVmMock({
+      symbols: {
+        11471: "PC_HERO",
+        12000: "MEATBUG",
+      },
+      hasSymbolNames: [
+        "NONE_100_XARDAS",
+        "PC_HERO",
+        "startup_newworld",
+        "Mdl_SetVisual",
+        "Mdl_SetVisualBody",
+      ],
+    });
+
+    vm.callFunction.mockImplementation((fn: string) => {
+      if (fn === "startup_newworld") {
+        const setVisual = vm.registerExternal.mock.calls.find(
+          (c: any[]) => c[0] === "Mdl_SetVisual",
+        )?.[1] as ((npc: any, mdsName: string) => void) | undefined;
+        const setVisualBody = vm.registerExternal.mock.calls.find(
+          (c: any[]) => c[0] === "Mdl_SetVisualBody",
+        )?.[1] as
+          | ((
+              npc: any,
+              body_mesh: string,
+              body_tex: number,
+              skin: number,
+              head_mesh: string,
+              head_tex: number,
+              teeth_tex: number,
+              armor_inst: number,
+            ) => void)
+          | undefined;
+
+        setVisual?.({ symbol_index: 12000 }, "Meatbug.mds");
+        setVisualBody?.({ symbol_index: 12000 }, "Mbg_Body", 0, 0, "", 0, 0, -1);
+
+        // Repeat same data - version should not bump again.
+        setVisual?.({ symbol_index: 12000 }, "Meatbug.mds");
+        setVisualBody?.({ symbol_index: 12000 }, "Mbg_Body", 0, 0, "", 0, 0, -1);
+
+        // Change body mesh - should bump.
+        setVisualBody?.({ symbol_index: 12000 }, "Mbg_Body_Alt", 0, 0, "", 0, 0, -1);
+      }
+      return { success: true };
+    });
+
+    const { zenKit } = createZenKitMock(vm);
+
+    await loadVm(zenKit as any, "/SCRIPTS/_COMPILED/GOTHIC.DAT", "startup_newworld");
+
+    expect(getNpcVisualStateVersion(12000)).toBe(3);
   });
 });

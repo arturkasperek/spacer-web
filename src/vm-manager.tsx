@@ -8,6 +8,7 @@ import {
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc/combat/npc-em-queue";
 import {
   addNpcOverlayModelScript,
+  getNpcModelScriptsState,
   removeNpcOverlayModelScript,
   setNpcBaseModelScript,
 } from "./npc/scripting/npc-model-scripts";
@@ -27,6 +28,7 @@ export interface VmLoadResult {
 
 let runtimeVm: DaedalusVm | null = null;
 const npcVisualsByIndex = new Map<number, NpcVisual>();
+const npcVisualStateVersionByInstance = new Map<number, number>();
 
 // ---------------------------------------------------------------------------
 // NPC spawn order (Wld_InsertNpc call order)
@@ -46,6 +48,17 @@ export function getNpcSpawnOrder(npcInstanceIndex: number): number | null {
 export function getNpcVisualByInstanceIndex(npcInstanceIndex: number): NpcVisual | null {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
   return npcVisualsByIndex.get(npcInstanceIndex) ?? null;
+}
+
+export function getNpcVisualStateVersion(npcInstanceIndex: number): number {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return 0;
+  return npcVisualStateVersionByInstance.get(npcInstanceIndex) ?? 0;
+}
+
+function bumpNpcVisualStateVersion(npcInstanceIndex: number): void {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
+  const next = (npcVisualStateVersionByInstance.get(npcInstanceIndex) ?? 0) + 1;
+  npcVisualStateVersionByInstance.set(npcInstanceIndex, next);
 }
 
 function recordNpcSpawnOrder(npcInstanceIndex: number): void {
@@ -292,6 +305,7 @@ export function registerVmExternals(
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
   npcVisualsByIndex.clear();
+  npcVisualStateVersionByInstance.clear();
 
   const isTimeBetweenLikeZenGin = (
     h1: number,
@@ -382,7 +396,7 @@ export function registerVmExternals(
         const npcIndex = getInstanceIndexFromArg(npc);
         if (!npcIndex || npcIndex <= 0) return;
 
-        npcVisualsByIndex.set(npcIndex, {
+        const nextVisual = {
           bodyMesh: normalizeVisualName(body_mesh),
           bodyTex: body_tex ?? 0,
           skin: skin ?? 0,
@@ -390,7 +404,19 @@ export function registerVmExternals(
           headTex: head_tex ?? 0,
           teethTex: teeth_tex ?? 0,
           armorInst: armor_inst ?? -1,
-        });
+        };
+        const prevVisual = npcVisualsByIndex.get(npcIndex);
+        const changed =
+          !prevVisual ||
+          prevVisual.bodyMesh !== nextVisual.bodyMesh ||
+          prevVisual.bodyTex !== nextVisual.bodyTex ||
+          prevVisual.skin !== nextVisual.skin ||
+          prevVisual.headMesh !== nextVisual.headMesh ||
+          prevVisual.headTex !== nextVisual.headTex ||
+          prevVisual.teethTex !== nextVisual.teethTex ||
+          prevVisual.armorInst !== nextVisual.armorInst;
+        npcVisualsByIndex.set(npcIndex, nextVisual);
+        if (changed) bumpNpcVisualStateVersion(npcIndex);
       },
     );
   };
@@ -402,7 +428,10 @@ export function registerVmExternals(
       if (!npcIndex || !mds) return;
       const key = normalizeMdsToScriptKey(mds);
       if (!key) return;
+      const prev = getNpcModelScriptsState(npcIndex);
+      const changed = prev.baseScript !== key || prev.hasExplicitBaseScript !== true;
       setNpcBaseModelScript(npcIndex, key);
+      if (changed) bumpNpcVisualStateVersion(npcIndex);
     });
   };
 
