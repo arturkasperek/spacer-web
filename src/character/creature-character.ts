@@ -7,6 +7,7 @@ import { buildSkeletonFromHierarchy } from "./skeleton";
 import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
 import { buildSoftSkinMeshCPU } from "./soft-skin";
 import { disposeObject3D } from "../world/distance-streaming";
+import { buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 
 function normalizeModelKey(input: string): string {
   return (input || "")
@@ -95,23 +96,68 @@ export async function createCreatureCharacterInstance(params: {
       group.add(skeleton.bones[rootIdx]);
     }
 
+    const skinningDataList: CpuSkinningData[] = [];
     const softSkinMeshes = zModel.getSoftSkinMeshes();
     const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
-    if (softSkinCount === 0) return null;
 
-    const skinningDataList: CpuSkinningData[] = [];
-    for (let i = 0; i < softSkinCount; i++) {
-      const softSkinMesh = softSkinMeshes.get(i);
-      if (!softSkinMesh) continue;
-      const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPU({
-        zenKit,
-        softSkinMesh,
-        bindWorld: skeleton.bindWorld,
-        textureCache: caches.textures,
-      });
-      threeMesh.userData.cpuSkinningData = skinningData;
-      skinningDataList.push(skinningData);
-      group.add(threeMesh);
+    if (softSkinCount > 0) {
+      for (let i = 0; i < softSkinCount; i++) {
+        const softSkinMesh = softSkinMeshes.get(i);
+        if (!softSkinMesh) continue;
+        const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPU({
+          zenKit,
+          softSkinMesh,
+          bindWorld: skeleton.bindWorld,
+          textureCache: caches.textures,
+        });
+        threeMesh.userData.cpuSkinningData = skinningData;
+        skinningDataList.push(skinningData);
+        group.add(threeMesh);
+      }
+    } else {
+      // Some creature models provide rigid attachments instead of soft-skin meshes.
+      // Keep them renderable by attaching converted meshes to matching hierarchy bones.
+      const attachmentNames = zModel.getAttachmentNames?.();
+      const attachmentCount = attachmentNames && attachmentNames.size ? attachmentNames.size() : 0;
+      for (let i = 0; i < attachmentCount; i++) {
+        const attachmentName = attachmentNames.get(i);
+        const attachment = zModel.getAttachment?.(attachmentName);
+        if (!attachment) continue;
+
+        const processed = zModel.convertAttachmentToProcessedMesh?.(attachment);
+        if (!processed || processed.indices.size() === 0 || processed.vertices.size() === 0) {
+          continue;
+        }
+
+        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+          processed,
+          zenKit,
+          caches.textures,
+          caches.materials,
+        );
+        const attachmentMesh = new THREE.Mesh(geometry, materials);
+
+        let hierarchyNodeIndex = -1;
+        const nodes = hierarchy.nodes as any;
+        const nodeCount = nodes?.size ? nodes.size() : (nodes?.length ?? 0);
+        for (let j = 0; j < nodeCount; j++) {
+          const node = nodes.get ? nodes.get(j) : nodes[j];
+          if (node && node.name === attachmentName) {
+            hierarchyNodeIndex = j;
+            break;
+          }
+        }
+
+        if (hierarchyNodeIndex >= 0 && skeleton.bones[hierarchyNodeIndex]) {
+          skeleton.bones[hierarchyNodeIndex].add(attachmentMesh);
+        } else {
+          group.add(attachmentMesh);
+        }
+      }
+    }
+
+    if (group.children.length === 0) {
+      return null;
     }
 
     if (mirrorX) {

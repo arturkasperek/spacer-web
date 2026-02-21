@@ -43,6 +43,11 @@ export function getNpcSpawnOrder(npcInstanceIndex: number): number | null {
   return npcSpawnOrderByInstance.get(npcInstanceIndex) ?? null;
 }
 
+export function getNpcVisualByInstanceIndex(npcInstanceIndex: number): NpcVisual | null {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
+  return npcVisualsByIndex.get(npcInstanceIndex) ?? null;
+}
+
 function recordNpcSpawnOrder(npcInstanceIndex: number): void {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
   if (!npcSpawnOrderByInstance.has(npcInstanceIndex)) {

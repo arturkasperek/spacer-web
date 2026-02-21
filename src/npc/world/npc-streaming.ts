@@ -263,4 +263,22 @@ export function updateNpcStreaming({
       if (playerGroupRef.current === npcGroup) playerGroupRef.current = null;
     }
   }
+
+  // Retry character loading for already-loaded NPC placeholders.
+  // This closes races where VM visual externals arrive shortly after Wld_InsertNpc.
+  const nowMs =
+    typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  const RETRY_INTERVAL_MS = 250;
+  for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+    if (!npcGroup || npcGroup.userData.isDisposed) continue;
+    if (npcGroup.userData.characterInstance || npcGroup.userData.modelLoading) continue;
+    const retryAt = Number(npcGroup.userData.modelRetryAtMs || 0);
+    if (retryAt > nowMs) continue;
+    npcGroup.userData.modelRetryAtMs = nowMs + RETRY_INTERVAL_MS;
+    const entry = allNpcsByIdRef.current.get(npcId);
+    if (!entry) continue;
+    void loadNpcCharacter(npcGroup, entry.npcData);
+  }
 }

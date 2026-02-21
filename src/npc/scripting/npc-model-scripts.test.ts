@@ -15,7 +15,7 @@ describe("npc-model-scripts", () => {
 
   it("defaults to base HUMANS with no overlays", () => {
     const st = getNpcModelScriptsState(123);
-    expect(st).toEqual({ baseScript: "HUMANS", overlays: [] });
+    expect(st).toEqual({ baseScript: "HUMANS", overlays: [], hasExplicitBaseScript: false });
   });
 
   it("sets base script and clears overlays", () => {
@@ -23,6 +23,7 @@ describe("npc-model-scripts", () => {
     setNpcBaseModelScript(1, "humans_mage");
     const st = getNpcModelScriptsState(1);
     expect(st.baseScript).toBe("HUMANS_MAGE");
+    expect(st.hasExplicitBaseScript).toBe(true);
     expect(st.overlays).toEqual([]);
   });
 

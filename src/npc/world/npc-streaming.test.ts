@@ -212,7 +212,7 @@ describe("npc-streaming", () => {
     const loadedOrder = loadNpcCharacter.mock.calls.map(
       ([, npcData]) => (npcData as any).instanceIndex,
     );
-    expect(loadedOrder).toEqual([2, 1]);
+    expect(loadedOrder.slice(0, 2)).toEqual([2, 1]);
   });
 
   it("does not unload hero even when manual control is disabled", () => {
@@ -369,5 +369,64 @@ describe("npc-streaming", () => {
     expect(mockSpreadSpawnXZ).not.toHaveBeenCalled();
     expect(heroPos.x).toBe(10);
     expect(heroPos.z).toBe(20);
+  });
+
+  it("retries loading character for already-loaded placeholder NPCs with cooldown", () => {
+    const npcData = makeNpcData(41, "MEATBUG");
+    const npcId = "npc-41";
+    const npcGroup = new THREE.Group();
+    npcGroup.userData.npcData = npcData;
+    npcGroup.userData.modelLoading = false;
+    npcGroup.userData.characterInstance = undefined;
+
+    const entry = {
+      npcData,
+      position: new THREE.Vector3(0, 0, 0),
+      waybox: aabbAround(0, 0, 0, 1),
+    };
+    const loadNpcCharacter = jest.fn();
+
+    const baseParams = {
+      enabled: true,
+      world: {} as any,
+      cameraPosition: new THREE.Vector3(0, 0, 0),
+      camera: undefined,
+      streamingState: {
+        current: {
+          lastCameraPosition: { current: new THREE.Vector3() },
+          isFirstUpdate: { current: true },
+          updateCounter: { current: 0 },
+        },
+      },
+      npcItemsRef: { current: [] as Array<{ id: string; waybox: Aabb }> },
+      loadedNpcsRef: { current: new Map([[npcId, npcGroup]]) },
+      allNpcsRef: { current: [entry] },
+      allNpcsByIdRef: { current: new Map([[npcId, entry]]) },
+      npcsGroupRef: { current: null as any },
+      scene: new THREE.Scene(),
+      kccConfig: { radius: 30 },
+      applyMoveConstraint: jest.fn(() => ({ blocked: false, moved: true })),
+      trySnapNpcToGroundWithRapier: jest.fn(() => true),
+      loadNpcCharacter,
+      removeNpcKccCollider: jest.fn(),
+      waypointMoverRef: { current: null },
+      playerGroupRef: { current: null },
+      manualControlHeroEnabled: false,
+      waypointDirIndex: new Map(),
+      vobDirIndex: new Map(),
+      NPC_LOAD_DISTANCE: 50,
+      NPC_UNLOAD_DISTANCE: 100,
+      NPC_ACTIVE_BBOX_HALF_Y: 100,
+    };
+
+    mod.updateNpcStreaming(baseParams);
+    expect(loadNpcCharacter).toHaveBeenCalledTimes(1);
+
+    mod.updateNpcStreaming(baseParams);
+    expect(loadNpcCharacter).toHaveBeenCalledTimes(1);
+
+    npcGroup.userData.modelRetryAtMs = 0;
+    mod.updateNpcStreaming(baseParams);
+    expect(loadNpcCharacter).toHaveBeenCalledTimes(2);
   });
 });

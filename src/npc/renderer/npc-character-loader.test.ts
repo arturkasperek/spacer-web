@@ -11,7 +11,7 @@ describe("npc-character-loader", () => {
   const mockCreateCreatureCharacterInstance = jest.fn();
   const mockDisposeObject3D = jest.fn();
   const mockGetNpcModelScriptsState = jest.fn();
-  const mockSetNpcBaseModelScript = jest.fn();
+  const mockGetNpcVisualByInstanceIndex = jest.fn();
   const mockCreateHumanLocomotionController = jest.fn(() => ({ kind: "locomotion" }));
   const mockCreateCreatureLocomotionController = jest.fn(() => ({ kind: "creature-locomotion" }));
 
@@ -61,7 +61,10 @@ describe("npc-character-loader", () => {
 
     jest.doMock("../scripting/npc-model-scripts", () => ({
       getNpcModelScriptsState: (...args: any[]) => mockGetNpcModelScriptsState(...args),
-      setNpcBaseModelScript: (...args: any[]) => mockSetNpcBaseModelScript(...args),
+    }));
+
+    jest.doMock("../../vm-manager", () => ({
+      getNpcVisualByInstanceIndex: (...args: any[]) => mockGetNpcVisualByInstanceIndex(...args),
     }));
 
     jest.doMock("../physics/npc-locomotion", () => ({
@@ -86,6 +89,7 @@ describe("npc-character-loader", () => {
       dispose: jest.fn(),
     }));
     mockGetNpcModelScriptsState.mockReturnValue(null);
+    mockGetNpcVisualByInstanceIndex.mockReturnValue(null);
   });
 
   it("returns early when ZenKit is not available", async () => {
@@ -152,13 +156,15 @@ describe("npc-character-loader", () => {
     expect(npcGroup.userData.characterInstance).toBeTruthy();
   });
 
-  it("loads creature models using base script when available, and falls back to mesh key on failure", async () => {
+  it("loads creature models using explicit base script and does not fall back to mesh key", async () => {
     const npcGroup = new THREE.Group();
     const npcData = makeNpcData(7, "WOLF", { visual: makeVisual("WOLF") });
 
-    mockGetNpcModelScriptsState.mockReturnValue({ baseScript: "DRAGON" });
+    mockGetNpcModelScriptsState.mockReturnValue({
+      baseScript: "DRAGON",
+      hasExplicitBaseScript: true,
+    });
     const creatureInstance = { object: new THREE.Group(), update: jest.fn(), dispose: jest.fn() };
-    mockCreateCreatureCharacterInstance.mockReturnValueOnce(null);
     mockCreateCreatureCharacterInstance.mockReturnValueOnce(creatureInstance);
 
     const modelScriptRegistry = { startLoadScript: jest.fn(), hasAnimation: jest.fn(() => true) };
@@ -172,9 +178,8 @@ describe("npc-character-loader", () => {
     });
 
     expect(modelScriptRegistry.startLoadScript).toHaveBeenCalledWith("DRAGON");
-    expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(2);
+    expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(1);
     expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("DRAGON");
-    expect(mockCreateCreatureCharacterInstance.mock.calls[1][0].modelKey).toBe("WOLF");
     expect(typeof mockCreateCreatureCharacterInstance.mock.calls[0][0].canLoadAnimation).toBe(
       "function",
     );
@@ -202,7 +207,7 @@ describe("npc-character-loader", () => {
     expect(mockCreateCreatureLocomotionController).not.toHaveBeenCalled();
   });
 
-  it("normalizes HUMANS base script into an explicit per-NPC base model script", async () => {
+  it("waits for explicit creature base script instead of coercing to body mesh", async () => {
     const npcGroup = new THREE.Group();
     const npcData = makeNpcData(8, "WOLF", { visual: makeVisual("WOLF") });
     mockGetNpcModelScriptsState.mockReturnValue({ baseScript: "HUMANS" });
@@ -215,7 +220,34 @@ describe("npc-character-loader", () => {
       getNpcVisualRoot: (g) => g,
     });
 
-    expect(mockSetNpcBaseModelScript).toHaveBeenCalledWith(8, "WOLF");
+    expect(mockCreateCreatureCharacterInstance).not.toHaveBeenCalled();
+  });
+
+  it("prefers latest VM visual data when npcData.visual is stale or missing", async () => {
+    const npcGroup = new THREE.Group();
+    const npcData = makeNpcData(11, "MEATBUG", { visual: undefined });
+    mockGetNpcModelScriptsState.mockReturnValue({
+      baseScript: "MEATBUG",
+      hasExplicitBaseScript: true,
+    });
+    mockGetNpcVisualByInstanceIndex.mockReturnValue(
+      makeVisual("MBG_BODY", {
+        bodyTex: 1,
+        skin: 2,
+      }),
+    );
+
+    await mod.loadNpcCharacter(npcGroup, npcData as any, {
+      zenKit: {} as any,
+      characterCachesRef: { current: {} as any },
+      modelScriptRegistryRef: { current: { startLoadScript: jest.fn() } as any },
+      waypointMoverRef: { current: null },
+      getNpcVisualRoot: (g) => g,
+    });
+
+    expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(1);
+    expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("MEATBUG");
+    expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].meshKey).toBe("MBG_BODY");
   });
 
   it("removes placeholder object and exposes movement helpers", async () => {

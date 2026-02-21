@@ -1,6 +1,7 @@
 export type NpcModelScriptsState = {
   baseScript: string;
   overlays: string[];
+  hasExplicitBaseScript?: boolean;
 };
 
 const npcModelScriptsByInstance = new Map<number, NpcModelScriptsState>();
@@ -12,7 +13,11 @@ export function __resetNpcModelScriptsForTests(): void {
 export function getNpcModelScriptsState(npcInstanceIndex: number): NpcModelScriptsState {
   const existing = npcModelScriptsByInstance.get(npcInstanceIndex);
   if (existing) return existing;
-  const init: NpcModelScriptsState = { baseScript: "HUMANS", overlays: [] };
+  const init: NpcModelScriptsState = {
+    baseScript: "HUMANS",
+    overlays: [],
+    hasExplicitBaseScript: false,
+  };
   npcModelScriptsByInstance.set(npcInstanceIndex, init);
   return init;
 }
@@ -21,7 +26,11 @@ export function setNpcBaseModelScript(npcInstanceIndex: number, baseScriptKey: s
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
   const key = (baseScriptKey || "").trim().toUpperCase();
   if (!key) return;
-  npcModelScriptsByInstance.set(npcInstanceIndex, { baseScript: key, overlays: [] });
+  npcModelScriptsByInstance.set(npcInstanceIndex, {
+    baseScript: key,
+    overlays: [],
+    hasExplicitBaseScript: true,
+  });
 }
 
 export function addNpcOverlayModelScript(npcInstanceIndex: number, overlayScriptKey: string): void {

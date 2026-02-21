@@ -9,8 +9,9 @@ import {
 import { createCreatureCharacterInstance } from "../../character/creature-character";
 import { disposeObject3D } from "../../world/distance-streaming";
 import type { NpcData } from "../../shared/types";
-import { getNpcModelScriptsState, setNpcBaseModelScript } from "../scripting/npc-model-scripts";
+import { getNpcModelScriptsState } from "../scripting/npc-model-scripts";
 import { ModelScriptRegistry } from "../../shared/model-script-registry";
+import { getNpcVisualByInstanceIndex } from "../../vm-manager";
 import {
   createCreatureLocomotionController,
   createHumanLocomotionController,
@@ -36,7 +37,7 @@ export async function loadNpcCharacter(
   },
 ) {
   if (!zenKit) return;
-  const visual = npcData.visual;
+  const visual = getNpcVisualByInstanceIndex(npcData.instanceIndex) ?? npcData.visual;
   const visualKey = visual
     ? `${visual.bodyMesh}|${visual.bodyTex}|${visual.skin}|${visual.headMesh}|${visual.headTex}|${visual.teethTex}|${visual.armorInst}`
     : "default";
@@ -79,10 +80,12 @@ export async function loadNpcCharacter(
     } else {
       const scripts = getNpcModelScriptsState(npcData.instanceIndex);
       const baseScript = (scripts?.baseScript || "").trim().toUpperCase();
-      const modelKey = baseScript && baseScript !== "HUMANS" ? baseScript : bodyMesh;
-      if (baseScript === "HUMANS" && modelKey && modelKey !== "HUMANS") {
-        setNpcBaseModelScript(npcData.instanceIndex, modelKey);
+      const hasExplicitBaseScript = scripts?.hasExplicitBaseScript === true;
+      if (!hasExplicitBaseScript || !baseScript || baseScript === "HUMANS") {
+        // Creature visuals are not fully initialized yet; wait for VM Mdl_SetVisual/Mdl_SetVisualBody.
+        return;
       }
+      const modelKey = baseScript;
       modelScriptRegistryRef.current?.startLoadScript(modelKey);
 
       instance = await createCreatureCharacterInstance({
@@ -100,24 +103,6 @@ export async function loadNpcCharacter(
         canLoadAnimation: (modelName, animationName) =>
           modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
       });
-
-      if (!instance && modelKey !== bodyMesh) {
-        instance = await createCreatureCharacterInstance({
-          zenKit,
-          caches: characterCachesRef.current,
-          parent: visualParent,
-          modelKey: bodyMesh,
-          meshKey: bodyMesh,
-          animationName: "s_Run",
-          loop: true,
-          mirrorX: true,
-          rootMotionTarget: "self",
-          applyRootMotion: false,
-          align: "ground",
-          canLoadAnimation: (modelName, animationName) =>
-            modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
-        });
-      }
     }
     if (npcGroup.userData.isDisposed) return;
 
