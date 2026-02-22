@@ -13,16 +13,26 @@ export async function loadCompiledTexAsDataTexture(
   if (!url) return null;
 
   try {
-    let res = await fetch(url);
-    if (!res.ok) {
-      // Fallback: many textures reference _C1/_C2 variants that don't exist in the shipped set
-      if (url.includes("_C") && !url.includes("_C0-C.TEX")) {
-        const fallbackUrl = url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1");
-        res = await fetch(fallbackUrl);
-        if (!res.ok) return null;
-      } else {
-        return null;
+    const candidateUrls: string[] = [url];
+    // Fallback 1: many textures reference _C1/_C2 variants that don't exist in shipped assets.
+    if (/_C\d+-C\.TEX$/i.test(url) && !/_C0-C\.TEX$/i.test(url)) {
+      candidateUrls.push(url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1"));
+    }
+    // Fallback 2 (OpenGothic-compatible): use DEFAULT texture when specific one is missing.
+    if (!url.toUpperCase().endsWith("/DEFAULT-C.TEX")) {
+      candidateUrls.push("/TEXTURES/_COMPILED/DEFAULT-C.TEX");
+    }
+
+    let res: Response | null = null;
+    for (const candidateUrl of candidateUrls) {
+      const response = await fetch(candidateUrl);
+      if (response.ok) {
+        res = response;
+        break;
       }
+    }
+    if (!res) {
+      return null;
     }
 
     const buf = await res.arrayBuffer();
