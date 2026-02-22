@@ -25,6 +25,7 @@ import type { ItemSpawnCallback, NpcData, NpcSpawnCallback, SpawnedItemData } fr
 import { setFreepointsWorld } from "./npc/world/npc-freepoints";
 import { PlayerInputProvider } from "./player/player-input-context";
 import { FpsOverlay } from "./ui/fps-overlay";
+import { WasmMemOverlay } from "./ui/wasm-mem-overlay";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -106,6 +107,7 @@ function Scene({
     showVobSpots: boolean;
     showLights: boolean;
     showFpsMeter: boolean;
+    showWasmMemDiagnose: boolean;
     showKccCapsule: boolean;
     showGroundProbeRay: boolean;
     showJumpDebugRange: boolean;
@@ -571,6 +573,7 @@ export function App() {
               viewSettings={viewSettings}
             />
             <FpsOverlay enabled={viewSettings.showFpsMeter} />
+            <WasmMemOverlay enabled={viewSettings.showWasmMemDiagnose} zenKit={zenKit} />
           </Physics>
         </PlayerInputProvider>
       </Canvas>

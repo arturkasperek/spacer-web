@@ -5,6 +5,7 @@ export type ViewSettingsState = {
   showWaypoints: boolean;
   showLights: boolean;
   showFpsMeter: boolean;
+  showWasmMemDiagnose: boolean;
   showKccCapsule: boolean;
   showGroundProbeRay: boolean;
   showJumpDebugRange: boolean;
@@ -17,6 +18,7 @@ const defaultState: ViewSettingsState = {
   showWaypoints: true,
   showLights: true,
   showFpsMeter: false,
+  showWasmMemDiagnose: false,
   showKccCapsule: false,
   showGroundProbeRay: false,
   showJumpDebugRange: false,
@@ -33,6 +35,7 @@ function setSnapshot(next: ViewSettingsState) {
     snapshot.showWaypoints === next.showWaypoints &&
     snapshot.showLights === next.showLights &&
     snapshot.showFpsMeter === next.showFpsMeter &&
+    snapshot.showWasmMemDiagnose === next.showWasmMemDiagnose &&
     snapshot.showKccCapsule === next.showKccCapsule &&
     snapshot.showGroundProbeRay === next.showGroundProbeRay &&
     snapshot.showJumpDebugRange === next.showJumpDebugRange &&
@@ -55,6 +58,7 @@ export function setViewSettings(partial: Partial<ViewSettingsState>): void {
     showWaypoints: partial.showWaypoints ?? snapshot.showWaypoints,
     showLights: partial.showLights ?? snapshot.showLights,
     showFpsMeter: partial.showFpsMeter ?? snapshot.showFpsMeter,
+    showWasmMemDiagnose: partial.showWasmMemDiagnose ?? snapshot.showWasmMemDiagnose,
     showKccCapsule: partial.showKccCapsule ?? snapshot.showKccCapsule,
     showGroundProbeRay: partial.showGroundProbeRay ?? snapshot.showGroundProbeRay,
     showJumpDebugRange: partial.showJumpDebugRange ?? snapshot.showJumpDebugRange,

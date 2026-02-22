@@ -208,6 +208,11 @@ export function TopMenuBar() {
               onClick={() => toggleViewSetting("showFpsMeter")}
             />
             <MenuItem
+              label="WASM Mem Diagnose"
+              checked={view.showWasmMemDiagnose}
+              onClick={() => toggleViewSetting("showWasmMemDiagnose")}
+            />
+            <MenuItem
               label="KCC Capsule"
               checked={view.showKccCapsule}
               onClick={() => toggleViewSetting("showKccCapsule")}

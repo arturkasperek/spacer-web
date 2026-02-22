@@ -29,6 +29,11 @@ describe("TopMenuBar", () => {
       "aria-checked",
       "false",
     );
+
+    const wasmMem = screen.getByRole("menuitemcheckbox", { name: /wasm mem diagnose/i });
+    expect(wasmMem).toHaveAttribute("aria-checked", "false");
+    await user.click(wasmMem);
+    expect(getViewSettings().showWasmMemDiagnose).toBe(true);
   });
 
   it("closes the menu on outside click", async () => {
