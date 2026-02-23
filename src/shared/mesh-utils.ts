@@ -46,6 +46,13 @@ export async function loadCompiledTexAsDataTexture(
     const h = zkTex.height;
     const rgba = zkTex.asRgba8(0);
     if (!rgba) return null;
+    let hasAlpha = false;
+    for (let i = 3; i < rgba.length; i += 4) {
+      if (rgba[i] < 255) {
+        hasAlpha = true;
+        break;
+      }
+    }
 
     const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
     tex.needsUpdate = true;
@@ -58,6 +65,10 @@ export async function loadCompiledTexAsDataTexture(
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.generateMipmaps = true;
+    if (!(tex as any).userData) {
+      (tex as any).userData = {};
+    }
+    (tex.userData as any).hasAlpha = hasAlpha;
 
     return tex;
   } catch (error) {
@@ -215,18 +226,102 @@ const colorNameToHex: { [key: string]: number } = {
   ZCVOBMAT8: 0x808080, // DARKGRAY - darker gray
 };
 
+type MaterialProfile = "solid" | "alphaTest" | "transparent" | "additive" | "multiply";
+
+// Matches zenkit::AlphaFunction numeric layout used in WASM bindings.
+const ZK_ALPHA = {
+  DEFAULT: 0,
+  NONE: 1,
+  BLEND: 2,
+  ADD: 3,
+  SUBTRACT: 4,
+  MULTIPLY: 5,
+  MULTIPLY_ALT: 6,
+} as const;
+
+function resolveMaterialProfile(
+  materialData: { alphaFunc?: number; colorA?: number },
+  textureHasAlpha: boolean,
+): MaterialProfile {
+  const alphaFunc = Number(materialData.alphaFunc ?? ZK_ALPHA.DEFAULT);
+  const colorA = Number(materialData.colorA ?? 255);
+
+  switch (alphaFunc) {
+    case ZK_ALPHA.BLEND:
+      return "transparent";
+    case ZK_ALPHA.ADD:
+    case ZK_ALPHA.SUBTRACT:
+      return "additive";
+    case ZK_ALPHA.MULTIPLY:
+    case ZK_ALPHA.MULTIPLY_ALT:
+      return "multiply";
+    default: {
+      if (colorA < 255) return "transparent";
+      // For materials treated as alpha-test by OG, fall back to solid if texture has no alpha.
+      return textureHasAlpha ? "alphaTest" : "solid";
+    }
+  }
+}
+
+function applyMaterialProfile(material: THREE.MeshBasicMaterial, profile: MaterialProfile): void {
+  // Our scene uses mirrored X transforms; BackSide matches OG/OpenGothic culling orientation.
+  material.side = THREE.BackSide;
+  material.depthTest = true;
+
+  switch (profile) {
+    case "solid":
+      material.transparent = false;
+      material.alphaTest = 0.0;
+      material.depthWrite = true;
+      material.blending = THREE.NormalBlending;
+      break;
+    case "alphaTest":
+      material.transparent = false;
+      material.alphaTest = 0.5;
+      material.depthWrite = true;
+      material.blending = THREE.NormalBlending;
+      break;
+    case "transparent":
+      material.transparent = true;
+      material.alphaTest = 0.0;
+      material.depthWrite = false;
+      material.blending = THREE.NormalBlending;
+      break;
+    case "additive":
+      material.transparent = true;
+      material.alphaTest = 0.0;
+      material.depthWrite = false;
+      material.blending = THREE.AdditiveBlending;
+      break;
+    case "multiply":
+      material.transparent = true;
+      material.alphaTest = 0.0;
+      material.depthWrite = false;
+      material.blending = THREE.MultiplyBlending;
+      break;
+  }
+}
+
 /**
  * Creates a Three.js material from material data, with caching support
  * Handles both texture-based materials and helper visual color materials
  */
 export async function createMeshMaterial(
-  materialData: { texture: string; name?: string; disableCollision?: boolean },
+  materialData: {
+    texture: string;
+    name?: string;
+    disableCollision?: boolean;
+    alphaFunc?: number;
+    colorA?: number;
+  },
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
   materialCache: Map<string, THREE.Material>,
 ): Promise<THREE.MeshBasicMaterial> {
   const textureName = materialData.texture || "";
   const materialName = materialData.name || "";
+  const alphaFunc = Number((materialData as any).alphaFunc ?? ZK_ALPHA.DEFAULT);
+  const colorA = Number((materialData as any).colorA ?? 255);
   const disableCollision = Boolean((materialData as any).disableCollision);
   const noCollDet = disableCollision;
 
@@ -260,26 +355,19 @@ export async function createMeshMaterial(
 
   // Regular texture-based material
   // Check cache first
-  const cached = materialCache.get(textureName);
+  const cacheKey = `${textureName}|af:${alphaFunc}|ca:${colorA}`;
+  const cached = materialCache.get(cacheKey);
   if (cached && cached instanceof THREE.MeshBasicMaterial) {
     return cached;
   }
 
-  // Create material
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    side: THREE.DoubleSide,
-    transparent: false, // Disable transparency for alpha-tested materials
-    alphaTest: 0.5, // Use proper alpha test threshold like OpenGothic
-  });
-  material.userData.noCollDet = noCollDet;
-
   // Load texture if available
+  let tex: THREE.DataTexture | undefined;
   if (textureName && textureName.length) {
     const url = tgaNameToCompiledUrl(textureName);
     if (url) {
       // Check texture cache first
-      let tex = textureCache.get(url);
+      tex = textureCache.get(url);
       if (!tex) {
         const loadedTex = await loadCompiledTexAsDataTexture(url, zenKit);
         if (loadedTex) {
@@ -287,15 +375,25 @@ export async function createMeshMaterial(
           tex = loadedTex;
         }
       }
-      if (tex) {
-        material.map = tex;
-        material.needsUpdate = true;
-      }
     }
   }
 
+  const textureHasAlpha = Boolean((tex?.userData as any)?.hasAlpha);
+  const profile = resolveMaterialProfile(materialData, textureHasAlpha);
+
+  // Create material
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+  });
+  material.userData.noCollDet = noCollDet;
+  applyMaterialProfile(material, profile);
+  if (tex) {
+    material.map = tex;
+  }
+  material.needsUpdate = true;
+
   // Cache and return
-  materialCache.set(textureName, material);
+  materialCache.set(cacheKey, material);
   return material;
 }
 
