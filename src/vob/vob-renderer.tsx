@@ -763,6 +763,22 @@ function VOBRenderer({
         textureCacheRef.current,
         materialCacheRef.current,
       );
+      const itemInstance = String((vob as any).itemInstance || "")
+        .trim()
+        .toUpperCase();
+      const isPaperLikeItem =
+        itemInstance.startsWith("ITSC_") ||
+        itemInstance.includes("LETTER") ||
+        itemInstance.startsWith("ITWR_");
+
+      // Paper-like item meshes (scrolls/letters) can exhibit z-fighting between coplanar faces.
+      // Render only one winding side for those assets to stabilize the texture.
+      if (isPaperLikeItem) {
+        for (const mat of materials) {
+          mat.side = THREE.BackSide;
+          mat.needsUpdate = true;
+        }
+      }
 
       // Verify geometry has data
       if (
