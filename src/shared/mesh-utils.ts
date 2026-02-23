@@ -47,14 +47,6 @@ export async function loadCompiledTexAsDataTexture(
     const rgba = zkTex.asRgba8(0);
     if (!rgba) return null;
 
-    let hasAlpha = false;
-    for (let i = 3; i < rgba.length; i += 4) {
-      if (rgba[i] < 255) {
-        hasAlpha = true;
-        break;
-      }
-    }
-
     const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
     tex.needsUpdate = true;
     tex.flipY = false; // OpenGothic doesn't flip Y
@@ -63,9 +55,9 @@ export async function loadCompiledTexAsDataTexture(
     // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = hasAlpha ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = !hasAlpha;
+    tex.generateMipmaps = true;
 
     return tex;
   } catch (error) {
