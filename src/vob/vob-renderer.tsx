@@ -30,6 +30,18 @@ interface VobData {
   vobType?: number; // VOB type (e.g., 11 for zCVobSpot)
 }
 
+type RenderQueue = "opaque" | "alphaTest" | "transparent";
+type TransparentPass = "alphaBlend" | "additive";
+const RENDER_QUEUE_ORDER: Record<RenderQueue, number> = {
+  opaque: 1000,
+  alphaTest: 1500,
+  transparent: 2000,
+};
+const TRANSPARENT_PASS_ORDER: Record<TransparentPass, number> = {
+  alphaBlend: RENDER_QUEUE_ORDER.transparent,
+  additive: 3000,
+};
+
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
 function VOBRenderer({
   world,
@@ -392,6 +404,196 @@ function VOBRenderer({
     }
   };
 
+  const getMaterialQueue = (material: THREE.Material | undefined | null): RenderQueue => {
+    if (!material) return "opaque";
+    const q = (material.userData as any)?.renderQueue as RenderQueue | undefined;
+    if (q === "opaque" || q === "alphaTest" || q === "transparent") return q;
+    const asAny = material as any;
+    if (asAny?.transparent === true) return "transparent";
+    if (typeof asAny?.alphaTest === "number" && asAny.alphaTest > 0) return "alphaTest";
+    return "opaque";
+  };
+
+  const getMaterialTransparentPass = (
+    material: THREE.Material | undefined | null,
+  ): TransparentPass | null => {
+    if (!material) return null;
+    const queue = getMaterialQueue(material);
+    if (queue !== "transparent") return null;
+
+    const asAny = material as any;
+    if (asAny?.blending === THREE.AdditiveBlending) return "additive";
+    return "alphaBlend";
+  };
+
+  const resolveObjectTransparentPass = (obj: THREE.Object3D): TransparentPass => {
+    let hasAdditive = false;
+    let hasAlphaBlend = false;
+    const evalObjectMaterials = (candidate: any) => {
+      if (!candidate || candidate.material == null) return;
+      const materials = Array.isArray(candidate.material)
+        ? candidate.material
+        : [candidate.material];
+      for (const m of materials) {
+        const pass = getMaterialTransparentPass(m as THREE.Material | undefined);
+        if (pass === "alphaBlend") {
+          hasAlphaBlend = true;
+          return;
+        }
+        if (pass === "additive") {
+          hasAdditive = true;
+        }
+      }
+    };
+
+    if (typeof (obj as any).traverse === "function") {
+      (obj as any).traverse((child: any) => {
+        if (hasAlphaBlend) return;
+        evalObjectMaterials(child);
+      });
+    } else {
+      evalObjectMaterials(obj as any);
+    }
+    if (hasAlphaBlend) return "alphaBlend";
+    if (hasAdditive) return "additive";
+    return "alphaBlend";
+  };
+
+  const resolveObjectQueue = (obj: THREE.Object3D): RenderQueue => {
+    let resolved: RenderQueue = "opaque";
+    const evalObjectMaterials = (candidate: any) => {
+      if (!candidate || candidate.material == null) return;
+      const materials = Array.isArray(candidate.material)
+        ? candidate.material
+        : [candidate.material];
+      for (const m of materials) {
+        const q = getMaterialQueue(m as THREE.Material | undefined);
+        if (q === "transparent") {
+          resolved = "transparent";
+          return;
+        }
+        if (q === "alphaTest" && resolved === "opaque") {
+          resolved = "alphaTest";
+        }
+      }
+    };
+
+    if (typeof (obj as any).traverse === "function") {
+      (obj as any).traverse((child: any) => {
+        evalObjectMaterials(child);
+      });
+    } else {
+      evalObjectMaterials(obj as any);
+    }
+    return resolved;
+  };
+
+  const applyRenderQueue = (obj: THREE.Object3D) => {
+    const queue = resolveObjectQueue(obj);
+    const order = RENDER_QUEUE_ORDER[queue];
+    (obj.userData as any).renderQueue = queue;
+    if (queue === "transparent") {
+      (obj.userData as any).transparentPass = resolveObjectTransparentPass(obj);
+    } else {
+      delete (obj.userData as any).transparentPass;
+    }
+    obj.renderOrder = order;
+    if (typeof (obj as any).traverse === "function") {
+      (obj as any).traverse((child: any) => {
+        child.renderOrder = order;
+      });
+    } else {
+      (obj as any).renderOrder = order;
+    }
+  };
+
+  const applyRenderQueueFromMaterials = (obj: THREE.Object3D, materials: THREE.Material[]) => {
+    let queue: RenderQueue = "opaque";
+    let hasAdditive = false;
+    let hasAlphaBlend = false;
+    for (const m of materials) {
+      const q = getMaterialQueue(m);
+      if (q === "transparent") {
+        queue = "transparent";
+        const pass = getMaterialTransparentPass(m);
+        if (pass === "alphaBlend") hasAlphaBlend = true;
+        if (pass === "additive") hasAdditive = true;
+      }
+      if (q === "alphaTest" && queue === "opaque") {
+        queue = "alphaTest";
+      }
+    }
+    const order = RENDER_QUEUE_ORDER[queue];
+    (obj.userData as any).renderQueue = queue;
+    if (queue === "transparent") {
+      (obj.userData as any).transparentPass = hasAlphaBlend
+        ? "alphaBlend"
+        : hasAdditive
+          ? "additive"
+          : "alphaBlend";
+    } else {
+      delete (obj.userData as any).transparentPass;
+    }
+    obj.renderOrder = order;
+    if (typeof (obj as any).traverse === "function") {
+      (obj as any).traverse((child: any) => {
+        child.renderOrder = order;
+      });
+    }
+  };
+
+  const sortTransparentLoadedVobs = (cameraPos?: THREE.Vector3) => {
+    if (!cameraPos || typeof (cameraPos as any).distanceTo !== "function") return;
+    const alphaBlend: Array<{ obj: THREE.Object3D; dist: number }> = [];
+    const additive: Array<{ obj: THREE.Object3D; dist: number }> = [];
+
+    for (const obj of loadedVOBsRef.current.values()) {
+      const tagged = (obj.userData as any)?.renderQueue as RenderQueue | undefined;
+      const queue =
+        tagged === "opaque" || tagged === "alphaTest" || tagged === "transparent"
+          ? tagged
+          : resolveObjectQueue(obj);
+      if (queue !== "transparent") continue;
+      const taggedPass = (obj.userData as any)?.transparentPass as TransparentPass | undefined;
+      const pass =
+        taggedPass === "alphaBlend" || taggedPass === "additive"
+          ? taggedPass
+          : resolveObjectTransparentPass(obj);
+
+      const p: any = (obj as any).position;
+      if (!p || typeof p.x !== "number" || typeof p.y !== "number" || typeof p.z !== "number")
+        continue;
+      const dist = cameraPos.distanceTo(p);
+      const entry = { obj, dist: Number.isFinite(dist) ? dist : 0 };
+      if (pass === "additive") {
+        additive.push(entry);
+      } else {
+        alphaBlend.push(entry);
+      }
+    }
+
+    const applySortedOrders = (
+      entries: Array<{ obj: THREE.Object3D; dist: number }>,
+      baseOrder: number,
+    ) => {
+      // Back-to-front in each transparent sub-pass.
+      entries.sort((a, b) => b.dist - a.dist);
+      for (let i = 0; i < entries.length; i++) {
+        const order = baseOrder + i;
+        const obj = entries[i].obj;
+        obj.renderOrder = order;
+        if (typeof (obj as any).traverse === "function") {
+          (obj as any).traverse((child: any) => {
+            child.renderOrder = order;
+          });
+        }
+      }
+    };
+
+    applySortedOrders(alphaBlend, TRANSPARENT_PASS_ORDER.alphaBlend);
+    applySortedOrders(additive, TRANSPARENT_PASS_ORDER.additive);
+  };
+
   // Apply visibility toggles to already-loaded VOBs.
   useEffect(() => {
     for (const obj of loadedVOBsRef.current.values()) {
@@ -617,6 +819,7 @@ function VOBRenderer({
   useFrame(() => {
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
       updateVOBStreaming();
+      sortTransparentLoadedVobs(cameraPosition);
     }
   });
 
@@ -788,6 +991,7 @@ function VOBRenderer({
       // Apply VOB transform
       applyVobTransform(vobMeshObj, vob);
       applyViewVisibility(vobMeshObj, vob);
+      applyRenderQueueFromMaterials(vobMeshObj, materials as THREE.Material[]);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -901,6 +1105,7 @@ function VOBRenderer({
         // Apply VOB transform
         applyVobTransform(modelGroup, vob);
         applyViewVisibility(modelGroup, vob);
+        applyRenderQueue(modelGroup);
         scene.add(modelGroup);
 
         if (vobId) {
@@ -1002,6 +1207,7 @@ function VOBRenderer({
       // Apply VOB transform using the same approach as regular VOBs
       applyVobTransform(modelGroup, vob);
       applyViewVisibility(modelGroup, vob);
+      applyRenderQueue(modelGroup);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -1068,6 +1274,7 @@ function VOBRenderer({
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);
       applyViewVisibility(morphMesh, vob);
+      applyRenderQueue(morphMesh);
 
       // Register loaded VOB and add to scene
       if (vobId) {

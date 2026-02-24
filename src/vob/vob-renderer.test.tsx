@@ -1058,6 +1058,114 @@ describe("VOBRenderer", () => {
 
     expect(scene.remove).toHaveBeenCalled();
   });
+
+  it("separates transparent alphaBlend and additive into distinct render-order bands", async () => {
+    configureThreeForVobRendererTests();
+    const scene = configureStableSceneForTest();
+
+    const additiveBlendingValue = (THREE as any).AdditiveBlending;
+
+    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (buildThreeJSGeometryAndMaterials as unknown as jest.Mock)
+      .mockResolvedValueOnce({
+        geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+        materials: [
+          {
+            userData: { renderQueue: "transparent" },
+            transparent: true,
+            alphaTest: 0,
+            blending: additiveBlendingValue === 1 ? 2 : 1,
+          } as any,
+        ],
+      })
+      .mockResolvedValueOnce({
+        geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
+        materials: [
+          {
+            userData: { renderQueue: "transparent" },
+            transparent: true,
+            alphaTest: 0,
+            blending: additiveBlendingValue,
+          } as any,
+        ],
+      });
+
+    const world = addWorldProperties({
+      getVobs: () => ({
+        size: () => 2,
+        get: (index: number) =>
+          index === 0
+            ? {
+                id: 11,
+                type: 0,
+                showVisual: true,
+                visual: { type: 1, name: "alpha_blend.MSH" },
+                position: { x: 100, y: 0, z: 0 },
+                rotation: {
+                  toArray: () => ({
+                    size: () => 9,
+                    get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0,
+                  }),
+                },
+                children: { size: () => 0, get: () => null as any },
+              }
+            : {
+                id: 12,
+                type: 0,
+                showVisual: true,
+                visual: { type: 1, name: "additive.MSH" },
+                position: { x: 10, y: 0, z: 0 },
+                rotation: {
+                  toArray: () => ({
+                    size: () => 9,
+                    get: (i: number) => [1, 0, 0, 0, 1, 0, 0, 0, 1][i] || 0,
+                  }),
+                },
+                children: { size: () => 0, get: () => null as any },
+              },
+      }),
+    }) as unknown as World;
+
+    const mockZenKit = createMockZenKit();
+    const cameraPosition = new THREE.Vector3(0, 0, 0);
+
+    render(
+      <VOBRenderer
+        world={world}
+        zenKit={mockZenKit}
+        cameraPosition={cameraPosition}
+        onLoadingStatus={mockOnLoadingStatus}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const frameCb = (useFrame as unknown as jest.Mock).mock.calls[0][0] as () => void;
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => frameCb());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => frameCb());
+
+    const alphaObj = scene.children.find(
+      (obj: any) => obj?.userData?.transparentPass === "alphaBlend",
+    );
+    const additiveObj = scene.children.find(
+      (obj: any) => obj?.userData?.transparentPass === "additive",
+    );
+
+    expect(alphaObj).toBeTruthy();
+    expect(additiveObj).toBeTruthy();
+    expect(alphaObj.renderOrder).toBeGreaterThanOrEqual(2000);
+    expect(alphaObj.renderOrder).toBeLessThan(3000);
+    expect(additiveObj.renderOrder).toBeGreaterThanOrEqual(3000);
+  });
 });
 
 describe("Path Resolution Functions", () => {
