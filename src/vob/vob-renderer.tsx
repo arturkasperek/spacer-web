@@ -32,6 +32,7 @@ interface VobData {
 
 type RenderQueue = "opaque" | "alphaTest" | "transparent";
 type TransparentPass = "alphaBlend" | "additive";
+type RenderPass = "opaque" | "alphaTest" | "alphaBlend" | "additive";
 const RENDER_QUEUE_ORDER: Record<RenderQueue, number> = {
   opaque: 1000,
   alphaTest: 1500,
@@ -40,6 +41,50 @@ const RENDER_QUEUE_ORDER: Record<RenderQueue, number> = {
 const TRANSPARENT_PASS_ORDER: Record<TransparentPass, number> = {
   alphaBlend: RENDER_QUEUE_ORDER.transparent,
   additive: 3000,
+};
+const RENDER_PASS_BASE_ORDER: Record<RenderPass, number> = {
+  opaque: RENDER_QUEUE_ORDER.opaque,
+  alphaTest: RENDER_QUEUE_ORDER.alphaTest,
+  alphaBlend: TRANSPARENT_PASS_ORDER.alphaBlend,
+  additive: TRANSPARENT_PASS_ORDER.additive,
+};
+const RENDER_PASS_SEQUENCE: ReadonlyArray<RenderPass> = [
+  "opaque",
+  "alphaTest",
+  "alphaBlend",
+  "additive",
+];
+interface PassGlobalState {
+  blending: THREE.Blending;
+  depthTest: boolean;
+  depthWrite: boolean;
+  cullFace: THREE.CullFace;
+}
+const PASS_GLOBAL_STATE: Record<RenderPass, PassGlobalState> = {
+  opaque: {
+    blending: THREE.NoBlending,
+    depthTest: true,
+    depthWrite: true,
+    cullFace: THREE.CullFaceBack,
+  },
+  alphaTest: {
+    blending: THREE.NoBlending,
+    depthTest: true,
+    depthWrite: true,
+    cullFace: THREE.CullFaceBack,
+  },
+  alphaBlend: {
+    blending: THREE.NormalBlending,
+    depthTest: true,
+    depthWrite: false,
+    cullFace: THREE.CullFaceBack,
+  },
+  additive: {
+    blending: THREE.AdditiveBlending,
+    depthTest: true,
+    depthWrite: false,
+    cullFace: THREE.CullFaceBack,
+  },
 };
 
 // VOB Renderer Component - loads and renders Virtual Object Bases (VOBs)
@@ -74,12 +119,13 @@ function VOBRenderer({
   showLights?: boolean;
   dynamicItems?: SpawnedItemData[];
 }>) {
-  const { scene } = useThree();
+  const { scene, gl, camera } = useThree();
   const { world: rapierWorld, rapier } = useRapier();
   const hasLoadedRef = useRef(false);
 
   // VOB management state
   const loadedVOBsRef = useRef(new Map<string, THREE.Object3D>()); // vob id -> THREE.Mesh/Object3D
+  const renderPassGroupsRef = useRef<Partial<Record<RenderPass, THREE.Group>>>({});
   const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
@@ -414,6 +460,89 @@ function VOBRenderer({
     return "opaque";
   };
 
+  const getObjectRenderPass = (obj: THREE.Object3D): RenderPass => {
+    const queue = (obj.userData as any)?.renderQueue as RenderQueue | undefined;
+    if (queue === "opaque") return "opaque";
+    if (queue === "alphaTest") return "alphaTest";
+    const transparentPass = (obj.userData as any)?.transparentPass as TransparentPass | undefined;
+    return transparentPass === "additive" ? "additive" : "alphaBlend";
+  };
+
+  const ensureRenderPassGroup = (pass: RenderPass): THREE.Group | null => {
+    const existing = renderPassGroupsRef.current[pass];
+    if (existing) return existing;
+    if (typeof (THREE as any).Group !== "function") return null;
+
+    const group = new THREE.Group();
+    group.name = `VOB_PASS_${pass}`;
+    group.renderOrder = RENDER_PASS_BASE_ORDER[pass];
+    scene.add(group);
+    renderPassGroupsRef.current[pass] = group;
+    return group;
+  };
+
+  const addObjectToRenderPass = (obj: THREE.Object3D): void => {
+    const pass = getObjectRenderPass(obj);
+    const group = ensureRenderPassGroup(pass);
+    (obj.userData as any).renderPass = pass;
+
+    if (!group) {
+      scene.add(obj);
+      return;
+    }
+
+    const parent = (obj as any).parent;
+    if (parent && typeof parent.remove === "function") {
+      parent.remove(obj);
+    } else if (parent && Array.isArray(parent.children)) {
+      const idx = parent.children.indexOf(obj);
+      if (idx >= 0) parent.children.splice(idx, 1);
+    }
+    group.add(obj);
+  };
+
+  const removeObjectFromSceneOrPass = (obj: THREE.Object3D): void => {
+    const parent = (obj as any).parent;
+    if (parent && typeof parent.remove === "function") {
+      parent.remove(obj);
+      return;
+    }
+    scene.remove(obj);
+  };
+
+  const applyPassGlobalState = (pass: RenderPass): void => {
+    const state = (gl as any)?.state;
+    if (!state) return;
+    const cfg = PASS_GLOBAL_STATE[pass];
+    if (typeof state.setBlending === "function") state.setBlending(cfg.blending);
+    if (state.buffers?.depth) {
+      if (typeof state.buffers.depth.setTest === "function") {
+        state.buffers.depth.setTest(cfg.depthTest);
+      }
+      if (typeof state.buffers.depth.setMask === "function") {
+        state.buffers.depth.setMask(cfg.depthWrite);
+      }
+    }
+    if (typeof state.setCullFace === "function") state.setCullFace(cfg.cullFace);
+    if (typeof state.setFlipSided === "function") state.setFlipSided(false);
+  };
+
+  const resetPassGlobalState = (): void => {
+    const state = (gl as any)?.state;
+    if (!state) return;
+    if (typeof state.setBlending === "function") state.setBlending(THREE.NormalBlending);
+    if (state.buffers?.depth) {
+      if (typeof state.buffers.depth.setTest === "function") {
+        state.buffers.depth.setTest(true);
+      }
+      if (typeof state.buffers.depth.setMask === "function") {
+        state.buffers.depth.setMask(true);
+      }
+    }
+    if (typeof state.setCullFace === "function") state.setCullFace(THREE.CullFaceBack);
+    if (typeof state.setFlipSided === "function") state.setFlipSided(false);
+  };
+
   const getMaterialTransparentPass = (
     material: THREE.Material | undefined | null,
   ): TransparentPass | null => {
@@ -497,6 +626,7 @@ function VOBRenderer({
     } else {
       delete (obj.userData as any).transparentPass;
     }
+    (obj.userData as any).renderPass = getObjectRenderPass(obj);
     obj.renderOrder = order;
     if (typeof (obj as any).traverse === "function") {
       (obj as any).traverse((child: any) => {
@@ -534,6 +664,7 @@ function VOBRenderer({
     } else {
       delete (obj.userData as any).transparentPass;
     }
+    (obj.userData as any).renderPass = getObjectRenderPass(obj);
     obj.renderOrder = order;
     if (typeof (obj as any).traverse === "function") {
       (obj as any).traverse((child: any) => {
@@ -590,8 +721,8 @@ function VOBRenderer({
       }
     };
 
-    applySortedOrders(alphaBlend, TRANSPARENT_PASS_ORDER.alphaBlend);
-    applySortedOrders(additive, TRANSPARENT_PASS_ORDER.additive);
+    applySortedOrders(alphaBlend, RENDER_PASS_BASE_ORDER.alphaBlend);
+    applySortedOrders(additive, RENDER_PASS_BASE_ORDER.additive);
   };
 
   // Apply visibility toggles to already-loaded VOBs.
@@ -762,7 +893,7 @@ function VOBRenderer({
       for (const id of toUnload) {
         const mesh = loadedVOBsRef.current.get(id);
         if (mesh) {
-          scene.remove(mesh);
+          removeObjectFromSceneOrPass(mesh);
           disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
           removeVobCollider(id);
@@ -815,13 +946,48 @@ function VOBRenderer({
     // Streaming continues via useFrame hook
   };
 
-  // Alternative approach: use useFrame for continuous streaming updates
+  // Manual multi-pass rendering: base scene + VOB passes with explicit GPU-state ordering.
   useFrame(() => {
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
       updateVOBStreaming();
       sortTransparentLoadedVobs(cameraPosition);
     }
-  });
+
+    if (!gl || typeof (gl as any).render !== "function" || !camera) return;
+
+    const groups = renderPassGroupsRef.current;
+    const previousVisibility = new Map<RenderPass, boolean>();
+    for (const pass of RENDER_PASS_SEQUENCE) {
+      const group = groups[pass];
+      if (!group) continue;
+      previousVisibility.set(pass, group.visible);
+      group.visible = false;
+    }
+
+    const prevAutoClear = (gl as any).autoClear;
+    (gl as any).autoClear = true;
+    (gl as any).render(scene, camera);
+
+    (gl as any).autoClear = false;
+    for (const pass of RENDER_PASS_SEQUENCE) {
+      const group = groups[pass];
+      if (!group || !Array.isArray((group as any).children) || group.children.length === 0) {
+        continue;
+      }
+      applyPassGlobalState(pass);
+      group.visible = true;
+      (gl as any).render(scene, camera);
+      group.visible = false;
+    }
+
+    for (const pass of RENDER_PASS_SEQUENCE) {
+      const group = groups[pass];
+      if (!group) continue;
+      group.visible = previousVisibility.get(pass) ?? true;
+    }
+    resetPassGlobalState();
+    (gl as any).autoClear = prevAutoClear;
+  }, 1);
 
   useEffect(() => {
     if (!world || !hasLoadedRef.current || dynamicItems.length === 0) return;
@@ -847,6 +1013,17 @@ function VOBRenderer({
       vobColliderHandlesRef.current.clear();
     };
   }, [rapierWorld]);
+
+  useEffect(() => {
+    return () => {
+      const groups = Object.values(renderPassGroupsRef.current);
+      for (const group of groups) {
+        if (!group) continue;
+        scene.remove(group);
+      }
+      renderPassGroupsRef.current = {};
+    };
+  }, [scene]);
 
   // Main VOB rendering dispatcher
   const renderVOB = async (
@@ -996,11 +1173,11 @@ function VOBRenderer({
       // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, vobMeshObj);
-        scene.add(vobMeshObj);
+        addObjectToRenderPass(vobMeshObj);
         createVobCollider(vobId, vobMeshObj, vob);
 
         // Verify it's actually in the scene
-        if (!scene.children.includes(vobMeshObj)) {
+        if (!(vobMeshObj as any).parent) {
           console.error(`❌ ERROR: VOB was not added to scene! ${vob.visual.name}`);
         }
       } else {
@@ -1106,7 +1283,7 @@ function VOBRenderer({
         applyVobTransform(modelGroup, vob);
         applyViewVisibility(modelGroup, vob);
         applyRenderQueue(modelGroup);
-        scene.add(modelGroup);
+        addObjectToRenderPass(modelGroup);
 
         if (vobId) {
           loadedVOBsRef.current.set(vobId, modelGroup);
@@ -1212,11 +1389,11 @@ function VOBRenderer({
       // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, modelGroup);
-        scene.add(modelGroup);
+        addObjectToRenderPass(modelGroup);
         createVobCollider(vobId, modelGroup, vob);
 
         // Verify it's actually in the scene
-        if (!scene.children.includes(modelGroup)) {
+        if (!(modelGroup as any).parent) {
           console.error(`❌ ERROR: Model VOB was not added to scene! ${vob.visual.name}`);
         }
       } else {
@@ -1279,11 +1456,11 @@ function VOBRenderer({
       // Register loaded VOB and add to scene
       if (vobId) {
         loadedVOBsRef.current.set(vobId, morphMesh);
-        scene.add(morphMesh);
+        addObjectToRenderPass(morphMesh);
         createVobCollider(vobId, morphMesh, vob);
 
         // Verify it's actually in the scene
-        if (!scene.children.includes(morphMesh)) {
+        if (!(morphMesh as any).parent) {
           console.error(`❌ ERROR: Morph mesh VOB was not added to scene! ${vob.visual.name}`);
         }
       } else {
