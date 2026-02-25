@@ -134,7 +134,7 @@ function WorldRenderer({
           const mat = processed.materials.get(mi) as any;
           const material = new THREE.MeshBasicMaterial({
             color: 0xffffff, // WHITE - don't tint the texture!
-            side: THREE.DoubleSide,
+            side: THREE.BackSide,
             transparent: false, // Disable transparency for alpha-tested materials
             alphaTest: 0.5, // Use proper alpha test threshold like OpenGothic
           });
