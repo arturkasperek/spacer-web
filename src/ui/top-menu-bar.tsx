@@ -86,7 +86,37 @@ function MenuItem({ label, checked, onClick }: MenuItemProps) {
   );
 }
 
-export function TopMenuBar() {
+type MenuActionProps = {
+  label: string;
+  onClick: () => void;
+};
+
+function MenuAction({ label, onClick }: MenuActionProps) {
+  return (
+    <div
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "4px 10px",
+        cursor: "pointer",
+        userSelect: "none",
+        whiteSpace: "nowrap",
+      }}
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <div>{label}</div>
+    </div>
+  );
+}
+
+export function TopMenuBar({
+  onSaveCameraPose,
+}: Readonly<{
+  onSaveCameraPose?: () => void;
+}> = {}) {
   const view = useViewSettings();
   const camera = useCameraSettings();
   const ui = useUiSettings();
@@ -285,6 +315,14 @@ export function TopMenuBar() {
               label="Free camera"
               checked={camera.freeCamera}
               onClick={() => toggleCameraSetting("freeCamera")}
+            />
+            <div style={{ height: 1, background: "rgba(0,0,0,0.12)", margin: "4px 0" }} />
+            <MenuAction
+              label="Save Camera Position"
+              onClick={() => {
+                onSaveCameraPose?.();
+                setOpenMenu(null);
+              }}
             />
           </div>
         )}

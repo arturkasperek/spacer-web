@@ -26,6 +26,11 @@ import { setFreepointsWorld } from "./npc/world/npc-freepoints";
 import { PlayerInputProvider } from "./player/player-input-context";
 import { FpsOverlay } from "./ui/fps-overlay";
 import { WasmMemOverlay } from "./ui/wasm-mem-overlay";
+import {
+  buildLookAtFromCamera,
+  readStoredCameraPose,
+  writeStoredCameraPose,
+} from "./camera/camera-pose-storage";
 
 // Create a ref to hold the main camera
 const cameraRef: RefObject<any> = createRef();
@@ -131,6 +136,13 @@ function Scene({
     if (!controls) return;
     if (!world) return;
 
+    const savedPose = readStoredCameraPose();
+    if (savedPose && savedPose.worldPath === worldPath) {
+      controls.setPose(savedPose.position, savedPose.lookAt);
+      didInitCameraRef.current = true;
+      return;
+    }
+
     const getVobWorldTransform = (
       vob: any,
     ): { pos: THREE.Vector3; quat: THREE.Quaternion } | null => {
@@ -211,7 +223,7 @@ function Scene({
 
     controls.setPose([camPos.x, camPos.y, camPos.z], [lookAt.x, lookAt.y, lookAt.z]);
     didInitCameraRef.current = true;
-  }, [camera, cameraControlsRef, world]);
+  }, [camera, cameraControlsRef, world, worldPath]);
 
   return (
     <>
@@ -363,6 +375,9 @@ export function App() {
   const [spawnedItems, setSpawnedItems] = useState<Map<number, SpawnedItemData>>(new Map());
   const nextItemSpawnRuntimeIdRef = useRef(1);
 
+  // Default world path - can be made configurable later
+  const worldPath = "/WORLDS/NEWWORLD/NEWWORLD.ZEN";
+
   const handleVobClick = useCallback((vob: Vob) => {
     if (!vob) return;
     shouldUpdateCameraRef.current = true;
@@ -466,12 +481,27 @@ export function App() {
     });
   }, []);
 
-  // Default world path - can be made configurable later
-  const worldPath = "/WORLDS/NEWWORLD/NEWWORLD.ZEN";
+  const handleSaveCameraPose = useCallback(() => {
+    const cam = cameraRef.current as THREE.PerspectiveCamera | null;
+    if (!cam) return;
+    const pos = cam.position.clone();
+    const lookAt = buildLookAtFromCamera(cam);
+    const ok = writeStoredCameraPose({
+      worldPath,
+      position: [pos.x, pos.y, pos.z],
+      lookAt,
+      savedAt: Date.now(),
+    });
+    if (ok) {
+      console.log("[CameraPose] Saved camera pose to localStorage");
+    } else {
+      console.warn("[CameraPose] Failed to save camera pose to localStorage");
+    }
+  }, [worldPath]);
 
   return (
     <>
-      <TopMenuBar />
+      <TopMenuBar onSaveCameraPose={handleSaveCameraPose} />
       {ui.showStatusBar && (
         <WorldTimeOverlay onClose={() => setUiSettings({ showStatusBar: false })} />
       )}

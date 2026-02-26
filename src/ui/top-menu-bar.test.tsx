@@ -60,6 +60,17 @@ describe("TopMenuBar", () => {
     expect(getCameraSettings().freeCamera).toBe(true);
   });
 
+  it("triggers save camera position action from Camera menu", async () => {
+    const user = userEvent.setup();
+    const onSaveCameraPose = jest.fn();
+    render(<TopMenuBar onSaveCameraPose={onSaveCameraPose} />);
+
+    await user.click(screen.getByTestId("top-menu-camera"));
+    await user.click(screen.getByRole("menuitem", { name: /save camera position/i }));
+
+    expect(onSaveCameraPose).toHaveBeenCalledTimes(1);
+  });
+
   it("toggles UI panels from View menu", async () => {
     const user = userEvent.setup();
     render(<TopMenuBar />);
