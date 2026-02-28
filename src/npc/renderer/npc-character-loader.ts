@@ -55,6 +55,9 @@ export async function loadNpcCharacter(
   try {
     const bodyMesh = (visual?.bodyMesh || "").trim().toUpperCase();
     const isHuman = bodyMesh.startsWith("HUM_");
+    const scripts = getNpcModelScriptsState(npcData.instanceIndex);
+    const baseScript = (scripts?.baseScript || "").trim().toUpperCase();
+    const hasExplicitBaseScript = scripts?.hasExplicitBaseScript === true;
 
     let instance: CharacterInstance | null = null;
     const visualParent = getNpcVisualRoot(npcGroup);
@@ -78,9 +81,6 @@ export async function loadNpcCharacter(
         armorInst: visual?.armorInst,
       });
     } else {
-      const scripts = getNpcModelScriptsState(npcData.instanceIndex);
-      const baseScript = (scripts?.baseScript || "").trim().toUpperCase();
-      const hasExplicitBaseScript = scripts?.hasExplicitBaseScript === true;
       if (!hasExplicitBaseScript || !baseScript || baseScript === "HUMANS") {
         // Creature visuals are not fully initialized yet; wait for VM Mdl_SetVisual/Mdl_SetVisualBody.
         return;
