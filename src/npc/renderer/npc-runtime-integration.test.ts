@@ -83,6 +83,15 @@ describe("npc-runtime-integration", () => {
   it("human class: builds HUMANS model and human locomotion", async () => {
     const npcGroup = new THREE.Group();
     const npcData = makeNpcData(101, "MILITIA", makeVisual("HUM_BODY_NAKED0"));
+    mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
+      baseScript: "HUMANS",
+      overlays: [],
+      hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
+      visual: makeVisual("HUM_BODY_NAKED0"),
+    });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,
@@ -106,6 +115,9 @@ describe("npc-runtime-integration", () => {
       baseScript: "HUMANS",
       overlays: ["HUMANS_SKELETON"],
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       visual: makeVisual("SKE_BODY"),
     });
 
@@ -132,6 +144,9 @@ describe("npc-runtime-integration", () => {
       baseScript: "WOLF",
       overlays: ["WOLF_ATTACK"],
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       visual: makeVisual("WOLF"),
     });
 
@@ -159,6 +174,9 @@ describe("npc-runtime-integration", () => {
       baseScript: "HUMANS",
       overlays: [],
       hasExplicitBaseScript: false,
+      hasSetVisual: false,
+      hasSetVisualBody: true,
+      isReady: false,
       visual: makeVisual("WOLF"),
     });
 

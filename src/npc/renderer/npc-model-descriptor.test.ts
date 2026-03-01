@@ -59,6 +59,9 @@ describe("npc-model-descriptor", () => {
       baseScript: "MEATBUG",
       overlays: [],
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       visual: makeVisual("MBG_BODY"),
     });
 
@@ -75,6 +78,9 @@ describe("npc-model-descriptor", () => {
       baseScript: "HUMANS",
       overlays: [],
       hasExplicitBaseScript: false,
+      hasSetVisual: false,
+      hasSetVisualBody: false,
+      isReady: false,
       visual: makeVisual(""),
     });
 
@@ -86,7 +92,7 @@ describe("npc-model-descriptor", () => {
     expect(desc.hasExplicitBaseScript).toBe(false);
   });
 
-  it("bootstraps creature base script from body mesh when VM state is missing", () => {
+  it("keeps descriptor not-ready when VM state is missing", () => {
     const npcData = makeNpcData(12, "LESSER_SKELETON", { visual: makeVisual("SKE_BODY") });
 
     const desc = mod.resolveNpcModelDescriptor(npcData);
@@ -94,6 +100,7 @@ describe("npc-model-descriptor", () => {
     expect(desc.baseScript).toBe("SKE_BODY");
     expect(desc.hasExplicitBaseScript).toBe(true);
     expect(desc.usesCreatureLocomotion).toBe(true);
+    expect(desc.isReady).toBe(false);
   });
 
   it("uses VM hash as visual key when available", () => {
@@ -116,6 +123,7 @@ describe("npc-model-descriptor", () => {
         bodyMesh: "WOLF",
         baseScript: "WOLF",
         hasExplicitBaseScript: true,
+        isReady: true,
         overlays: ["WOLF_OVERLAY"],
         usesCreatureLocomotion: true,
       },
@@ -128,6 +136,7 @@ describe("npc-model-descriptor", () => {
         bodyMesh: "HUM_BODY_NAKED0",
         baseScript: "HUMANS",
         hasExplicitBaseScript: true,
+        isReady: true,
         overlays: ["HUMANS_RELAXED"],
         usesCreatureLocomotion: false,
       },
@@ -148,6 +157,7 @@ describe("npc-model-descriptor", () => {
         bodyMesh: "WOLF",
         baseScript: "HUMANS",
         hasExplicitBaseScript: false,
+        isReady: false,
         overlays: [],
         usesCreatureLocomotion: true,
       }),
@@ -160,6 +170,7 @@ describe("npc-model-descriptor", () => {
         bodyMesh: "HUM_BODY_NAKED0",
         baseScript: "HUMANS",
         hasExplicitBaseScript: true,
+        isReady: true,
         overlays: [],
         usesCreatureLocomotion: false,
       }),
@@ -172,6 +183,7 @@ describe("npc-model-descriptor", () => {
         bodyMesh: "WOLF",
         baseScript: "HUMANS",
         hasExplicitBaseScript: false,
+        isReady: false,
         overlays: [],
         usesCreatureLocomotion: false,
       }),

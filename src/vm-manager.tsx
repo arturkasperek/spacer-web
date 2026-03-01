@@ -89,6 +89,9 @@ function getOrCreateNpcVisualState(npcInstanceIndex: number): NpcVisualState {
     baseScript: "HUMANS",
     overlays: [],
     hasExplicitBaseScript: false,
+    hasSetVisual: false,
+    hasSetVisualBody: false,
+    isReady: false,
     visual: { ...DEFAULT_NPC_VISUAL },
   };
   npcVisualStatesByIndex.set(npcInstanceIndex, init);
@@ -450,8 +453,11 @@ export function registerVmExternals(
           prevVisual.teethTex !== nextVisual.teethTex ||
           prevVisual.armorInst !== nextVisual.armorInst;
         state.visual = nextVisual;
+        const prevReady = state.isReady === true;
+        state.hasSetVisualBody = true;
+        state.isReady = state.hasSetVisual && state.hasSetVisualBody;
         npcVisualStatesByIndex.set(npcIndex, state);
-        if (changed) bumpNpcVisualStateVersion(npcIndex);
+        if (changed || prevReady !== state.isReady) bumpNpcVisualStateVersion(npcIndex);
       },
     );
   };
@@ -467,9 +473,12 @@ export function registerVmExternals(
       const changed = state.baseScript !== key || state.hasExplicitBaseScript !== true;
       state.baseScript = key;
       state.hasExplicitBaseScript = true;
+      state.hasSetVisual = true;
+      const prevReady = state.isReady === true;
+      state.isReady = state.hasSetVisual && state.hasSetVisualBody;
       state.overlays = [];
       npcVisualStatesByIndex.set(npcIndex, state);
-      if (changed) bumpNpcVisualStateVersion(npcIndex);
+      if (changed || prevReady !== state.isReady) bumpNpcVisualStateVersion(npcIndex);
     });
   };
 

@@ -36,6 +36,9 @@ export interface NpcVisualState {
   baseScript: string;
   overlays: string[];
   hasExplicitBaseScript: boolean;
+  hasSetVisual: boolean;
+  hasSetVisualBody: boolean;
+  isReady: boolean;
   visual: NpcVisual;
 }
 

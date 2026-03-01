@@ -131,6 +131,15 @@ describe("npc-character-loader", () => {
     npcGroup.userData.visualKey = "old";
 
     const npcData = makeNpcData(1, "NPC_1", { visual: makeVisual("HUM_BODY_NAKED0") });
+    mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
+      baseScript: "HUMANS",
+      hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
+      overlays: [],
+      visual: makeVisual("HUM_BODY_NAKED0"),
+    });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,
@@ -151,6 +160,9 @@ describe("npc-character-loader", () => {
     mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
       baseScript: "DRAGON",
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       overlays: [],
       visual: makeVisual("WOLF"),
     });
@@ -182,6 +194,15 @@ describe("npc-character-loader", () => {
   it("uses human locomotion controller for humanoid NPCs", async () => {
     const npcGroup = new THREE.Group();
     const npcData = makeNpcData(9, "MILITIA", { visual: makeVisual("HUM_BODY_NAKED0") });
+    mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
+      baseScript: "HUMANS",
+      hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
+      overlays: [],
+      visual: makeVisual("HUM_BODY_NAKED0"),
+    });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,
@@ -201,6 +222,9 @@ describe("npc-character-loader", () => {
     mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
       baseScript: "HUMANS",
       hasExplicitBaseScript: false,
+      hasSetVisual: false,
+      hasSetVisualBody: true,
+      isReady: false,
       overlays: [],
       visual: makeVisual("WOLF"),
     });
@@ -222,6 +246,9 @@ describe("npc-character-loader", () => {
     mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
       baseScript: "MEATBUG",
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       overlays: [],
       visual: makeVisual("MBG_BODY", {
         bodyTex: 1,
@@ -250,6 +277,9 @@ describe("npc-character-loader", () => {
     mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
       baseScript: "HUMANS",
       hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
       overlays: [],
       visual: makeVisual("SKE_BODY"),
     });
@@ -279,6 +309,15 @@ describe("npc-character-loader", () => {
     };
 
     const npcData = makeNpcData(3, "NPC_3", { visual: makeVisual("HUM_BODY_NAKED0") });
+    mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
+      baseScript: "HUMANS",
+      hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
+      overlays: [],
+      visual: makeVisual("HUM_BODY_NAKED0"),
+    });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,
@@ -308,6 +347,15 @@ describe("npc-character-loader", () => {
     mockCreateHumanoidCharacterInstance.mockReturnValueOnce(instance);
 
     const npcData = makeNpcData(1, "NPC_1", { visual: makeVisual("HUM_BODY_NAKED0") });
+    mockGetNpcVisualStateByInstanceIndex.mockReturnValue({
+      baseScript: "HUMANS",
+      hasExplicitBaseScript: true,
+      hasSetVisual: true,
+      hasSetVisualBody: true,
+      isReady: true,
+      overlays: [],
+      visual: makeVisual("HUM_BODY_NAKED0"),
+    });
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
       zenKit: {} as any,

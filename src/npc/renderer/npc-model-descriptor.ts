@@ -17,6 +17,7 @@ export type NpcModelDescriptor = {
   bodyMesh: string;
   baseScript: string;
   hasExplicitBaseScript: boolean;
+  isReady: boolean;
   overlays: string[];
   usesCreatureLocomotion: boolean;
 };
@@ -35,6 +36,7 @@ export function resolveNpcModelDescriptor(npcData: NpcData): NpcModelDescriptor 
   const hasExplicitBaseScript =
     visualState?.hasExplicitBaseScript === true ||
     (!visualState && !!bodyMesh && !bodyMesh.startsWith("HUM_"));
+  const isReady = visualState?.isReady === true;
   const overlays = [...(visualState?.overlays || [])];
   const visualKey =
     getNpcVisualStateHashByInstanceIndex(npcData.instanceIndex) ??
@@ -49,22 +51,14 @@ export function resolveNpcModelDescriptor(npcData: NpcData): NpcModelDescriptor 
     bodyMesh,
     baseScript,
     hasExplicitBaseScript,
+    isReady,
     overlays,
     usesCreatureLocomotion,
   };
 }
 
 export function canInstantiateNpcModel(descriptor: NpcModelDescriptor): boolean {
-  if (
-    !descriptor.hasExplicitBaseScript &&
-    !!descriptor.bodyMesh &&
-    !descriptor.bodyMesh.startsWith("HUM_")
-  ) {
-    return false;
-  }
-
-  if (descriptor.usesCreatureLocomotion && !descriptor.baseScript) return false;
-  return true;
+  return descriptor.isReady;
 }
 
 export function preloadNpcModelScripts(
