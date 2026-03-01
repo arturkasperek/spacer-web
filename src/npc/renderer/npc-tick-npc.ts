@@ -6,7 +6,7 @@ import {
   type LocomotionMode,
 } from "../physics/npc-locomotion";
 import { updateNpcEventManager } from "../combat/npc-em-runtime";
-import { getNpcModelScriptsState } from "../scripting/npc-model-scripts";
+import { getNpcVisualStateByInstanceIndex } from "../../vm-manager";
 import { NPC_RENDER_TUNING } from "../physics/npc-physics";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 import type { NpcData } from "../../shared/types";
@@ -514,7 +514,8 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
       estimateAnimationDurationMs,
       getNearestWaypointDirectionQuat,
       getAnimationMeta: getAnimationMetaForNpc,
-      getFallbackAnimationModelName: (idx) => getNpcModelScriptsState(idx).baseScript,
+      getFallbackAnimationModelName: (idx) =>
+        (getNpcVisualStateByInstanceIndex(idx)?.baseScript || "HUMANS").trim().toUpperCase(),
     });
     movedThisFrame = Boolean(em.moved);
     locomotionMode = em.mode ?? "idle";

@@ -5,10 +5,6 @@ jest.mock("../combat/npc-em-runtime", () => ({
   updateNpcEventManager: jest.fn(),
 }));
 
-jest.mock("../scripting/npc-model-scripts", () => ({
-  getNpcModelScriptsState: jest.fn(() => ({ baseScript: "HUMANS" })),
-}));
-
 jest.mock("../physics/npc-physics", () => ({
   NPC_RENDER_TUNING: { jumpUpHighJumpUpPhaseSeconds: 0.3 },
 }));

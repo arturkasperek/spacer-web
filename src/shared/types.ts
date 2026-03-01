@@ -32,6 +32,13 @@ export interface NpcVisual {
   armorInst: number;
 }
 
+export interface NpcVisualState {
+  baseScript: string;
+  overlays: string[];
+  hasExplicitBaseScript: boolean;
+  visual: NpcVisual;
+}
+
 export interface SpawnedItemData {
   spawnRuntimeId?: number;
   instanceIndex: number;

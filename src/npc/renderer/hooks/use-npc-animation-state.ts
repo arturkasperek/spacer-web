@@ -1,7 +1,7 @@
 import { useMemo, type RefObject } from "react";
 import * as THREE from "three";
 import type { CharacterCaches } from "../../../character/character-instance";
-import { getNpcModelScriptsState } from "../../scripting/npc-model-scripts";
+import { getNpcVisualStateByInstanceIndex } from "../../../vm-manager";
 import type { ModelScriptRegistry } from "../../../shared/model-script-registry";
 
 export type NpcAnimationRef = {
@@ -56,7 +56,13 @@ export function useNpcAnimationState(params: {
     return (npcInstanceIndex: number, animationName: string) => {
       const reg = modelScriptRegistryRef.current;
       if (!reg) return null;
-      const scripts = getNpcModelScriptsState(npcInstanceIndex);
+      const st = getNpcVisualStateByInstanceIndex(npcInstanceIndex);
+      const scripts = st
+        ? {
+            baseScript: st.baseScript,
+            overlays: st.overlays,
+          }
+        : null;
       return reg.getAnimationMetaForNpc(scripts, animationName);
     };
   }, [modelScriptRegistryRef]);
@@ -64,8 +70,8 @@ export function useNpcAnimationState(params: {
   const resolveNpcAnimationRef = useMemo(() => {
     return (npcInstanceIndex: number, animationName: string): NpcAnimationRef => {
       const meta = getAnimationMetaForNpc(npcInstanceIndex, animationName);
-      const scripts = getNpcModelScriptsState(npcInstanceIndex);
-      const fallbackModel = (scripts?.baseScript || "HUMANS").trim().toUpperCase() || "HUMANS";
+      const st = getNpcVisualStateByInstanceIndex(npcInstanceIndex);
+      const fallbackModel = (st?.baseScript || "HUMANS").trim().toUpperCase() || "HUMANS";
       const modelName = (meta?.model || fallbackModel).trim().toUpperCase() || fallbackModel;
       const blendInMs = Number.isFinite(meta?.blendIn)
         ? Math.max(0, (meta!.blendIn as number) * 1000)

@@ -9,6 +9,7 @@ import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
 import { buildSoftSkinMeshCPU } from "./soft-skin";
 import { findHeadBoneIndex, loadHeadMesh } from "./head";
 import { disposeObject3D } from "../world/distance-streaming";
+import { buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 
 export type CharacterCaches = {
   binary: BinaryCache;
@@ -135,9 +136,6 @@ export async function createHumanoidCharacterInstance(params: {
     const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0")
       .replace(/\.(ASC|MDM|MDH|MDL)$/i, "")
       .toUpperCase();
-    if (!normalizedBodyMesh.startsWith("HUM_")) {
-      return null;
-    }
     const mdmPath = `/ANIMS/_COMPILED/${normalizedBodyMesh}.MDM`;
 
     const mdhBytes = await fetchBinaryCached(mdhPath, caches.binary);
@@ -168,6 +166,8 @@ export async function createHumanoidCharacterInstance(params: {
     if (softSkinCount === 0) return null;
 
     const skinningDataList: CpuSkinningData[] = [];
+    const attachmentNames = model.getAttachmentNames?.();
+    const attachmentCount = attachmentNames && attachmentNames.size ? attachmentNames.size() : 0;
 
     for (let i = 0; i < softSkinCount; i++) {
       const softSkinMesh = softSkinMeshes.get(i);
@@ -189,17 +189,55 @@ export async function createHumanoidCharacterInstance(params: {
       group.add(mesh);
     }
 
-    // Try to load and attach head mesh (MMB) to the head bone
+    // Keep attachment geometry too (e.g. skeleton parts in Humanoid pipeline).
+    for (let i = 0; i < attachmentCount; i++) {
+      const attachmentName = attachmentNames.get(i);
+      const attachment = model.getAttachment?.(attachmentName);
+      if (!attachment) continue;
+
+      const processed = model.convertAttachmentToProcessedMesh?.(attachment);
+      if (!processed || processed.indices.size() === 0 || processed.vertices.size() === 0) {
+        continue;
+      }
+
+      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+        processed,
+        zenKit,
+        caches.textures,
+        caches.materials,
+      );
+      const attachmentMesh = new THREE.Mesh(geometry, materials);
+
+      let hierarchyNodeIndex = -1;
+      const nodes = hierarchy.nodes as any;
+      const nodeCount = nodes?.size ? nodes.size() : (nodes?.length ?? 0);
+      for (let j = 0; j < nodeCount; j++) {
+        const node = nodes.get ? nodes.get(j) : nodes[j];
+        if (node && node.name === attachmentName) {
+          hierarchyNodeIndex = j;
+          break;
+        }
+      }
+
+      if (hierarchyNodeIndex >= 0 && skeleton.bones[hierarchyNodeIndex]) {
+        skeleton.bones[hierarchyNodeIndex].add(attachmentMesh);
+      } else {
+        group.add(attachmentMesh);
+      }
+    }
+
+    // OG-like: head mesh is script-driven (Mdl_SetVisualBody). If no explicit head
+    // is provided, do not attach any default head.
     const nodeNames = skeleton.nodes.map((n) => n.name);
     const headNodeIndex = findHeadBoneIndex(nodeNames);
     const requestedHeadName = headMesh ? headMesh.trim() : "";
-    if (headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
+    if (requestedHeadName && headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
       const headMesh = await loadHeadMesh({
         zenKit,
         binaryCache: caches.binary,
         textureCache: caches.textures,
         materialCache: caches.materials,
-        headNames: requestedHeadName ? [requestedHeadName] : undefined,
+        headNames: [requestedHeadName],
         headTex,
         skin,
         teethTex,
@@ -207,13 +245,13 @@ export async function createHumanoidCharacterInstance(params: {
       if (headMesh) {
         skeleton.bones[headNodeIndex].add(headMesh);
       }
-    } else {
+    } else if (requestedHeadName) {
       const headMeshObj = await loadHeadMesh({
         zenKit,
         binaryCache: caches.binary,
         textureCache: caches.textures,
         materialCache: caches.materials,
-        headNames: requestedHeadName ? [requestedHeadName] : undefined,
+        headNames: [requestedHeadName],
         headTex,
         skin,
         teethTex,

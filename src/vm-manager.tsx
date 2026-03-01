@@ -1,17 +1,17 @@
 import type { ZenKit, DaedalusScript, DaedalusVm } from "@kolarz3/zenkit";
-import type { ItemSpawnCallback, NpcSpawnCallback, RoutineEntry, NpcVisual } from "./shared/types";
+import type {
+  ItemSpawnCallback,
+  NpcSpawnCallback,
+  RoutineEntry,
+  NpcVisual,
+  NpcVisualState,
+} from "./shared/types";
 import {
   getNpcWorldPosition,
   isFreepointAvailableForNpc,
   isNpcOnFreepoint,
 } from "./npc/world/npc-freepoints";
 import { enqueueNpcEmMessage, requestNpcEmClear } from "./npc/combat/npc-em-queue";
-import {
-  addNpcOverlayModelScript,
-  getNpcModelScriptsState,
-  removeNpcOverlayModelScript,
-  setNpcBaseModelScript,
-} from "./npc/scripting/npc-model-scripts";
 import { normalizeMdsToScriptKey } from "./shared/model-script-registry";
 import { getWorldTime } from "./world/world-time";
 import { getNpcRoutineWaypointName } from "./npc/scripting/npc-routine-runtime";
@@ -27,7 +27,7 @@ export interface VmLoadResult {
 }
 
 let runtimeVm: DaedalusVm | null = null;
-const npcVisualsByIndex = new Map<number, NpcVisual>();
+const npcVisualStatesByIndex = new Map<number, NpcVisualState>();
 const npcVisualStateVersionByInstance = new Map<number, number>();
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,18 @@ export function getNpcSpawnOrder(npcInstanceIndex: number): number | null {
 
 export function getNpcVisualByInstanceIndex(npcInstanceIndex: number): NpcVisual | null {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
-  return npcVisualsByIndex.get(npcInstanceIndex) ?? null;
+  return npcVisualStatesByIndex.get(npcInstanceIndex)?.visual ?? null;
+}
+
+export function getNpcVisualStateByInstanceIndex(npcInstanceIndex: number): NpcVisualState | null {
+  if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return null;
+  return npcVisualStatesByIndex.get(npcInstanceIndex) ?? null;
+}
+
+export function getNpcVisualStateHashByInstanceIndex(npcInstanceIndex: number): string | null {
+  const st = getNpcVisualStateByInstanceIndex(npcInstanceIndex);
+  if (!st) return null;
+  return `${st.baseScript}|${st.hasExplicitBaseScript ? 1 : 0}|ov:${(st.overlays || []).join(",")}|${st.visual.bodyMesh}|${st.visual.bodyTex}|${st.visual.skin}|${st.visual.headMesh}|${st.visual.headTex}|${st.visual.teethTex}|${st.visual.armorInst}`;
 }
 
 export function getNpcVisualStateVersion(npcInstanceIndex: number): number {
@@ -59,6 +70,29 @@ function bumpNpcVisualStateVersion(npcInstanceIndex: number): void {
   if (!Number.isFinite(npcInstanceIndex) || npcInstanceIndex <= 0) return;
   const next = (npcVisualStateVersionByInstance.get(npcInstanceIndex) ?? 0) + 1;
   npcVisualStateVersionByInstance.set(npcInstanceIndex, next);
+}
+
+const DEFAULT_NPC_VISUAL: NpcVisual = {
+  bodyMesh: "",
+  bodyTex: 0,
+  skin: 0,
+  headMesh: "",
+  headTex: 0,
+  teethTex: 0,
+  armorInst: -1,
+};
+
+function getOrCreateNpcVisualState(npcInstanceIndex: number): NpcVisualState {
+  const existing = npcVisualStatesByIndex.get(npcInstanceIndex);
+  if (existing) return existing;
+  const init: NpcVisualState = {
+    baseScript: "HUMANS",
+    overlays: [],
+    hasExplicitBaseScript: false,
+    visual: { ...DEFAULT_NPC_VISUAL },
+  };
+  npcVisualStatesByIndex.set(npcInstanceIndex, init);
+  return init;
 }
 
 function recordNpcSpawnOrder(npcInstanceIndex: number): void {
@@ -304,7 +338,7 @@ export function registerVmExternals(
 
   // Store routine entries for the currently processing NPC
   let currentRoutineEntries: RoutineEntry[] = [];
-  npcVisualsByIndex.clear();
+  npcVisualStatesByIndex.clear();
   npcVisualStateVersionByInstance.clear();
 
   const isTimeBetweenLikeZenGin = (
@@ -405,9 +439,9 @@ export function registerVmExternals(
           teethTex: teeth_tex ?? 0,
           armorInst: armor_inst ?? -1,
         };
-        const prevVisual = npcVisualsByIndex.get(npcIndex);
+        const state = getOrCreateNpcVisualState(npcIndex);
+        const prevVisual = state.visual;
         const changed =
-          !prevVisual ||
           prevVisual.bodyMesh !== nextVisual.bodyMesh ||
           prevVisual.bodyTex !== nextVisual.bodyTex ||
           prevVisual.skin !== nextVisual.skin ||
@@ -415,7 +449,8 @@ export function registerVmExternals(
           prevVisual.headTex !== nextVisual.headTex ||
           prevVisual.teethTex !== nextVisual.teethTex ||
           prevVisual.armorInst !== nextVisual.armorInst;
-        npcVisualsByIndex.set(npcIndex, nextVisual);
+        state.visual = nextVisual;
+        npcVisualStatesByIndex.set(npcIndex, state);
         if (changed) bumpNpcVisualStateVersion(npcIndex);
       },
     );
@@ -428,9 +463,12 @@ export function registerVmExternals(
       if (!npcIndex || !mds) return;
       const key = normalizeMdsToScriptKey(mds);
       if (!key) return;
-      const prev = getNpcModelScriptsState(npcIndex);
-      const changed = prev.baseScript !== key || prev.hasExplicitBaseScript !== true;
-      setNpcBaseModelScript(npcIndex, key);
+      const state = getOrCreateNpcVisualState(npcIndex);
+      const changed = state.baseScript !== key || state.hasExplicitBaseScript !== true;
+      state.baseScript = key;
+      state.hasExplicitBaseScript = true;
+      state.overlays = [];
+      npcVisualStatesByIndex.set(npcIndex, state);
       if (changed) bumpNpcVisualStateVersion(npcIndex);
     });
   };
@@ -442,7 +480,11 @@ export function registerVmExternals(
       if (!npcIndex || !mds) return;
       const key = normalizeMdsToScriptKey(mds);
       if (!key) return;
-      addNpcOverlayModelScript(npcIndex, key);
+      const state = getOrCreateNpcVisualState(npcIndex);
+      if (state.overlays.includes(key)) return;
+      state.overlays.push(key);
+      npcVisualStatesByIndex.set(npcIndex, state);
+      bumpNpcVisualStateVersion(npcIndex);
     });
   };
 
@@ -453,7 +495,12 @@ export function registerVmExternals(
       if (!npcIndex || !mds) return;
       const key = normalizeMdsToScriptKey(mds);
       if (!key) return;
-      removeNpcOverlayModelScript(npcIndex, key);
+      const state = getOrCreateNpcVisualState(npcIndex);
+      const nextOverlays = state.overlays.filter((o) => o !== key);
+      if (nextOverlays.length === state.overlays.length) return;
+      state.overlays = nextOverlays;
+      npcVisualStatesByIndex.set(npcIndex, state);
+      bumpNpcVisualStateVersion(npcIndex);
     });
   };
 
@@ -464,7 +511,11 @@ export function registerVmExternals(
       if (!npcIndex || !mds) return;
       const key = normalizeMdsToScriptKey(mds);
       if (!key) return;
-      addNpcOverlayModelScript(npcIndex, key);
+      const state = getOrCreateNpcVisualState(npcIndex);
+      if (state.overlays.includes(key)) return;
+      state.overlays.push(key);
+      npcVisualStatesByIndex.set(npcIndex, state);
+      bumpNpcVisualStateVersion(npcIndex);
     });
   };
 
@@ -544,7 +595,9 @@ export function registerVmExternals(
 
       // Emit NPC spawn event if callback is provided
       if (onNpcSpawn) {
-        const visual = npcVisualsByIndex.get(npcInstanceIndex);
+        const visual = getNpcVisualStateByInstanceIndex(npcInstanceIndex)?.visual ?? {
+          ...DEFAULT_NPC_VISUAL,
+        };
         onNpcSpawn({
           instanceIndex: npcInstanceIndex,
           symbolName: nameStr,
@@ -1418,7 +1471,9 @@ export async function loadVm(
       if (heroIndex != null && heroIndex > 0) {
         recordNpcSpawnOrder(heroIndex);
         const heroInfo = getNpcInfo(vm, heroIndex);
-        const visual = npcVisualsByIndex.get(heroIndex);
+        const visual = getNpcVisualStateByInstanceIndex(heroIndex)?.visual ?? {
+          ...DEFAULT_NPC_VISUAL,
+        };
         onNpcSpawn({
           instanceIndex: heroIndex,
           symbolName: heroInfo.symbolName || HERO_SYMBOL_NAME,

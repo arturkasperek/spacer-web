@@ -1,5 +1,9 @@
 import type { ModelScript, ZenKit } from "@kolarz3/zenkit";
-import type { NpcModelScriptsState } from "../npc/scripting/npc-model-scripts";
+
+export type NpcAnimationScriptState = {
+  baseScript: string;
+  overlays: string[];
+};
 
 export type AnimationMeta = {
   name: string;
@@ -141,13 +145,13 @@ export class ModelScriptRegistry {
    * Returns `null` if metadata isn't loaded yet (but kicks off async loads for relevant scripts).
    */
   getAnimationMetaForNpc(
-    npcScripts: NpcModelScriptsState | null | undefined,
+    npcScripts: NpcAnimationScriptState | null | undefined,
     animationName: string,
   ): AnimationMeta | null {
     const nameKey = (animationName || "").trim().toUpperCase();
     if (!nameKey) return null;
 
-    const st: NpcModelScriptsState = npcScripts ?? { baseScript: "HUMANS", overlays: [] };
+    const st: NpcAnimationScriptState = npcScripts ?? { baseScript: "HUMANS", overlays: [] };
     const keys = [...(st.overlays || [])].map((s) => s.toUpperCase());
     keys.push((st.baseScript || "HUMANS").toUpperCase());
 
