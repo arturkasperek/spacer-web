@@ -1,4 +1,4 @@
-import { getNpcVisualStateVersion, loadVm } from "./vm-manager";
+import { getNpcVisualStateByInstanceIndex, getNpcVisualStateVersion, loadVm } from "./vm-manager";
 
 type VmMock = {
   symbolCount: number;
@@ -212,5 +212,82 @@ describe("loadVm", () => {
     await loadVm(zenKit as any, "/SCRIPTS/_COMPILED/GOTHIC.DAT", "startup_newworld");
 
     expect(getNpcVisualStateVersion(12000)).toBe(3);
+  });
+
+  it("marks npc visual state ready only after both SetVisual and SetVisualBody", async () => {
+    const vm = createVmMock({
+      symbols: {
+        11471: "PC_HERO",
+        13000: "MEATBUG",
+      },
+      hasSymbolNames: [
+        "NONE_100_XARDAS",
+        "PC_HERO",
+        "startup_newworld",
+        "Mdl_SetVisual",
+        "Mdl_SetVisualBody",
+      ],
+    });
+
+    const readinessSnapshots: Array<{
+      isReady: boolean;
+      hasSetVisual: boolean;
+      hasSetVisualBody: boolean;
+    }> = [];
+
+    vm.callFunction.mockImplementation((fn: string) => {
+      if (fn === "startup_newworld") {
+        const setVisual = vm.registerExternal.mock.calls.find(
+          (c: any[]) => c[0] === "Mdl_SetVisual",
+        )?.[1] as ((npc: any, mdsName: string) => void) | undefined;
+        const setVisualBody = vm.registerExternal.mock.calls.find(
+          (c: any[]) => c[0] === "Mdl_SetVisualBody",
+        )?.[1] as
+          | ((
+              npc: any,
+              body_mesh: string,
+              body_tex: number,
+              skin: number,
+              head_mesh: string,
+              head_tex: number,
+              teeth_tex: number,
+              armor_inst: number,
+            ) => void)
+          | undefined;
+
+        setVisual?.({ symbol_index: 13000 }, "Meatbug.mds");
+        const afterVisual = getNpcVisualStateByInstanceIndex(13000);
+        readinessSnapshots.push({
+          isReady: afterVisual?.isReady === true,
+          hasSetVisual: afterVisual?.hasSetVisual === true,
+          hasSetVisualBody: afterVisual?.hasSetVisualBody === true,
+        });
+
+        setVisualBody?.({ symbol_index: 13000 }, "Mbg_Body", 0, 0, "", 0, 0, -1);
+        const afterBody = getNpcVisualStateByInstanceIndex(13000);
+        readinessSnapshots.push({
+          isReady: afterBody?.isReady === true,
+          hasSetVisual: afterBody?.hasSetVisual === true,
+          hasSetVisualBody: afterBody?.hasSetVisualBody === true,
+        });
+      }
+      return { success: true };
+    });
+
+    const { zenKit } = createZenKitMock(vm);
+    await loadVm(zenKit as any, "/SCRIPTS/_COMPILED/GOTHIC.DAT", "startup_newworld");
+
+    expect(readinessSnapshots).toEqual([
+      {
+        isReady: false,
+        hasSetVisual: true,
+        hasSetVisualBody: false,
+      },
+      {
+        isReady: true,
+        hasSetVisual: true,
+        hasSetVisualBody: true,
+      },
+    ]);
   });
 });
