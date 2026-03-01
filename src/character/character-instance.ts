@@ -2,14 +2,11 @@ import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import type { BinaryCache } from "./binary-cache";
 import type { AnimationCache } from "./animation";
-import { fetchBinaryCached } from "./binary-cache";
 import { loadAnimationSequence, evaluatePose } from "./animation";
-import { buildSkeletonFromHierarchy } from "./skeleton";
-import { applyCpuSkinning, type CpuSkinningData } from "./cpu-skinning";
-import { buildSoftSkinMeshCPU } from "./soft-skin";
+import { applyCpuSkinning } from "./cpu-skinning";
 import { findHeadBoneIndex, loadHeadMesh } from "./head";
 import { disposeObject3D } from "../world/distance-streaming";
-import { buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
+import { buildNpcModelCore, normalizeModelAssetKey } from "./model-core";
 
 export type CharacterCaches = {
   binary: BinaryCache;
@@ -87,6 +84,7 @@ export async function createHumanoidCharacterInstance(params: {
   zenKit: ZenKit;
   caches: CharacterCaches;
   parent: THREE.Object3D;
+  modelKey?: string;
   animationName?: string;
   loop?: boolean;
   mirrorX?: boolean;
@@ -101,11 +99,13 @@ export async function createHumanoidCharacterInstance(params: {
   headTex?: number;
   teethTex?: number;
   armorInst?: number;
+  canLoadAnimation?: (modelName: string, animationName: string) => boolean | null | undefined;
 }): Promise<CharacterInstance | null> {
   const {
     zenKit,
     caches,
     parent,
+    modelKey = "HUMANS",
     animationName = "t_dance_01",
     loop = true,
     mirrorX = true,
@@ -120,111 +120,27 @@ export async function createHumanoidCharacterInstance(params: {
     headTex = 0,
     teethTex = 0,
     armorInst: _armorInst = -1,
+    canLoadAnimation,
   } = params;
   void _armorInst;
-
-  const root = new THREE.Group();
-  root.name = "npc-character";
-  parent.add(root);
-
-  const group = new THREE.Group();
-  group.name = "npc-character-model";
-  root.add(group);
+  let createdRoot: THREE.Group | null = null;
 
   try {
-    const mdhPath = `/ANIMS/_COMPILED/HUMANS.MDH`;
-    const normalizedBodyMesh = (bodyMesh || "HUM_BODY_NAKED0")
-      .replace(/\.(ASC|MDM|MDH|MDL)$/i, "")
-      .toUpperCase();
-    const mdmPath = `/ANIMS/_COMPILED/${normalizedBodyMesh}.MDM`;
-
-    const mdhBytes = await fetchBinaryCached(mdhPath, caches.binary);
-    const mdmBytes = await fetchBinaryCached(mdmPath, caches.binary);
-
-    const hierarchyLoader = zenKit.createModelHierarchyLoader();
-    const mdhLoadResult = hierarchyLoader.loadFromArray(mdhBytes);
-    if (!mdhLoadResult || !mdhLoadResult.success) return null;
-
-    const meshLoader = zenKit.createModelMeshLoader();
-    const mdmLoadResult = meshLoader.loadFromArray(mdmBytes);
-    if (!mdmLoadResult || !mdmLoadResult.success) return null;
-
-    const model = zenKit.createModel();
-    model.setHierarchy(hierarchyLoader.getHierarchy());
-    model.setMesh(meshLoader.getMesh());
-
-    const hierarchy = model.getHierarchy();
-    const skeleton = buildSkeletonFromHierarchy(hierarchy);
-
-    // Add bones to scene graph so attachments (like head) can be parented to them.
-    for (const rootIdx of skeleton.rootNodes) {
-      group.add(skeleton.bones[rootIdx]);
-    }
-
-    const softSkinMeshes = model.getSoftSkinMeshes();
-    const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
-    if (softSkinCount === 0) return null;
-
-    const skinningDataList: CpuSkinningData[] = [];
-    const attachmentNames = model.getAttachmentNames?.();
-    const attachmentCount = attachmentNames && attachmentNames.size ? attachmentNames.size() : 0;
-
-    for (let i = 0; i < softSkinCount; i++) {
-      const softSkinMesh = softSkinMeshes.get(i);
-      if (!softSkinMesh) continue;
-
-      const { mesh, skinningData } = await buildSoftSkinMeshCPU({
-        zenKit,
-        softSkinMesh,
-        bindWorld: skeleton.bindWorld,
-        textureCache: caches.textures,
-        textureOverride: (name: string) => {
-          const upper = (name || "").toUpperCase();
-          if (!upper.includes("BODY")) return name;
-          return upper.replace(/_V\d+/g, `_V${bodyTex}`).replace(/_C\d+/g, `_C${skin}`);
-        },
-      });
-
-      skinningDataList.push(skinningData);
-      group.add(mesh);
-    }
-
-    // Keep attachment geometry too (e.g. skeleton parts in Humanoid pipeline).
-    for (let i = 0; i < attachmentCount; i++) {
-      const attachmentName = attachmentNames.get(i);
-      const attachment = model.getAttachment?.(attachmentName);
-      if (!attachment) continue;
-
-      const processed = model.convertAttachmentToProcessedMesh?.(attachment);
-      if (!processed || processed.indices.size() === 0 || processed.vertices.size() === 0) {
-        continue;
-      }
-
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
-        processed,
-        zenKit,
-        caches.textures,
-        caches.materials,
-      );
-      const attachmentMesh = new THREE.Mesh(geometry, materials);
-
-      let hierarchyNodeIndex = -1;
-      const nodes = hierarchy.nodes as any;
-      const nodeCount = nodes?.size ? nodes.size() : (nodes?.length ?? 0);
-      for (let j = 0; j < nodeCount; j++) {
-        const node = nodes.get ? nodes.get(j) : nodes[j];
-        if (node && node.name === attachmentName) {
-          hierarchyNodeIndex = j;
-          break;
-        }
-      }
-
-      if (hierarchyNodeIndex >= 0 && skeleton.bones[hierarchyNodeIndex]) {
-        skeleton.bones[hierarchyNodeIndex].add(attachmentMesh);
-      } else {
-        group.add(attachmentMesh);
-      }
-    }
+    const normalizedModelKey = normalizeModelAssetKey(modelKey) || "HUMANS";
+    const normalizedBodyMesh =
+      normalizeModelAssetKey(bodyMesh || "HUM_BODY_NAKED0") || "HUM_BODY_NAKED0";
+    const core = await buildNpcModelCore({
+      zenKit,
+      caches,
+      parent,
+      modelKey: normalizedModelKey,
+      meshKey: normalizedBodyMesh,
+      bodyTex,
+      skin,
+    });
+    if (!core) return null;
+    const { root, group, skeleton, skinningDataList } = core;
+    createdRoot = root;
 
     // OG-like: head mesh is script-driven (Mdl_SetVisualBody). If no explicit head
     // is provided, do not attach any default head.
@@ -276,16 +192,38 @@ export async function createHumanoidCharacterInstance(params: {
     const offsetLocal = group.worldToLocal(offsetWorld.clone());
     group.position.sub(offsetLocal);
 
-    const sequence = await loadAnimationSequence(
-      zenKit,
-      caches.binary,
-      caches.animations,
-      "HUMANS",
+    const initialCandidates = [
       animationName,
-    );
+      "s_Run",
+      "s_RunL",
+      "s_Walk",
+      "s_WalkL",
+      "s_Stand",
+      "t_Stand",
+    ]
+      .map((s) => (s || "").trim())
+      .filter(Boolean);
+    let sequence: any | null = null;
+    let initialAnimationName = animationName;
+    for (const cand of initialCandidates) {
+      const seq = await loadAnimationSequence(
+        zenKit,
+        caches.binary,
+        caches.animations,
+        normalizedModelKey,
+        cand,
+        { canLoadAnimation },
+      );
+      if (seq) {
+        sequence = seq;
+        initialAnimationName = cand;
+        break;
+      }
+    }
+
     let currentSequence = sequence;
-    let currentAnimationName = animationName;
-    let currentModelName = "HUMANS";
+    let currentAnimationName = initialAnimationName;
+    let currentModelName = normalizedModelKey;
     let currentLoop = loop;
     let currentTimeMs = 0;
     let globalTimeMs = 0;
@@ -397,7 +335,7 @@ export async function createHumanoidCharacterInstance(params: {
           let loaded: { seq: any; name: string } | null = null;
 
           for (const cand of candidates) {
-            const key = cand.toUpperCase();
+            const key = `${next.modelName}:${cand}`.toUpperCase();
             if (failedAnis.has(key)) continue;
             const seq = await loadAnimationSequence(
               zenKit,
@@ -405,6 +343,7 @@ export async function createHumanoidCharacterInstance(params: {
               caches.animations,
               next.modelName,
               cand,
+              { canLoadAnimation },
             );
             if (seq) {
               loaded = { seq, name: cand };
@@ -448,7 +387,7 @@ export async function createHumanoidCharacterInstance(params: {
       blendOutMs?: number;
     }) => {
       const names = [req.name, ...(req.fallbackNames || [])].filter(Boolean);
-      for (const n of names) failedAnis.delete(n.toUpperCase());
+      for (const n of names) failedAnis.delete(`${req.modelName}:${n}`.toUpperCase());
       pendingLoad = req;
       ensureLoaderRunning();
     };
@@ -457,7 +396,7 @@ export async function createHumanoidCharacterInstance(params: {
       const name = (nextName || "").trim();
       if (!name) return;
       const nextModel =
-        (options?.modelName || currentModelName || "HUMANS").trim().toUpperCase() || "HUMANS";
+        normalizeModelAssetKey(options?.modelName || currentModelName) || currentModelName;
       const nextLoop = options?.loop ?? currentLoop;
       const resetTime = options?.resetTime ?? false;
 
@@ -474,8 +413,7 @@ export async function createHumanoidCharacterInstance(params: {
       if (!nextLoop && options?.next) {
         nextAfterNonLoop = {
           animationName: options.next.animationName,
-          modelName:
-            (options.next.modelName || nextModel || "HUMANS").trim().toUpperCase() || "HUMANS",
+          modelName: normalizeModelAssetKey(options.next.modelName || nextModel) || nextModel,
           loop: options.next.loop ?? true,
           resetTime: options.next.resetTime ?? true,
           fallbackNames: options.next.fallbackNames,
@@ -604,8 +542,10 @@ export async function createHumanoidCharacterInstance(params: {
     return { object: root, update, setAnimation, dispose };
   } catch (error) {
     console.warn("Failed to create character instance:", error);
-    parent.remove(root);
-    disposeObject3D(root);
+    if (createdRoot) {
+      parent.remove(createdRoot);
+      disposeObject3D(createdRoot);
+    }
     return null;
   }
 }

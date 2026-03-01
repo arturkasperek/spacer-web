@@ -6,24 +6,57 @@ import {
   type CharacterCaches,
   type CharacterInstance,
 } from "../../character/character-instance";
-import { createCreatureCharacterInstance } from "../../character/creature-character";
 import { disposeObject3D } from "../../world/distance-streaming";
 import type { NpcData } from "../../shared/types";
 import { ModelScriptRegistry } from "../../shared/model-script-registry";
-import {
-  getNpcVisualStateByInstanceIndex,
-  getNpcVisualStateHashByInstanceIndex,
-} from "../../vm-manager";
 import {
   createCreatureLocomotionController,
   createHumanLocomotionController,
 } from "../physics/npc-locomotion";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
 import { getNpcRuntimeId } from "./npc-renderer-utils";
+import {
+  canInstantiateNpcModel,
+  preloadNpcModelScripts,
+  resolveNpcModelDescriptor,
+  type NpcModelDescriptor,
+} from "./npc-model-descriptor";
 
-function hasMeaningfulVisual(visual: NpcData["visual"] | null | undefined): boolean {
-  if (!visual) return false;
-  return Boolean((visual.bodyMesh || "").trim() || (visual.headMesh || "").trim());
+async function instantiateFromDescriptor(
+  descriptor: NpcModelDescriptor,
+  {
+    zenKit,
+    caches,
+    visualParent,
+    modelScriptRegistryRef,
+  }: {
+    zenKit: ZenKit;
+    caches: CharacterCaches;
+    visualParent: THREE.Object3D;
+    modelScriptRegistryRef: RefObject<ModelScriptRegistry | null>;
+  },
+): Promise<CharacterInstance | null> {
+  return createHumanoidCharacterInstance({
+    zenKit,
+    caches,
+    parent: visualParent,
+    modelKey: descriptor.baseScript,
+    animationName: "s_Run",
+    loop: true,
+    mirrorX: true,
+    rootMotionTarget: "self",
+    applyRootMotion: false,
+    align: "ground",
+    bodyMesh: descriptor.visual?.bodyMesh || descriptor.bodyMesh,
+    bodyTex: descriptor.visual?.bodyTex,
+    skin: descriptor.visual?.skin,
+    headMesh: descriptor.visual?.headMesh,
+    headTex: descriptor.visual?.headTex,
+    teethTex: descriptor.visual?.teethTex,
+    armorInst: descriptor.visual?.armorInst,
+    canLoadAnimation: (modelName, animationName) =>
+      modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
+  });
 }
 
 export async function loadNpcCharacter(
@@ -44,26 +77,9 @@ export async function loadNpcCharacter(
   },
 ) {
   if (!zenKit) return;
-  const visualState = getNpcVisualStateByInstanceIndex(npcData.instanceIndex);
-  const visual =
-    hasMeaningfulVisual(visualState?.visual) || !hasMeaningfulVisual(npcData.visual)
-      ? visualState?.visual
-      : npcData.visual;
-  const bodyMeshHint = (visual?.bodyMesh || "").trim().toUpperCase();
-  const inferredBaseScriptFromBody =
-    bodyMeshHint && !bodyMeshHint.startsWith("HUM_") ? bodyMeshHint : "HUMANS";
-  const baseScript =
-    (visualState?.baseScript || inferredBaseScriptFromBody).trim().toUpperCase() ||
-    inferredBaseScriptFromBody;
-  const hasExplicitBaseScript =
-    visualState?.hasExplicitBaseScript === true ||
-    (!visualState && !!bodyMeshHint && !bodyMeshHint.startsWith("HUM_"));
-  const overlays = [...(visualState?.overlays || [])];
-  const visualKey =
-    getNpcVisualStateHashByInstanceIndex(npcData.instanceIndex) ??
-    (visual
-      ? `${baseScript}|${hasExplicitBaseScript ? 1 : 0}|ov:${overlays.join(",")}|${visual.bodyMesh}|${visual.bodyTex}|${visual.skin}|${visual.headMesh}|${visual.headTex}|${visual.teethTex}|${visual.armorInst}`
-      : `${baseScript}|${hasExplicitBaseScript ? 1 : 0}|ov:${overlays.join(",")}|default`);
+  const descriptor = resolveNpcModelDescriptor(npcData);
+  const visual = descriptor.visual;
+  const visualKey = descriptor.visualKey;
 
   if (npcGroup.userData.characterInstance && npcGroup.userData.visualKey === visualKey) return;
   if (npcGroup.userData.characterInstance && npcGroup.userData.visualKey !== visualKey) {
@@ -76,61 +92,20 @@ export async function loadNpcCharacter(
   npcGroup.userData.visualKey = visualKey;
 
   try {
-    const bodyMesh = (visual?.bodyMesh || "").trim().toUpperCase();
-    const hasHumanoidMeshHint = bodyMesh.startsWith("HUM_");
-    if (!hasExplicitBaseScript && !hasHumanoidMeshHint) {
-      // Wait for Mdl_SetVisual for non-humanoid bodies. In OG this state is script-driven.
+    if (!canInstantiateNpcModel(descriptor)) {
+      // Wait for full VM visual state (Mdl_SetVisual/Mdl_SetVisualBody) before building creature model.
       return;
     }
-    const useHumanPath = baseScript === "HUMANS";
-    let instance: CharacterInstance | null = null;
-    const visualParent = getNpcVisualRoot(npcGroup);
-    if (useHumanPath) {
-      instance = await createHumanoidCharacterInstance({
-        zenKit,
-        caches: characterCachesRef.current,
-        parent: visualParent,
-        animationName: "s_Run",
-        loop: true,
-        mirrorX: true,
-        rootMotionTarget: "self",
-        applyRootMotion: false,
-        align: "ground",
-        bodyMesh: visual?.bodyMesh,
-        bodyTex: visual?.bodyTex,
-        skin: visual?.skin,
-        headMesh: visual?.headMesh,
-        headTex: visual?.headTex,
-        teethTex: visual?.teethTex,
-        armorInst: visual?.armorInst,
-      });
-    } else {
-      if (!hasExplicitBaseScript || !baseScript || baseScript === "HUMANS") {
-        // Creature visuals are not fully initialized yet; wait for VM Mdl_SetVisual/Mdl_SetVisualBody.
-        return;
-      }
-      const modelKey = baseScript;
-      modelScriptRegistryRef.current?.startLoadScript(modelKey);
-      for (const overlay of overlays) {
-        modelScriptRegistryRef.current?.startLoadScript(overlay);
-      }
 
-      instance = await createCreatureCharacterInstance({
-        zenKit,
-        caches: characterCachesRef.current,
-        parent: visualParent,
-        modelKey,
-        meshKey: bodyMesh,
-        animationName: "s_Run",
-        loop: true,
-        mirrorX: true,
-        rootMotionTarget: "self",
-        applyRootMotion: false,
-        align: "ground",
-        canLoadAnimation: (modelName, animationName) =>
-          modelScriptRegistryRef.current?.hasAnimation(modelName, animationName) ?? null,
-      });
-    }
+    preloadNpcModelScripts(descriptor, modelScriptRegistryRef);
+
+    const visualParent = getNpcVisualRoot(npcGroup);
+    const instance = await instantiateFromDescriptor(descriptor, {
+      zenKit,
+      caches: characterCachesRef.current,
+      visualParent,
+      modelScriptRegistryRef,
+    });
     if (npcGroup.userData.isDisposed) return;
 
     if (!instance) {
@@ -142,9 +117,9 @@ export async function loadNpcCharacter(
     }
 
     npcGroup.userData.characterInstance = instance;
-    npcGroup.userData.locomotion = useHumanPath
-      ? createHumanLocomotionController()
-      : createCreatureLocomotionController();
+    npcGroup.userData.locomotion = descriptor.usesCreatureLocomotion
+      ? createCreatureLocomotionController()
+      : createHumanLocomotionController();
     (npcGroup.userData.characterInstance as CharacterInstance).update(0);
     if (npcGroup.userData.isDisposed) return;
 

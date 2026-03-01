@@ -8,7 +8,6 @@ describe("npc-character-loader", () => {
   type NpcVisual = import("../../shared/types").NpcVisual;
 
   const mockCreateHumanoidCharacterInstance = jest.fn();
-  const mockCreateCreatureCharacterInstance = jest.fn();
   const mockDisposeObject3D = jest.fn();
   const mockGetNpcVisualStateByInstanceIndex = jest.fn();
   const mockGetNpcVisualStateHashByInstanceIndex = jest.fn();
@@ -54,11 +53,6 @@ describe("npc-character-loader", () => {
       createHumanoidCharacterInstance: (...args: any[]) =>
         mockCreateHumanoidCharacterInstance(...args),
     }));
-    jest.doMock("../../character/creature-character.js", () => ({
-      createCreatureCharacterInstance: (...args: any[]) =>
-        mockCreateCreatureCharacterInstance(...args),
-    }));
-
     jest.doMock("../../vm-manager", () => ({
       getNpcVisualStateByInstanceIndex: (...args: any[]) =>
         mockGetNpcVisualStateByInstanceIndex(...args),
@@ -78,11 +72,6 @@ describe("npc-character-loader", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCreateHumanoidCharacterInstance.mockImplementation(() => ({
-      object: new THREE.Group(),
-      update: jest.fn(),
-      dispose: jest.fn(),
-    }));
-    mockCreateCreatureCharacterInstance.mockImplementation(() => ({
       object: new THREE.Group(),
       update: jest.fn(),
       dispose: jest.fn(),
@@ -165,9 +154,6 @@ describe("npc-character-loader", () => {
       overlays: [],
       visual: makeVisual("WOLF"),
     });
-    const creatureInstance = { object: new THREE.Group(), update: jest.fn(), dispose: jest.fn() };
-    mockCreateCreatureCharacterInstance.mockReturnValueOnce(creatureInstance);
-
     const modelScriptRegistry = { startLoadScript: jest.fn(), hasAnimation: jest.fn(() => true) };
 
     await mod.loadNpcCharacter(npcGroup, npcData as any, {
@@ -179,13 +165,14 @@ describe("npc-character-loader", () => {
     });
 
     expect(modelScriptRegistry.startLoadScript).toHaveBeenCalledWith("DRAGON");
-    expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(1);
-    expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("DRAGON");
-    expect(typeof mockCreateCreatureCharacterInstance.mock.calls[0][0].canLoadAnimation).toBe(
+    expect(mockCreateHumanoidCharacterInstance).toHaveBeenCalledTimes(1);
+    expect(mockCreateHumanoidCharacterInstance.mock.calls[0][0].modelKey).toBe("DRAGON");
+    expect(mockCreateHumanoidCharacterInstance.mock.calls[0][0].bodyMesh).toBe("WOLF");
+    expect(typeof mockCreateHumanoidCharacterInstance.mock.calls[0][0].canLoadAnimation).toBe(
       "function",
     );
     expect(
-      mockCreateCreatureCharacterInstance.mock.calls[0][0].canLoadAnimation("DRAGON", "S_RUN"),
+      mockCreateHumanoidCharacterInstance.mock.calls[0][0].canLoadAnimation("DRAGON", "S_RUN"),
     ).toBe(true);
     expect(modelScriptRegistry.hasAnimation).toHaveBeenCalledWith("DRAGON", "S_RUN");
     expect(mockCreateCreatureLocomotionController).toHaveBeenCalledTimes(1);
@@ -226,7 +213,7 @@ describe("npc-character-loader", () => {
       getNpcVisualRoot: (g) => g,
     });
 
-    expect(mockCreateCreatureCharacterInstance).not.toHaveBeenCalled();
+    expect(mockCreateHumanoidCharacterInstance).not.toHaveBeenCalled();
   });
 
   it("prefers latest VM visual data when npcData.visual is stale or missing", async () => {
@@ -250,9 +237,9 @@ describe("npc-character-loader", () => {
       getNpcVisualRoot: (g) => g,
     });
 
-    expect(mockCreateCreatureCharacterInstance).toHaveBeenCalledTimes(1);
-    expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].modelKey).toBe("MEATBUG");
-    expect(mockCreateCreatureCharacterInstance.mock.calls[0][0].meshKey).toBe("MBG_BODY");
+    expect(mockCreateHumanoidCharacterInstance).toHaveBeenCalledTimes(1);
+    expect(mockCreateHumanoidCharacterInstance.mock.calls[0][0].modelKey).toBe("MEATBUG");
+    expect(mockCreateHumanoidCharacterInstance.mock.calls[0][0].bodyMesh).toBe("MBG_BODY");
   });
 
   it("uses humanoid path for skeleton body when base script is HUMANS", async () => {
@@ -276,7 +263,6 @@ describe("npc-character-loader", () => {
     });
 
     expect(mockCreateHumanoidCharacterInstance).toHaveBeenCalledTimes(1);
-    expect(mockCreateCreatureCharacterInstance).not.toHaveBeenCalled();
     expect(mockCreateHumanLocomotionController).toHaveBeenCalledTimes(1);
     expect(mockCreateCreatureLocomotionController).not.toHaveBeenCalled();
   });
