@@ -72,11 +72,11 @@ export async function buildNpcModelCore(params: {
 
   const softSkinMeshes = zModel.getSoftSkinMeshes();
   const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
-  if (softSkinCount === 0) return null;
 
   const skinningDataList: CpuSkinningData[] = [];
   const attachmentNames = zModel.getAttachmentNames?.();
   const attachmentCount = attachmentNames && attachmentNames.size ? attachmentNames.size() : 0;
+  let renderableMeshCount = 0;
 
   for (let i = 0; i < softSkinCount; i++) {
     const softSkinMesh = softSkinMeshes.get(i);
@@ -96,6 +96,7 @@ export async function buildNpcModelCore(params: {
 
     skinningDataList.push(skinningData);
     group.add(threeMesh);
+    renderableMeshCount++;
   }
 
   for (let i = 0; i < attachmentCount; i++) {
@@ -132,6 +133,13 @@ export async function buildNpcModelCore(params: {
     } else {
       group.add(attachmentMesh);
     }
+    renderableMeshCount++;
+  }
+
+  // Some models are attachment-only (no soft-skin), so this check must use
+  // both sources instead of soft-skin count alone.
+  if (renderableMeshCount === 0) {
+    return null;
   }
 
   return {
