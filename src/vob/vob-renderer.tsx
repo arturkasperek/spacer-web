@@ -147,6 +147,8 @@ function VOBRenderer({
   // Streaming loader state
   const vobLoadQueueRef = useRef<VobData[]>([]);
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
+  const deferredVobIdsRef = useRef(new Set<string>()); // Deferred until VM becomes available
+  const vmWasReadyRef = useRef(false);
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
   const vobColliderHandlesRef = useRef(new Map<string, number>());
   const consumedDynamicItemSignaturesRef = useRef(new Set<string>());
@@ -316,6 +318,15 @@ function VOBRenderer({
     } catch {
       return "";
     }
+  };
+
+  const shouldDeferUntilVmReady = (vobData: VobData): boolean => {
+    if (getRuntimeVm()) return false;
+    const vobType = vobData.vobType ?? getVobType(vobData.vob);
+    if (vobType !== ITEM_VOB_TYPE) return false;
+    const rawVisualName = (vobData.vob.visual?.name || "").trim();
+    const resolvedVisualName = (vobData.visualName || "").trim();
+    return !rawVisualName && !resolvedVisualName;
   };
 
   const shouldCreateVobCollider = (vob: Vob) => {
@@ -739,6 +750,8 @@ function VOBRenderer({
     if (hasLoadedRef.current || !world || !zenKit) return;
 
     hasLoadedRef.current = true;
+    deferredVobIdsRef.current.clear();
+    vmWasReadyRef.current = !!getRuntimeVm();
 
     const loadVOBs = async () => {
       try {
@@ -864,6 +877,25 @@ function VOBRenderer({
 
   // Streaming VOB loader - loads/unloads based on camera distance
   const updateVOBStreaming = () => {
+    const vmReadyNow = !!getRuntimeVm();
+    if (vmReadyNow && !vmWasReadyRef.current && deferredVobIdsRef.current.size > 0) {
+      for (const deferredId of deferredVobIdsRef.current) {
+        if (
+          loadedVOBsRef.current.has(deferredId) ||
+          loadingVOBsRef.current.has(deferredId) ||
+          vobLoadQueueRef.current.some((entry) => entry.id === deferredId)
+        ) {
+          continue;
+        }
+        const deferredData = allVOBsRef.current.find((entry) => entry.id === deferredId);
+        if (deferredData) {
+          vobLoadQueueRef.current.push(deferredData);
+        }
+      }
+      deferredVobIdsRef.current.clear();
+    }
+    vmWasReadyRef.current = vmReadyNow;
+
     const config = {
       loadDistance: VOB_LOAD_DISTANCE,
       unloadDistance: VOB_UNLOAD_DISTANCE,
@@ -914,13 +946,24 @@ function VOBRenderer({
     for (let i = 0; i < Math.min(availableSlots, vobLoadQueueRef.current.length); i++) {
       const vobData = vobLoadQueueRef.current.shift();
       if (vobData) {
+        if (shouldDeferUntilVmReady(vobData)) {
+          deferredVobIdsRef.current.add(vobData.id);
+          continue;
+        }
+
         loadingVOBsRef.current.add(vobData.id);
 
         renderVOB(vobData.vob, vobData.id, vobData).then((success) => {
           loadingVOBsRef.current.delete(vobData.id);
           if (!success) {
+            if (shouldDeferUntilVmReady(vobData)) {
+              deferredVobIdsRef.current.add(vobData.id);
+              return;
+            }
             console.warn(`❌ Failed to render VOB: ${vobData.visualName}`);
+            return;
           }
+          deferredVobIdsRef.current.delete(vobData.id);
         });
       }
     }
