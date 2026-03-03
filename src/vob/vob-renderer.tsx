@@ -18,6 +18,7 @@ import {
   getItemsToLoadUnload,
   disposeObject3D,
 } from "../world/distance-streaming";
+import { clearNpcVobDeferGate, updateNpcVobDeferGate } from "./vob-npc-defer-gate";
 import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
 import { getRuntimeVm } from "../vm-manager";
 import type { SpawnedItemData } from "../shared/types";
@@ -336,6 +337,13 @@ function VOBRenderer({
     // If dynamic collision is disabled for this VOB, treat it as non-collidable.
     if ((vob as any).cdDynamic === false) return false;
     return true;
+  };
+
+  const syncNpcVobDeferGate = () => {
+    updateNpcVobDeferGate(
+      allVOBsRef.current.map((entry) => ({ id: entry.id, vob: entry.vob })),
+      new Set(loadedVOBsRef.current.keys()),
+    );
   };
 
   const removeVobCollider = (vobId: string) => {
@@ -760,6 +768,7 @@ function VOBRenderer({
         // Collect VOBs from world
         consumedDynamicItemSignaturesRef.current.clear();
         allVOBsRef.current = await collectVOBs(world);
+        syncNpcVobDeferGate();
 
         // Start the streaming loader
         onLoadingStatus(`🎬 Starting streaming VOB loader (${allVOBsRef.current.length} VOBs)...`);
@@ -922,6 +931,7 @@ function VOBRenderer({
       vobLoadQueueRef.current = toLoad;
 
       // Unload distant VOBs
+      let unloadedAny = false;
       for (const id of toUnload) {
         const mesh = loadedVOBsRef.current.get(id);
         if (mesh) {
@@ -929,8 +939,10 @@ function VOBRenderer({
           disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
           removeVobCollider(id);
+          unloadedAny = true;
         }
       }
+      if (unloadedAny) syncNpcVobDeferGate();
 
       // Sort queue by distance (closest first)
       vobLoadQueueRef.current.sort((a, b) => {
@@ -964,6 +976,7 @@ function VOBRenderer({
             return;
           }
           deferredVobIdsRef.current.delete(vobData.id);
+          syncNpcVobDeferGate();
         });
       }
     }
@@ -1038,7 +1051,14 @@ function VOBRenderer({
     if (newItems.length === 0) return;
     allVOBsRef.current = [...allVOBsRef.current, ...newItems];
     vobLoadQueueRef.current = [...newItems, ...vobLoadQueueRef.current];
+    syncNpcVobDeferGate();
   }, [world, dynamicItems]);
+
+  useEffect(() => {
+    return () => {
+      clearNpcVobDeferGate();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {

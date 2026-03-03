@@ -17,6 +17,7 @@ import { clearNpcEmRuntimeState } from "../combat/npc-em-runtime";
 import { clearNpcEmQueueState } from "../combat/npc-em-queue";
 import type { CharacterInstance } from "../../character/character-instance";
 import type { WaypointMover } from "../navigation/npc-waypoint-mover";
+import { shouldDeferNpcModelLoad } from "../../vob/vob-npc-defer-gate";
 
 export function updateNpcStreaming({
   enabled,
@@ -171,6 +172,8 @@ export function updateNpcStreaming({
     const npc = allNpcsByIdRef.current.get(npcId);
     if (!npc) continue;
     const isHero = isHeroNpcData(npc.npcData);
+    // Defer spawn/loading until nearby occluding VOBs are streamed in.
+    if (!isHero && shouldDeferNpcModelLoad(npc.position)) continue;
 
     // Get rotation from waypoint direction if available, fallback to VOB direction
     let rotation: THREE.Quaternion | undefined;
@@ -274,6 +277,12 @@ export function updateNpcStreaming({
     const currentVersion = getNpcVisualStateVersion(entry.npcData.instanceIndex);
     const lastTriedVersion = Number(npcGroup.userData.modelRetryVisualVersion ?? -1);
     if (currentVersion <= lastTriedVersion) continue;
+    if (
+      !isHeroNpcData(entry.npcData) &&
+      shouldDeferNpcModelLoad(npcGroup.position as THREE.Vector3)
+    ) {
+      continue;
+    }
     npcGroup.userData.modelRetryVisualVersion = currentVersion;
     void loadNpcCharacter(npcGroup, entry.npcData);
   }
