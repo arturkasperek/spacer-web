@@ -40,7 +40,7 @@ export type NpcRuntimeState = {
   kccJumpActive?: boolean;
   kccJumpType?: NpcJumpType | string;
   kccJumpAnimActive?: boolean;
-  kccJumpRequest?: { atMs: number; jumpType: string };
+  kccJumpRequest?: { atMs: number; readyFrame?: number };
   kccJumpBlockedReason?: string;
   kccIgnoreInputUntilMs?: number;
   kccLastFrame?: number;

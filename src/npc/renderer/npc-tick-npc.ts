@@ -282,21 +282,10 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
         getNpcRuntimeValue(ud, "kccStableGrounded") ?? getNpcRuntimeValue(ud, "kccGrounded"),
       );
       const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
-      const jumpDecision = getNpcRuntimeValue(ud, "jumpDecision");
-      const jumpType = String(jumpDecision?.type ?? "jump_forward");
-      const canJumpByDecision = jumpDecision?.canJump !== false;
       if (grounded && !jumpActive) {
-        if (canJumpByDecision) {
-          setNpcRuntimeValue(ud, "kccJumpRequest", { atMs: nowMs, jumpType });
-          clearNpcRuntimeValue(ud, "kccJumpBlockedReason");
-        } else {
-          clearNpcRuntimeValue(ud, "kccJumpRequest");
-          setNpcRuntimeValue(
-            ud,
-            "kccJumpBlockedReason",
-            String(jumpDecision?.reason ?? "decision_blocked"),
-          );
-        }
+        // Arm jump and consume on the next physics frame so decision uses fresh scan data.
+        setNpcRuntimeValue(ud, "kccJumpRequest", { atMs: nowMs, readyFrame: physicsFrame + 1 });
+        clearNpcRuntimeValue(ud, "kccJumpBlockedReason");
       } else {
         clearNpcRuntimeValue(ud, "kccJumpRequest");
       }

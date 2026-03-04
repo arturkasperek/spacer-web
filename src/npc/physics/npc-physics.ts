@@ -18,6 +18,833 @@ import {
 } from "./npc-jump-decision";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
+type PendingJumpRequest = { atMs: number; readyFrame?: number };
+
+type JumpStartConfig = {
+  jumpUpTeleportOnStart: boolean;
+  jumpSpeed: number;
+  jumpUpLowAssistDelaySeconds?: number;
+  jumpUpAssistDelaySeconds?: number;
+  jumpUpHighAssistDelaySeconds?: number;
+  jumpUpLowAssistDurationSeconds?: number;
+  jumpUpAssistDurationSeconds?: number;
+  jumpUpHighAssistDurationSeconds?: number;
+  jumpUpAssistArcHeight?: number;
+  jumpUpTeleportSkipKccMs?: number;
+};
+
+function resolveJumpType(raw: unknown): JumpType {
+  if (
+    raw === "jump_up_low" ||
+    raw === "jump_up_mid" ||
+    raw === "jump_up_high" ||
+    raw === "climb_up" ||
+    raw === "jump_forward"
+  ) {
+    return raw;
+  }
+  return "jump_forward";
+}
+
+function tryConsumeJumpRequestAndStart(params: {
+  ud: any;
+  npcGroup: THREE.Group;
+  jumpReq: PendingJumpRequest | undefined;
+  nowMs: number;
+  physicsFrame: number;
+  wasStableGrounded: boolean;
+  jumpActive: boolean;
+  jumpBlocked: boolean;
+  vy: number;
+  kccConfig: JumpStartConfig;
+}): { vy: number; didJumpThisFrame: boolean } {
+  const {
+    ud,
+    npcGroup,
+    jumpReq,
+    nowMs,
+    physicsFrame,
+    wasStableGrounded,
+    jumpActive,
+    jumpBlocked,
+    vy,
+    kccConfig,
+  } = params;
+
+  const jumpReqReady =
+    !jumpReq || typeof jumpReq.readyFrame !== "number" || physicsFrame >= jumpReq.readyFrame;
+  if (!jumpReq || !jumpReqReady || !wasStableGrounded || jumpActive || jumpBlocked) {
+    return { vy, didJumpThisFrame: false };
+  }
+
+  const jumpDecisionNow = ud._kccJumpDecision as
+    | { canJump?: boolean; type?: string; reason?: string }
+    | null
+    | undefined;
+  const canJumpByDecision = jumpDecisionNow?.canJump !== false;
+  if (!canJumpByDecision) {
+    ud._kccJumpRequest = undefined;
+    ud._kccJumpBlockedReason = String(jumpDecisionNow?.reason ?? "decision_blocked");
+    return { vy, didJumpThisFrame: false };
+  }
+
+  ud._kccJumpRequest = undefined;
+  ud._kccJumpBlockedReason = undefined;
+  ud._kccJumpAtMs = jumpReq.atMs;
+  ud._kccJumpType = resolveJumpType(jumpDecisionNow?.type);
+
+  const jumpTypeNow = ud._kccJumpType as JumpType | undefined;
+  const isJumpUp =
+    jumpTypeNow === "jump_up_low" ||
+    jumpTypeNow === "jump_up_mid" ||
+    jumpTypeNow === "jump_up_high" ||
+    jumpTypeNow === "climb_up";
+
+  let nextVy = vy;
+  const skipJumpSpeed = isJumpUp && kccConfig.jumpUpTeleportOnStart;
+  if (!skipJumpSpeed) {
+    nextVy = Math.max(nextVy, kccConfig.jumpSpeed);
+  }
+
+  ud._kccJumpActive = true;
+  ud._kccJumpMinAirMs = undefined;
+  const forward =
+    (ud._kccForwardDir as THREE.Vector3 | undefined) ?? (ud._kccForwardDir = new THREE.Vector3());
+  npcGroup.getWorldDirection(forward);
+  forward.y = 0;
+  if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
+  else forward.normalize();
+  ud._kccJumpDir = { x: forward.x, z: forward.z };
+  ud._kccJumpUpRemainder = 0;
+  ud._kccJumpDecisionFrozen = ud._kccJumpDecision ?? null;
+  ud._kccJumpLedgeFrozen = ud._kccLedgeBest ?? null;
+
+  if (isJumpUp && kccConfig.jumpUpTeleportOnStart) {
+    const frozen = ud._kccJumpLedgeFrozen as
+      | { point?: { x: number; y: number; z: number } | null }
+      | null
+      | undefined;
+    const lp = frozen?.point;
+    if (lp) {
+      const isJumpUpLow = jumpTypeNow === "jump_up_low";
+      const isJumpUpHigh = jumpTypeNow === "jump_up_high";
+      const assistDelaySeconds = isJumpUpLow
+        ? (kccConfig.jumpUpLowAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
+        : isJumpUpHigh
+          ? (kccConfig.jumpUpHighAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
+          : kccConfig.jumpUpAssistDelaySeconds;
+      const assistDurationSeconds = isJumpUpLow
+        ? (kccConfig.jumpUpLowAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
+        : isJumpUpHigh
+          ? (kccConfig.jumpUpHighAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
+          : kccConfig.jumpUpAssistDurationSeconds;
+      const delayS = Math.max(0, assistDelaySeconds ?? 0);
+      const delayMs = delayS * 1000;
+      const durS = Math.max(0.1, assistDurationSeconds ?? 0.28);
+      const durMs = durS * 1000;
+      const arc = Math.max(0, kccConfig.jumpUpAssistArcHeight ?? 0);
+      const assistStart = nowMs + delayMs;
+      const assistEnd = assistStart + durMs;
+      ud._kccJumpAssist = {
+        start: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
+        end: { x: lp.x, y: lp.y, z: lp.z },
+        startMs: assistStart,
+        endMs: assistEnd,
+        arc,
+      };
+      ud._kccJumpForceActiveUntilMs = assistEnd;
+      if (
+        typeof kccConfig.jumpUpTeleportSkipKccMs === "number" &&
+        kccConfig.jumpUpTeleportSkipKccMs > 0
+      ) {
+        ud._kccJumpTeleportSkipKccUntilMs = Math.max(
+          nowMs + kccConfig.jumpUpTeleportSkipKccMs,
+          assistEnd,
+        );
+      } else {
+        ud._kccJumpTeleportSkipKccUntilMs = assistEnd;
+      }
+    }
+  }
+
+  return { vy: nextVy, didJumpThisFrame: true };
+}
+
+function updateJumpLifecycleAndMaybeStart(params: {
+  ud: any;
+  npcGroup: THREE.Group;
+  kccConfig: JumpStartConfig & { jumpGraceSeconds?: number; jumpGraceMinDistDown?: number };
+  nowMs: number;
+  wasStableGrounded: boolean;
+  physicsFrame: number;
+  vy: number;
+}): {
+  vy: number;
+  jumpActive: boolean;
+  didJumpThisFrame: boolean;
+  jumpReq: PendingJumpRequest | undefined;
+} {
+  const { ud, npcGroup, kccConfig, nowMs, wasStableGrounded, physicsFrame, vy } = params;
+  let nextVy = vy;
+  let didJumpThisFrame = false;
+  let jumpActive = Boolean(ud._kccJumpActive);
+
+  const prevJumpActive = Boolean(ud._kccJumpActivePrev);
+  const jumpForceUntilMs = ud._kccJumpForceActiveUntilMs as number | undefined;
+  const jumpForceActive =
+    jumpActive && typeof jumpForceUntilMs === "number" && nowMs < jumpForceUntilMs;
+  const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
+  const probeDistDown = ud._kccGroundProbeDistDown as number | null | undefined;
+  const minAirMsConfig = 0;
+  const minAirMsOverride = ud._kccJumpMinAirMs as number | undefined;
+  const minAirMs =
+    typeof minAirMsOverride === "number" &&
+    Number.isFinite(minAirMsOverride) &&
+    minAirMsOverride > 0
+      ? minAirMsOverride
+      : minAirMsConfig;
+  const isDescending = nextVy <= 0;
+  const jumpStartMs = ud._kccJumpAtMs as number | undefined;
+  const airForMs =
+    typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs)
+      ? Math.max(0, nowMs - jumpStartMs)
+      : 0;
+  const canEndByGround = isDescending && airForMs >= minAirMs;
+  const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
+  const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
+  const probeDownVal =
+    typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
+  const canEndByProbe = isDescending && airForMs >= minAirMs;
+  const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
+  const graceActive = Boolean(ud._kccJumpGraceActive);
+  const graceUntilMs = ud._kccJumpGraceUntilMs as number | undefined;
+
+  if (jumpForceActive) {
+    ud._kccJumpGraceActive = false;
+  } else if (jumpActive && graceActive) {
+    if (shouldEndByProbe || (canEndByGround && groundedNow)) {
+      ud._kccJumpGraceActive = false;
+      ud._kccJumpActive = false;
+      if (shouldEndByProbe) {
+        ud._kccJumpEndByProbeAtMs = nowMs;
+        ud._kccJumpEndByProbePending = true;
+      }
+      jumpActive = false;
+    } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
+      ud._kccJumpGraceActive = false;
+      ud._kccJumpActive = false;
+      if (!groundedNow) {
+        ud._kccSkipFallDownPhase = true;
+      }
+      jumpActive = false;
+    }
+  } else if (jumpActive) {
+    const canStartGrace =
+      graceMs > 0 && canEndByProbe && (probeDownVal == null || probeDownVal >= graceMinDown);
+    if (canStartGrace) {
+      ud._kccJumpGraceActive = true;
+      ud._kccJumpGraceStartMs = nowMs;
+      ud._kccJumpGraceUntilMs = nowMs + graceMs;
+    } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
+      ud._kccJumpActive = false;
+      if (shouldEndByProbe) {
+        ud._kccJumpEndByProbeAtMs = nowMs;
+        ud._kccJumpEndByProbePending = true;
+      }
+      jumpActive = false;
+    }
+  }
+
+  if (!jumpActive) {
+    ud._kccJumpGraceActive = false;
+    ud._kccJumpGraceUntilMs = undefined;
+    ud._kccJumpGraceStartMs = undefined;
+    if (groundedNow) {
+      ud._kccJumpBlockUntilMs = undefined;
+    }
+  }
+
+  if (prevJumpActive && !jumpActive) {
+    ud._kccGroundRecoverSuppressUntilMs = nowMs + 200;
+    ud._kccJumpDecisionFrozen = null;
+    ud._kccJumpLedgeFrozen = null;
+    ud._kccJumpTeleportSkipKccUntilMs = undefined;
+    ud._kccJumpForceActiveUntilMs = undefined;
+  }
+
+  ud._kccJumpActivePrev = jumpActive;
+  const jumpBlockUntilMs = ud._kccJumpBlockUntilMs as number | undefined;
+  const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
+  const jumpReq = ud._kccJumpRequest as PendingJumpRequest | undefined;
+  const jumpStart = tryConsumeJumpRequestAndStart({
+    ud,
+    npcGroup,
+    jumpReq,
+    nowMs,
+    physicsFrame,
+    wasStableGrounded,
+    jumpActive,
+    jumpBlocked,
+    vy: nextVy,
+    kccConfig,
+  });
+
+  nextVy = jumpStart.vy;
+  didJumpThisFrame = jumpStart.didJumpThisFrame;
+
+  return {
+    vy: nextVy,
+    jumpActive,
+    didJumpThisFrame,
+    jumpReq,
+  };
+}
+
+function processJumpLedgeScan(params: {
+  ud: any;
+  npcGroup: THREE.Group;
+  rapierWorld: any;
+  rapier: any;
+  collider: any;
+  filterFlags: number;
+  filterGroups: number;
+  ox: number;
+  oz: number;
+  forward: THREE.Vector3;
+  isHero: boolean;
+  jumpReq: PendingJumpRequest | undefined;
+  jumpActive: boolean;
+  showJumpDebugRange: boolean;
+  kccConfig: any;
+}) {
+  const {
+    ud,
+    npcGroup,
+    rapierWorld,
+    rapier,
+    collider,
+    filterFlags,
+    filterGroups,
+    ox,
+    oz,
+    forward,
+    isHero,
+    jumpReq,
+    jumpActive,
+    showJumpDebugRange,
+    kccConfig,
+  } = params;
+
+  // Run hero ledge-scan only around an actual jump intent:
+  // - armed jump request (space, before consume)
+  // - active jump (keep debug/assist data coherent)
+  // AI jump scan is intentionally disabled for now.
+  const hasJumpRequest = Boolean(jumpReq);
+  const heroWantsLedgeScan = isHero && (hasJumpRequest || jumpActive);
+  const shouldRunLedgeScan = heroWantsLedgeScan;
+
+  if (shouldRunLedgeScan) {
+    // ZenGin-like ledge scan Y-range at the probe origin:
+    // - scan down to find local floor
+    // - scan up to find ceiling
+    // - clamp usable jump-up interval by both limits
+    const downRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: -1, z: 0 });
+    const upRay = new rapier.Ray({ x: ox, y: npcGroup.position.y, z: oz }, { x: 0, y: 1, z: 0 });
+    const downHit = rapierWorld.castRayAndGetNormal(
+      downRay,
+      kccConfig.ledgeScanDownRange,
+      true,
+      filterFlags,
+      filterGroups,
+      collider,
+    );
+    const upHit = rapierWorld.castRayAndGetNormal(
+      upRay,
+      kccConfig.ledgeScanUpRange,
+      true,
+      filterFlags,
+      filterGroups,
+      collider,
+    );
+
+    const floorY = downHit ? downRay.pointAt(downHit.timeOfImpact).y : npcGroup.position.y;
+    const ceilingY = upHit
+      ? upRay.pointAt(upHit.timeOfImpact).y
+      : npcGroup.position.y + kccConfig.ledgeScanUpRange;
+    const modelHeight = kccConfig.capsuleHeight;
+    const jumpTopTargetY = floorY + kccConfig.jumpUpHeight * 0.95 + modelHeight;
+    const maxTopY = Math.min(jumpTopTargetY, ceilingY);
+    const rangeTopY = Math.max(floorY, maxTopY);
+
+    // ZenGin-like recursive horizontal scan: upper/lower + middle subdivision.
+    // We keep this as a geometry probe (for jump-type decision), independent from movement.
+    const scanStepBack = kccConfig.ledgeScanStepBack;
+    const scanDepth = kccConfig.ledgeScanDepth;
+    const scanLen = scanDepth + scanStepBack;
+    const scanBaseX = ox - forward.x * scanStepBack;
+    const scanBaseZ = oz - forward.z * scanStepBack;
+    const minThresh2 = kccConfig.ledgeScanVertMinThresh * kccConfig.ledgeScanVertMinThresh;
+    const maxThresh2 = kccConfig.ledgeScanVertMaxThresh * kccConfig.ledgeScanVertMaxThresh;
+    const reports = new Map<string, JumpScanReport>();
+    const reject = (_reason: string) => null;
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const castRayHit = (origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number) => {
+      if (maxDist <= 1e-6) return null;
+      const d = dir.clone();
+      const len = d.length();
+      if (len <= 1e-6) return null;
+      d.multiplyScalar(1 / len);
+      const ray = new rapier.Ray(
+        { x: origin.x, y: origin.y, z: origin.z },
+        { x: d.x, y: d.y, z: d.z },
+      );
+      const cast = rapierWorld.castRayAndGetNormal(
+        ray,
+        maxDist,
+        true,
+        filterFlags,
+        filterGroups,
+        collider,
+      );
+      if (!cast) return null;
+      const p = ray.pointAt(cast.timeOfImpact);
+      const point = new THREE.Vector3(p.x, p.y, p.z);
+      const n = cast.normal ? new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z) : null;
+      if (n && n.lengthSq() >= 1e-6) n.normalize();
+      const handle = (cast as any)?.collider?.handle;
+      return {
+        point,
+        normal: n,
+        handle: typeof handle === "number" ? handle : null,
+        toi: cast.timeOfImpact,
+      };
+    };
+
+    const mkKey = (y: number) => y.toFixed(4);
+    const makeReport = (y: number): JumpScanReport => {
+      const k = mkKey(y);
+      const cached = reports.get(k);
+      if (cached) return cached;
+      const start = new THREE.Vector3(scanBaseX, y, scanBaseZ);
+      const ray = new rapier.Ray(
+        { x: start.x, y: start.y, z: start.z },
+        { x: forward.x, y: 0, z: forward.z },
+      );
+      const cast = rapierWorld.castRayAndGetNormal(
+        ray,
+        scanLen,
+        true,
+        filterFlags,
+        filterGroups,
+        collider,
+      );
+      let hit = false;
+      let hitColliderHandle: number | null = null;
+      let hitPoint: THREE.Vector3 | null = null;
+      let hitNormal: THREE.Vector3 | null = null;
+      let end = new THREE.Vector3(
+        start.x + forward.x * scanLen,
+        start.y,
+        start.z + forward.z * scanLen,
+      );
+      if (cast) {
+        const p = ray.pointAt(cast.timeOfImpact);
+        const d2 =
+          (p.x - start.x) * (p.x - start.x) +
+          (p.y - start.y) * (p.y - start.y) +
+          (p.z - start.z) * (p.z - start.z);
+        if (d2 >= scanStepBack * scanStepBack) {
+          hit = true;
+          end = new THREE.Vector3(p.x, p.y, p.z);
+          const handle = (cast as any)?.collider?.handle;
+          hitColliderHandle = typeof handle === "number" ? handle : null;
+          hitPoint = end.clone();
+          if (cast.normal) {
+            const n = new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z);
+            if (n.lengthSq() >= 1e-6) {
+              n.normalize();
+              hitNormal = n;
+            }
+          }
+        }
+      }
+      const rep = { y, hit, hitColliderHandle, hitPoint, hitNormal, start, end };
+      reports.set(k, rep);
+      return rep;
+    };
+
+    const evaluateLedgeCandidate = (
+      upper: JumpScanReport,
+      lower: JumpScanReport,
+    ): LedgeCandidate | null => {
+      if (!lower.hit || !lower.hitPoint || !lower.hitNormal) return reject("lower_no_hit");
+
+      if (
+        upper.hit &&
+        upper.hitPoint &&
+        lower.hitNormal.dot(upper.hitPoint.clone().sub(lower.hitPoint)) > 0
+      ) {
+        return reject("concave_edge");
+      }
+
+      const lowerNy = lower.hitNormal.y;
+      if (Math.abs(lowerNy) > 0.99) return reject("lower_flat");
+
+      const groundAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanGroundAngleDeg);
+      if (Math.abs(Math.acos(clamp(lowerNy, -1, 1))) < groundAngleRad)
+        return reject("lower_ground_angle");
+
+      const lowerHitNormalProj = new THREE.Vector3(-lower.hitNormal.x, 0, -lower.hitNormal.z);
+      if (lowerHitNormalProj.lengthSq() < 1e-6) return reject("lower_proj_zero");
+      lowerHitNormalProj.normalize();
+
+      const wallHeadingAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanWallHeadingAngleDeg);
+      const wallHorizAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanWallHorizAngleDeg);
+      const headingAngle = Math.acos(clamp(lowerHitNormalProj.dot(forward), -1, 1));
+      if (headingAngle >= wallHeadingAngleRad) return reject("wall_heading_angle");
+      if (Math.abs(Math.asin(clamp(lowerNy, -1, 1))) >= wallHorizAngleRad)
+        return reject("wall_horiz_angle");
+
+      const forwardNormal = forward.clone();
+      const div = forwardNormal.dot(lower.hitNormal);
+      if (div > -0.01) return reject("lower_div_too_small");
+
+      const lowerToUpper = upper.start.clone().sub(lower.start);
+      lowerToUpper.sub(
+        forwardNormal.clone().multiplyScalar(lowerToUpper.dot(lower.hitNormal) / div),
+      );
+      const lowerToUpperLen = lowerToUpper.length();
+      if (lowerToUpperLen <= 1e-3) return reject("lower_to_upper_short");
+
+      const stepForward = kccConfig.ledgeScanStepForward;
+      let rayStart = lower.hitPoint.clone().sub(forwardNormal.clone().multiplyScalar(scanStepBack));
+      if (castRayHit(rayStart, lowerToUpper, lowerToUpperLen)) return reject("step_up_blocked");
+
+      rayStart = rayStart
+        .clone()
+        .add(lowerToUpper)
+        .add(forwardNormal.clone().multiplyScalar(scanStepBack + stepForward));
+
+      let upperHitPoint: THREE.Vector3;
+      let upperHitNormal: THREE.Vector3;
+      if (
+        !upper.hit ||
+        !upper.hitPoint ||
+        !upper.hitNormal ||
+        rayStart.clone().sub(upper.hitPoint).dot(upper.hitNormal) > 0
+      ) {
+        const downHit = castRayHit(
+          rayStart,
+          lowerToUpper.clone().multiplyScalar(-1),
+          lowerToUpperLen,
+        );
+        if (!downHit || !downHit.normal) return reject("upper_down_no_hit");
+        upperHitPoint = downHit.point;
+        upperHitNormal = downHit.normal;
+      } else {
+        upperHitPoint = upper.hitPoint;
+        upperHitNormal = upper.hitNormal;
+      }
+
+      if (upperHitNormal.y < Math.cos(groundAngleRad)) return reject("upper_not_ground");
+
+      const div2 = lowerToUpper.dot(upperHitNormal);
+      if (div2 < 0.01) return reject("upper_div_too_small");
+
+      const ledgePoint = lower.hitPoint
+        .clone()
+        .add(
+          lowerToUpper
+            .clone()
+            .multiplyScalar(upperHitPoint.clone().sub(lower.hitPoint).dot(upperHitNormal) / div2),
+        );
+
+      let value = 1;
+      const vobPos = new THREE.Vector3(ox, npcGroup.position.y, oz);
+      const toLedge = ledgePoint.clone().sub(vobPos);
+      const toLedgeLen = toLedge.length();
+      if (toLedgeLen > 1e-3) {
+        const reachHit = castRayHit(vobPos, toLedge, toLedgeLen * 0.7);
+        if (reachHit) value *= 0.001;
+      }
+
+      const cont = forwardNormal
+        .clone()
+        .sub(upperHitNormal.clone().multiplyScalar(forwardNormal.dot(upperHitNormal)));
+      if (cont.lengthSq() < 1e-6) return reject("cont_zero");
+      cont.normalize();
+
+      const moveForward = kccConfig.ledgeScanMoveForward;
+      let maxMoveForward = moveForward;
+      const contHit = castRayHit(
+        ledgePoint.clone().add(new THREE.Vector3(0, 1, 0)),
+        cont,
+        moveForward + 10,
+      );
+      if (contHit) {
+        maxMoveForward = ledgePoint.distanceTo(contHit.point) - 10;
+      }
+      if (maxMoveForward < 10) value *= 0.001;
+
+      const spaceCheck = ledgePoint
+        .clone()
+        .add(cont.clone().multiplyScalar(maxMoveForward * 0.5))
+        .add(new THREE.Vector3(0, 1, 0));
+      const spaceCheckHeight = kccConfig.capsuleHeight * kccConfig.ledgeScanSpaceCheckHeightFactor;
+      const spaceHit = castRayHit(spaceCheck, new THREE.Vector3(0, 1, 0), spaceCheckHeight);
+      if (spaceHit) return reject("space_blocked");
+
+      const maxLen = kccConfig.jumpUpHeight * 1.5;
+      let distValue = 1 - toLedge.lengthSq() / (maxLen * maxLen);
+      if (distValue < 0) distValue = 0;
+      const orValue = lowerHitNormalProj.dot(forwardNormal);
+      const edgeValue = 0.5 * (1 - lower.hitNormal.dot(upperHitNormal));
+      const spaceValue = maxMoveForward / moveForward;
+      value *= distValue * orValue * edgeValue * spaceValue;
+
+      const ledgeHeight = ledgePoint.y - floorY;
+      const obstacleDistance = lower.hitPoint
+        ? Math.hypot(lower.hitPoint.x - lower.start.x, lower.hitPoint.z - lower.start.z)
+        : null;
+
+      return {
+        value,
+        ledgePoint,
+        ledgeNormal: upperHitNormal.clone(),
+        ledgeCont: cont.clone(),
+        ledgeHeight,
+        maxMoveForward,
+        obstacleDistance,
+      };
+    };
+
+    const recurseScan = (upper: JumpScanReport, lower: JumpScanReport) => {
+      const dy = upper.y - lower.y;
+      const dist2 = dy * dy;
+      const sameCollider =
+        lower.hitColliderHandle != null &&
+        upper.hitColliderHandle != null &&
+        lower.hitColliderHandle === upper.hitColliderHandle;
+      if (sameCollider && (lower.hit || dist2 < maxThresh2)) return;
+      if (dist2 > minThresh2) {
+        const mid = makeReport(lower.y + dy * 0.5);
+        recurseScan(upper, mid);
+        recurseScan(mid, lower);
+      }
+    };
+
+    const jumpScanStartYOffset =
+      kccConfig.capsuleHeight * Math.max(0, kccConfig.jumpScanStartYOffsetFactor ?? 0);
+    const scanStartY = Math.min(rangeTopY, floorY + jumpScanStartYOffset);
+    const upper = makeReport(rangeTopY);
+    const lower = makeReport(scanStartY);
+    recurseScan(upper, lower);
+    const sortedReports = Array.from(reports.values()).sort((a, b) => b.y - a.y);
+    let bestLedge: LedgeCandidate | null = null;
+    for (let i = 0; i < sortedReports.length - 1; i++) {
+      const upperRep = sortedReports[i];
+      const lowerRep = sortedReports[i + 1];
+      const candidate = evaluateLedgeCandidate(upperRep, lowerRep);
+      if (!candidate) continue;
+      if (!bestLedge || candidate.value > bestLedge.value) bestLedge = candidate;
+    }
+
+    const jumpDecision = decideJumpTypeFromScan(
+      {
+        floorY,
+        rangeTopY,
+        ceilingY,
+      },
+      sortedReports,
+      bestLedge,
+      kccConfig,
+    );
+
+    ud._kccLedgeScanRange = {
+      yMin: floorY,
+      scanStartY,
+      yMax: rangeTopY,
+      ceilingY,
+      jumpTopTargetY,
+      downHit: Boolean(downHit),
+      upHit: Boolean(upHit),
+      rayCount: sortedReports.length,
+      hitCount: sortedReports.filter((r) => r.hit).length,
+      bestLedgeValue: bestLedge?.value ?? null,
+      bestLedgeHeight: bestLedge?.ledgeHeight ?? null,
+    };
+    if (!jumpActive) {
+      ud._kccLedgeBest = bestLedge
+        ? {
+            point: {
+              x: bestLedge.ledgePoint.x,
+              y: bestLedge.ledgePoint.y,
+              z: bestLedge.ledgePoint.z,
+            },
+            normal: {
+              x: bestLedge.ledgeNormal.x,
+              y: bestLedge.ledgeNormal.y,
+              z: bestLedge.ledgeNormal.z,
+            },
+            cont: {
+              x: bestLedge.ledgeCont.x,
+              y: bestLedge.ledgeCont.y,
+              z: bestLedge.ledgeCont.z,
+            },
+            value: bestLedge.value,
+            ledgeHeight: bestLedge.ledgeHeight,
+            maxMoveForward: bestLedge.maxMoveForward,
+            obstacleDistance: bestLedge.obstacleDistance,
+          }
+        : null;
+      ud._kccJumpDecision = jumpDecision;
+    }
+
+    const debugLedge =
+      (jumpActive ? (ud._kccJumpLedgeFrozen as any) : ud._kccLedgeBest) ??
+      (bestLedge
+        ? {
+            point: {
+              x: bestLedge.ledgePoint.x,
+              y: bestLedge.ledgePoint.y,
+              z: bestLedge.ledgePoint.z,
+            },
+            normal: {
+              x: bestLedge.ledgeNormal.x,
+              y: bestLedge.ledgeNormal.y,
+              z: bestLedge.ledgeNormal.z,
+            },
+            cont: {
+              x: bestLedge.ledgeCont.x,
+              y: bestLedge.ledgeCont.y,
+              z: bestLedge.ledgeCont.z,
+            },
+            maxMoveForward: bestLedge.maxMoveForward,
+          }
+        : null);
+
+    if (isHero && showJumpDebugRange) {
+      const startV = new THREE.Vector3(ox, scanStartY, oz);
+      const endV = new THREE.Vector3(ox, rangeTopY, oz);
+      updateNpcDebugRayLine(npcGroup, "_kccLedgeScanRangeLine", 0x22ccff, 5, startV, endV, true);
+      updateNpcDebugJumpScanRays(
+        npcGroup,
+        sortedReports.map((r) => ({ start: r.start, end: r.end, hit: r.hit })),
+        true,
+      );
+      if (debugLedge && debugLedge.point) {
+        const p = new THREE.Vector3(debugLedge.point.x, debugLedge.point.y, debugLedge.point.z);
+        const n = debugLedge.normal
+          ? new THREE.Vector3(debugLedge.normal.x, debugLedge.normal.y, debugLedge.normal.z)
+          : new THREE.Vector3(0, 1, 0);
+        const c = debugLedge.cont
+          ? new THREE.Vector3(debugLedge.cont.x, debugLedge.cont.y, debugLedge.cont.z)
+          : new THREE.Vector3(0, 0, 1);
+        const normalEnd = p.clone().add(n.multiplyScalar(35));
+        const contEnd = p
+          .clone()
+          .add(c.multiplyScalar(Math.max(0, debugLedge.maxMoveForward ?? 0)));
+        updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, p, true);
+        updateNpcDebugRayLine(npcGroup, "_kccLedgeBestNormalLine", 0xff8a00, 3, p, normalEnd, true);
+        updateNpcDebugRayLine(npcGroup, "_kccLedgeBestForwardLine", 0x00c8ff, 3, p, contEnd, true);
+      } else {
+        updateNpcDebugPoint(
+          npcGroup,
+          "_kccLedgeBestPoint",
+          0xfff200,
+          4,
+          new THREE.Vector3(),
+          false,
+        );
+        updateNpcDebugRayLine(
+          npcGroup,
+          "_kccLedgeBestNormalLine",
+          0xff8a00,
+          3,
+          new THREE.Vector3(),
+          new THREE.Vector3(),
+          false,
+        );
+        updateNpcDebugRayLine(
+          npcGroup,
+          "_kccLedgeBestForwardLine",
+          0x00c8ff,
+          3,
+          new THREE.Vector3(),
+          new THREE.Vector3(),
+          false,
+        );
+      }
+    } else {
+      updateNpcDebugRayLine(
+        npcGroup,
+        "_kccLedgeScanRangeLine",
+        0x22ccff,
+        5,
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        false,
+      );
+      updateNpcDebugJumpScanRays(npcGroup, [], false);
+      updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, new THREE.Vector3(), false);
+      updateNpcDebugRayLine(
+        npcGroup,
+        "_kccLedgeBestNormalLine",
+        0xff8a00,
+        3,
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        false,
+      );
+      updateNpcDebugRayLine(
+        npcGroup,
+        "_kccLedgeBestForwardLine",
+        0x00c8ff,
+        3,
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        false,
+      );
+    }
+  } else if (!jumpActive) {
+    // Avoid stale jump decisions/ledge targets when scan is intentionally skipped.
+    // Without this, a previous "blocked" or old ledge target can be reused on later jumps.
+    ud._kccLedgeScanRange = null;
+    ud._kccLedgeBest = null;
+    ud._kccJumpDecision = null;
+  } else if (isHero) {
+    updateNpcDebugRayLine(
+      npcGroup,
+      "_kccLedgeScanRangeLine",
+      0x22ccff,
+      5,
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      false,
+    );
+    updateNpcDebugJumpScanRays(npcGroup, [], false);
+    updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, new THREE.Vector3(), false);
+    updateNpcDebugRayLine(
+      npcGroup,
+      "_kccLedgeBestNormalLine",
+      0xff8a00,
+      3,
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      false,
+    );
+    updateNpcDebugRayLine(
+      npcGroup,
+      "_kccLedgeBestForwardLine",
+      0x00c8ff,
+      3,
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+      false,
+    );
+  }
+}
 
 // Centralized NPC movement/physics tuning (hardcoded; no query params).
 // Keep this as the single place to tweak feel/thresholds.
@@ -772,174 +1599,20 @@ export function useNpcPhysics({
       }
     }
     let vy = (ud._kccVy as number | undefined) ?? 0;
-    let didJumpThisFrame = false;
-    let jumpUpInitial = 0;
     const nowMs = Date.now();
-    const prevJumpActive = Boolean((ud as any)._kccJumpActivePrev);
-    let jumpActive = Boolean((ud as any)._kccJumpActive);
-    const jumpForceUntilMs = (ud as any)._kccJumpForceActiveUntilMs as number | undefined;
-    const jumpForceActive =
-      jumpActive && typeof jumpForceUntilMs === "number" && nowMs < jumpForceUntilMs;
-    const groundedNow = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
-    const probeDistDown = (ud as any)._kccGroundProbeDistDown as number | null | undefined;
-    const minAirMsConfig = 0;
-    const minAirMsOverride = (ud as any)._kccJumpMinAirMs as number | undefined;
-    const minAirMs =
-      typeof minAirMsOverride === "number" &&
-      Number.isFinite(minAirMsOverride) &&
-      minAirMsOverride > 0
-        ? minAirMsOverride
-        : minAirMsConfig;
-    const isDescending = vy <= 0;
-    const jumpStartMs = (ud as any)._kccJumpAtMs as number | undefined;
-    const airForMs =
-      typeof jumpStartMs === "number" && Number.isFinite(jumpStartMs)
-        ? Math.max(0, nowMs - jumpStartMs)
-        : 0;
-    const canEndByGround = isDescending && airForMs >= minAirMs;
-    const graceMs = Math.max(0, (kccConfig.jumpGraceSeconds ?? 0) * 1000);
-    const graceMinDown = kccConfig.jumpGraceMinDistDown ?? 30;
-    const probeDownVal =
-      typeof probeDistDown === "number" && Number.isFinite(probeDistDown) ? probeDistDown : null;
-    const canEndByProbe = isDescending && airForMs >= minAirMs;
-    const shouldEndByProbe = canEndByProbe && probeDownVal != null && probeDownVal < 20;
-    const graceActive = Boolean((ud as any)._kccJumpGraceActive);
-    const graceUntilMs = (ud as any)._kccJumpGraceUntilMs as number | undefined;
-
-    if (jumpForceActive) {
-      (ud as any)._kccJumpGraceActive = false;
-    } else if (jumpActive && graceActive) {
-      if (shouldEndByProbe || (canEndByGround && groundedNow)) {
-        (ud as any)._kccJumpGraceActive = false;
-        (ud as any)._kccJumpActive = false;
-        if (shouldEndByProbe) {
-          (ud as any)._kccJumpEndByProbeAtMs = nowMs;
-          (ud as any)._kccJumpEndByProbePending = true;
-        }
-        jumpActive = false;
-      } else if (typeof graceUntilMs === "number" && nowMs >= graceUntilMs) {
-        (ud as any)._kccJumpGraceActive = false;
-        (ud as any)._kccJumpActive = false;
-        if (!groundedNow) {
-          (ud as any)._kccSkipFallDownPhase = true;
-        }
-        jumpActive = false;
-      }
-    } else if (jumpActive) {
-      const canStartGrace =
-        graceMs > 0 && canEndByProbe && (probeDownVal == null || probeDownVal >= graceMinDown);
-      if (canStartGrace) {
-        (ud as any)._kccJumpGraceActive = true;
-        (ud as any)._kccJumpGraceStartMs = nowMs;
-        (ud as any)._kccJumpGraceUntilMs = nowMs + graceMs;
-      } else if ((canEndByGround && groundedNow) || shouldEndByProbe) {
-        (ud as any)._kccJumpActive = false;
-        if (shouldEndByProbe) {
-          (ud as any)._kccJumpEndByProbeAtMs = nowMs;
-          (ud as any)._kccJumpEndByProbePending = true;
-        }
-        jumpActive = false;
-      }
-    }
-    if (!jumpActive) {
-      (ud as any)._kccJumpGraceActive = false;
-      (ud as any)._kccJumpGraceUntilMs = undefined;
-      (ud as any)._kccJumpGraceStartMs = undefined;
-      if (groundedNow) {
-        (ud as any)._kccJumpBlockUntilMs = undefined;
-      }
-    }
-    // no-op
-    if (prevJumpActive && !jumpActive) {
-      (ud as any)._kccGroundRecoverSuppressUntilMs = nowMs + 200;
-      (ud as any)._kccJumpDecisionFrozen = null;
-      (ud as any)._kccJumpLedgeFrozen = null;
-      (ud as any)._kccJumpTeleportSkipKccUntilMs = undefined;
-      (ud as any)._kccJumpForceActiveUntilMs = undefined;
-    }
-    (ud as any)._kccJumpActivePrev = jumpActive;
-    const jumpBlockUntilMs = (ud as any)._kccJumpBlockUntilMs as number | undefined;
-    const jumpBlocked = typeof jumpBlockUntilMs === "number" && nowMs < jumpBlockUntilMs;
-    const jumpReq = (ud as any)._kccJumpRequest as
-      | { atMs: number; jumpType?: JumpType }
-      | undefined;
-    if (jumpReq && wasStableGrounded && !jumpActive && !jumpBlocked) {
-      (ud as any)._kccJumpRequest = undefined;
-      (ud as any)._kccJumpAtMs = jumpReq.atMs;
-      (ud as any)._kccJumpType = jumpReq.jumpType ?? "jump_forward";
-      const jumpTypeNow = (ud as any)._kccJumpType as JumpType | undefined;
-      const isJumpUp =
-        jumpTypeNow === "jump_up_low" ||
-        jumpTypeNow === "jump_up_mid" ||
-        jumpTypeNow === "jump_up_high" ||
-        jumpTypeNow === "climb_up";
-      const skipJumpSpeed = isJumpUp && kccConfig.jumpUpTeleportOnStart;
-      if (!skipJumpSpeed) {
-        jumpUpInitial = kccConfig.jumpSpeed;
-        vy = Math.max(vy, jumpUpInitial);
-      }
-      (ud as any)._kccJumpActive = true;
-      (ud as any)._kccJumpMinAirMs = undefined;
-      const forward =
-        (ud._kccForwardDir as THREE.Vector3 | undefined) ??
-        (ud._kccForwardDir = new THREE.Vector3());
-      npcGroup.getWorldDirection(forward);
-      forward.y = 0;
-      if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
-      else forward.normalize();
-      (ud as any)._kccJumpDir = { x: forward.x, z: forward.z };
-      (ud as any)._kccJumpUpRemainder = 0;
-      (ud as any)._kccJumpDecisionFrozen = (ud as any)._kccJumpDecision ?? null;
-      (ud as any)._kccJumpLedgeFrozen = (ud as any)._kccLedgeBest ?? null;
-      if (isJumpUp && kccConfig.jumpUpTeleportOnStart) {
-        const frozen = (ud as any)._kccJumpLedgeFrozen as
-          | { point?: { x: number; y: number; z: number } | null }
-          | null
-          | undefined;
-        const lp = frozen?.point;
-        if (lp) {
-          const isJumpUpLow = jumpTypeNow === "jump_up_low";
-          const isJumpUpHigh = jumpTypeNow === "jump_up_high";
-          const assistDelaySeconds = isJumpUpLow
-            ? (kccConfig.jumpUpLowAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
-            : isJumpUpHigh
-              ? (kccConfig.jumpUpHighAssistDelaySeconds ?? kccConfig.jumpUpAssistDelaySeconds)
-              : kccConfig.jumpUpAssistDelaySeconds;
-          const assistDurationSeconds = isJumpUpLow
-            ? (kccConfig.jumpUpLowAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
-            : isJumpUpHigh
-              ? (kccConfig.jumpUpHighAssistDurationSeconds ?? kccConfig.jumpUpAssistDurationSeconds)
-              : kccConfig.jumpUpAssistDurationSeconds;
-          const delayS = Math.max(0, assistDelaySeconds ?? 0);
-          const delayMs = delayS * 1000;
-          const durS = Math.max(0.1, assistDurationSeconds ?? 0.28);
-          const durMs = durS * 1000;
-          const arc = Math.max(0, kccConfig.jumpUpAssistArcHeight ?? 0);
-          const assistStart = nowMs + delayMs;
-          const assistEnd = assistStart + durMs;
-          (ud as any)._kccJumpAssist = {
-            start: { x: npcGroup.position.x, y: npcGroup.position.y, z: npcGroup.position.z },
-            end: { x: lp.x, y: lp.y, z: lp.z },
-            startMs: assistStart,
-            endMs: assistEnd,
-            arc,
-          };
-          (ud as any)._kccJumpForceActiveUntilMs = assistEnd;
-          if (
-            typeof kccConfig.jumpUpTeleportSkipKccMs === "number" &&
-            kccConfig.jumpUpTeleportSkipKccMs > 0
-          ) {
-            (ud as any)._kccJumpTeleportSkipKccUntilMs = Math.max(
-              nowMs + kccConfig.jumpUpTeleportSkipKccMs,
-              assistEnd,
-            );
-          } else {
-            (ud as any)._kccJumpTeleportSkipKccUntilMs = assistEnd;
-          }
-        }
-      }
-      didJumpThisFrame = true;
-    }
+    const jumpState = updateJumpLifecycleAndMaybeStart({
+      ud,
+      npcGroup,
+      nowMs,
+      wasStableGrounded,
+      physicsFrame: physicsFrameRef.current,
+      vy,
+      kccConfig,
+    });
+    vy = jumpState.vy;
+    const didJumpThisFrame = jumpState.didJumpThisFrame;
+    const jumpActive = jumpState.jumpActive;
+    const jumpReq = jumpState.jumpReq;
     const jumpForwardScale = 1;
     const jumpTypeNow = (ud as any)._kccJumpType as JumpType | undefined;
     const isJumpUpNow =
@@ -1895,525 +2568,23 @@ export function useNpcPhysics({
             );
           }
 
-          // ZenGin-like ledge scan Y-range at the probe origin:
-          // - scan down to find local floor
-          // - scan up to find ceiling
-          // - clamp usable jump-up interval by both limits
-          const downRay = new rapier.Ray(
-            { x: ox, y: npcGroup.position.y, z: oz },
-            { x: 0, y: -1, z: 0 },
-          );
-          const upRay = new rapier.Ray(
-            { x: ox, y: npcGroup.position.y, z: oz },
-            { x: 0, y: 1, z: 0 },
-          );
-          const downHit = rapierWorld.castRayAndGetNormal(
-            downRay,
-            kccConfig.ledgeScanDownRange,
-            true,
+          processJumpLedgeScan({
+            ud,
+            npcGroup,
+            rapierWorld,
+            rapier,
+            collider,
             filterFlags,
             filterGroups,
-            collider,
-          );
-          const upHit = rapierWorld.castRayAndGetNormal(
-            upRay,
-            kccConfig.ledgeScanUpRange,
-            true,
-            filterFlags,
-            filterGroups,
-            collider,
-          );
-
-          const floorY = downHit ? downRay.pointAt(downHit.timeOfImpact).y : npcGroup.position.y;
-          const ceilingY = upHit
-            ? upRay.pointAt(upHit.timeOfImpact).y
-            : npcGroup.position.y + kccConfig.ledgeScanUpRange;
-          const modelHeight = kccConfig.capsuleHeight;
-          const jumpTopTargetY = floorY + kccConfig.jumpUpHeight * 0.95 + modelHeight;
-          const maxTopY = Math.min(jumpTopTargetY, ceilingY);
-          const rangeTopY = Math.max(floorY, maxTopY);
-
-          // ZenGin-like recursive horizontal scan: upper/lower + middle subdivision.
-          // We keep this as a geometry probe (for jump-type decision), independent from movement.
-          const scanStepBack = kccConfig.ledgeScanStepBack;
-          const scanDepth = kccConfig.ledgeScanDepth;
-          const scanLen = scanDepth + scanStepBack;
-          const scanBaseX = ox - forward.x * scanStepBack;
-          const scanBaseZ = oz - forward.z * scanStepBack;
-          const minThresh2 = kccConfig.ledgeScanVertMinThresh * kccConfig.ledgeScanVertMinThresh;
-          const maxThresh2 = kccConfig.ledgeScanVertMaxThresh * kccConfig.ledgeScanVertMaxThresh;
-          const reports = new Map<string, JumpScanReport>();
-          const reject = (_reason: string) => null;
-          const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-
-          const castRayHit = (origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number) => {
-            if (maxDist <= 1e-6) return null;
-            const d = dir.clone();
-            const len = d.length();
-            if (len <= 1e-6) return null;
-            d.multiplyScalar(1 / len);
-            const ray = new rapier.Ray(
-              { x: origin.x, y: origin.y, z: origin.z },
-              { x: d.x, y: d.y, z: d.z },
-            );
-            const cast = rapierWorld.castRayAndGetNormal(
-              ray,
-              maxDist,
-              true,
-              filterFlags,
-              filterGroups,
-              collider,
-            );
-            if (!cast) return null;
-            const p = ray.pointAt(cast.timeOfImpact);
-            const point = new THREE.Vector3(p.x, p.y, p.z);
-            const n = cast.normal
-              ? new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z)
-              : null;
-            if (n && n.lengthSq() >= 1e-6) n.normalize();
-            const handle = (cast as any)?.collider?.handle;
-            return {
-              point,
-              normal: n,
-              handle: typeof handle === "number" ? handle : null,
-              toi: cast.timeOfImpact,
-            };
-          };
-
-          const mkKey = (y: number) => y.toFixed(4);
-          const makeReport = (y: number): JumpScanReport => {
-            const k = mkKey(y);
-            const cached = reports.get(k);
-            if (cached) return cached;
-            const start = new THREE.Vector3(scanBaseX, y, scanBaseZ);
-            const ray = new rapier.Ray(
-              { x: start.x, y: start.y, z: start.z },
-              { x: forward.x, y: 0, z: forward.z },
-            );
-            const cast = rapierWorld.castRayAndGetNormal(
-              ray,
-              scanLen,
-              true,
-              filterFlags,
-              filterGroups,
-              collider,
-            );
-            let hit = false;
-            let hitColliderHandle: number | null = null;
-            let hitPoint: THREE.Vector3 | null = null;
-            let hitNormal: THREE.Vector3 | null = null;
-            let end = new THREE.Vector3(
-              start.x + forward.x * scanLen,
-              start.y,
-              start.z + forward.z * scanLen,
-            );
-            if (cast) {
-              const p = ray.pointAt(cast.timeOfImpact);
-              const d2 =
-                (p.x - start.x) * (p.x - start.x) +
-                (p.y - start.y) * (p.y - start.y) +
-                (p.z - start.z) * (p.z - start.z);
-              if (d2 >= scanStepBack * scanStepBack) {
-                hit = true;
-                end = new THREE.Vector3(p.x, p.y, p.z);
-                const handle = (cast as any)?.collider?.handle;
-                hitColliderHandle = typeof handle === "number" ? handle : null;
-                hitPoint = end.clone();
-                if (cast.normal) {
-                  const n = new THREE.Vector3(cast.normal.x, cast.normal.y, cast.normal.z);
-                  if (n.lengthSq() >= 1e-6) {
-                    n.normalize();
-                    hitNormal = n;
-                  }
-                }
-              }
-            }
-            const rep = { y, hit, hitColliderHandle, hitPoint, hitNormal, start, end };
-            reports.set(k, rep);
-            return rep;
-          };
-
-          const evaluateLedgeCandidate = (
-            upper: JumpScanReport,
-            lower: JumpScanReport,
-          ): LedgeCandidate | null => {
-            if (!lower.hit || !lower.hitPoint || !lower.hitNormal) return reject("lower_no_hit");
-
-            if (
-              upper.hit &&
-              upper.hitPoint &&
-              lower.hitNormal.dot(upper.hitPoint.clone().sub(lower.hitPoint)) > 0
-            ) {
-              return reject("concave_edge");
-            }
-
-            const lowerNy = lower.hitNormal.y;
-            if (Math.abs(lowerNy) > 0.99) return reject("lower_flat");
-
-            const groundAngleRad = THREE.MathUtils.degToRad(kccConfig.ledgeScanGroundAngleDeg);
-            if (Math.abs(Math.acos(clamp(lowerNy, -1, 1))) < groundAngleRad)
-              return reject("lower_ground_angle");
-
-            const lowerHitNormalProj = new THREE.Vector3(-lower.hitNormal.x, 0, -lower.hitNormal.z);
-            if (lowerHitNormalProj.lengthSq() < 1e-6) return reject("lower_proj_zero");
-            lowerHitNormalProj.normalize();
-
-            const wallHeadingAngleRad = THREE.MathUtils.degToRad(
-              kccConfig.ledgeScanWallHeadingAngleDeg,
-            );
-            const wallHorizAngleRad = THREE.MathUtils.degToRad(
-              kccConfig.ledgeScanWallHorizAngleDeg,
-            );
-            const headingAngle = Math.acos(clamp(lowerHitNormalProj.dot(forward), -1, 1));
-            if (headingAngle >= wallHeadingAngleRad) return reject("wall_heading_angle");
-            if (Math.abs(Math.asin(clamp(lowerNy, -1, 1))) >= wallHorizAngleRad)
-              return reject("wall_horiz_angle");
-
-            const forwardNormal = forward.clone();
-            const div = forwardNormal.dot(lower.hitNormal);
-            if (div > -0.01) return reject("lower_div_too_small");
-
-            const lowerToUpper = upper.start.clone().sub(lower.start);
-            lowerToUpper.sub(
-              forwardNormal.clone().multiplyScalar(lowerToUpper.dot(lower.hitNormal) / div),
-            );
-            const lowerToUpperLen = lowerToUpper.length();
-            if (lowerToUpperLen <= 1e-3) return reject("lower_to_upper_short");
-
-            const stepForward = kccConfig.ledgeScanStepForward;
-            let rayStart = lower.hitPoint
-              .clone()
-              .sub(forwardNormal.clone().multiplyScalar(scanStepBack));
-            if (castRayHit(rayStart, lowerToUpper, lowerToUpperLen))
-              return reject("step_up_blocked");
-
-            rayStart = rayStart
-              .clone()
-              .add(lowerToUpper)
-              .add(forwardNormal.clone().multiplyScalar(scanStepBack + stepForward));
-
-            let upperHitPoint: THREE.Vector3;
-            let upperHitNormal: THREE.Vector3;
-            if (
-              !upper.hit ||
-              !upper.hitPoint ||
-              !upper.hitNormal ||
-              rayStart.clone().sub(upper.hitPoint).dot(upper.hitNormal) > 0
-            ) {
-              const downHit = castRayHit(
-                rayStart,
-                lowerToUpper.clone().multiplyScalar(-1),
-                lowerToUpperLen,
-              );
-              if (!downHit || !downHit.normal) return reject("upper_down_no_hit");
-              upperHitPoint = downHit.point;
-              upperHitNormal = downHit.normal;
-            } else {
-              upperHitPoint = upper.hitPoint;
-              upperHitNormal = upper.hitNormal;
-            }
-
-            if (upperHitNormal.y < Math.cos(groundAngleRad)) return reject("upper_not_ground");
-
-            const div2 = lowerToUpper.dot(upperHitNormal);
-            if (div2 < 0.01) return reject("upper_div_too_small");
-
-            const ledgePoint = lower.hitPoint
-              .clone()
-              .add(
-                lowerToUpper
-                  .clone()
-                  .multiplyScalar(
-                    upperHitPoint.clone().sub(lower.hitPoint).dot(upperHitNormal) / div2,
-                  ),
-              );
-
-            let value = 1;
-            const vobPos = new THREE.Vector3(ox, npcGroup.position.y, oz);
-            const toLedge = ledgePoint.clone().sub(vobPos);
-            const toLedgeLen = toLedge.length();
-            if (toLedgeLen > 1e-3) {
-              const reachHit = castRayHit(vobPos, toLedge, toLedgeLen * 0.7);
-              if (reachHit) value *= 0.001;
-            }
-
-            const cont = forwardNormal
-              .clone()
-              .sub(upperHitNormal.clone().multiplyScalar(forwardNormal.dot(upperHitNormal)));
-            if (cont.lengthSq() < 1e-6) return reject("cont_zero");
-            cont.normalize();
-
-            const moveForward = kccConfig.ledgeScanMoveForward;
-            let maxMoveForward = moveForward;
-            const contHit = castRayHit(
-              ledgePoint.clone().add(new THREE.Vector3(0, 1, 0)),
-              cont,
-              moveForward + 10,
-            );
-            if (contHit) {
-              maxMoveForward = ledgePoint.distanceTo(contHit.point) - 10;
-            }
-            maxMoveForward -= 0;
-            if (maxMoveForward < 10) value *= 0.001;
-
-            const spaceCheck = ledgePoint
-              .clone()
-              .add(cont.clone().multiplyScalar(maxMoveForward * 0.5))
-              .add(new THREE.Vector3(0, 1, 0));
-            const spaceCheckHeight =
-              kccConfig.capsuleHeight * kccConfig.ledgeScanSpaceCheckHeightFactor;
-            const spaceHit = castRayHit(spaceCheck, new THREE.Vector3(0, 1, 0), spaceCheckHeight);
-            if (spaceHit) return reject("space_blocked");
-
-            const maxLen = kccConfig.jumpUpHeight * 1.5;
-            let distValue = 1 - toLedge.lengthSq() / (maxLen * maxLen);
-            if (distValue < 0) distValue = 0;
-            const orValue = lowerHitNormalProj.dot(forwardNormal);
-            const edgeValue = 0.5 * (1 - lower.hitNormal.dot(upperHitNormal));
-            const spaceValue = maxMoveForward / moveForward;
-            value *= distValue * orValue * edgeValue * spaceValue;
-
-            const ledgeHeight = ledgePoint.y - floorY;
-            const obstacleDistance = lower.hitPoint
-              ? Math.hypot(lower.hitPoint.x - lower.start.x, lower.hitPoint.z - lower.start.z)
-              : null;
-
-            return {
-              value,
-              ledgePoint,
-              ledgeNormal: upperHitNormal.clone(),
-              ledgeCont: cont.clone(),
-              ledgeHeight,
-              maxMoveForward,
-              obstacleDistance,
-            };
-          };
-
-          const recurseScan = (upper: JumpScanReport, lower: JumpScanReport) => {
-            const dy = upper.y - lower.y;
-            const dist2 = dy * dy;
-            const sameCollider =
-              lower.hitColliderHandle != null &&
-              upper.hitColliderHandle != null &&
-              lower.hitColliderHandle === upper.hitColliderHandle;
-            if (sameCollider && (lower.hit || dist2 < maxThresh2)) return;
-            if (dist2 > minThresh2) {
-              const mid = makeReport(lower.y + dy * 0.5);
-              recurseScan(upper, mid);
-              recurseScan(mid, lower);
-            }
-          };
-
-          const jumpScanStartYOffset =
-            kccConfig.capsuleHeight * Math.max(0, kccConfig.jumpScanStartYOffsetFactor ?? 0);
-          const scanStartY = Math.min(rangeTopY, floorY + jumpScanStartYOffset);
-          const upper = makeReport(rangeTopY);
-          const lower = makeReport(scanStartY);
-          recurseScan(upper, lower);
-          const sortedReports = Array.from(reports.values()).sort((a, b) => b.y - a.y);
-          let bestLedge: LedgeCandidate | null = null;
-          for (let i = 0; i < sortedReports.length - 1; i++) {
-            const upperRep = sortedReports[i];
-            const lowerRep = sortedReports[i + 1];
-            const candidate = evaluateLedgeCandidate(upperRep, lowerRep);
-            if (!candidate) continue;
-            if (!bestLedge || candidate.value > bestLedge.value) bestLedge = candidate;
-          }
-
-          const jumpDecision = decideJumpTypeFromScan(
-            {
-              floorY,
-              rangeTopY,
-              ceilingY,
-            },
-            sortedReports,
-            bestLedge,
+            ox,
+            oz,
+            forward,
+            isHero,
+            jumpReq,
+            jumpActive,
+            showJumpDebugRange,
             kccConfig,
-          );
-
-          (ud as any)._kccLedgeScanRange = {
-            yMin: floorY,
-            scanStartY,
-            yMax: rangeTopY,
-            ceilingY,
-            jumpTopTargetY,
-            downHit: Boolean(downHit),
-            upHit: Boolean(upHit),
-            rayCount: sortedReports.length,
-            hitCount: sortedReports.filter((r) => r.hit).length,
-            bestLedgeValue: bestLedge?.value ?? null,
-            bestLedgeHeight: bestLedge?.ledgeHeight ?? null,
-          };
-          if (!jumpActive) {
-            (ud as any)._kccLedgeBest = bestLedge
-              ? {
-                  point: {
-                    x: bestLedge.ledgePoint.x,
-                    y: bestLedge.ledgePoint.y,
-                    z: bestLedge.ledgePoint.z,
-                  },
-                  normal: {
-                    x: bestLedge.ledgeNormal.x,
-                    y: bestLedge.ledgeNormal.y,
-                    z: bestLedge.ledgeNormal.z,
-                  },
-                  cont: {
-                    x: bestLedge.ledgeCont.x,
-                    y: bestLedge.ledgeCont.y,
-                    z: bestLedge.ledgeCont.z,
-                  },
-                  value: bestLedge.value,
-                  ledgeHeight: bestLedge.ledgeHeight,
-                  maxMoveForward: bestLedge.maxMoveForward,
-                  obstacleDistance: bestLedge.obstacleDistance,
-                }
-              : null;
-            (ud as any)._kccJumpDecision = jumpDecision;
-          }
-
-          // no-op
-
-          const debugLedge =
-            (jumpActive ? ((ud as any)._kccJumpLedgeFrozen as any) : (ud as any)._kccLedgeBest) ??
-            (bestLedge
-              ? {
-                  point: {
-                    x: bestLedge.ledgePoint.x,
-                    y: bestLedge.ledgePoint.y,
-                    z: bestLedge.ledgePoint.z,
-                  },
-                  normal: {
-                    x: bestLedge.ledgeNormal.x,
-                    y: bestLedge.ledgeNormal.y,
-                    z: bestLedge.ledgeNormal.z,
-                  },
-                  cont: {
-                    x: bestLedge.ledgeCont.x,
-                    y: bestLedge.ledgeCont.y,
-                    z: bestLedge.ledgeCont.z,
-                  },
-                  maxMoveForward: bestLedge.maxMoveForward,
-                }
-              : null);
-
-          if (isHero && showJumpDebugRange) {
-            const startV = new THREE.Vector3(ox, scanStartY, oz);
-            const endV = new THREE.Vector3(ox, rangeTopY, oz);
-            updateNpcDebugRayLine(
-              npcGroup,
-              "_kccLedgeScanRangeLine",
-              0x22ccff,
-              5,
-              startV,
-              endV,
-              true,
-            );
-            updateNpcDebugJumpScanRays(
-              npcGroup,
-              sortedReports.map((r) => ({ start: r.start, end: r.end, hit: r.hit })),
-              true,
-            );
-            if (debugLedge && debugLedge.point) {
-              const p = new THREE.Vector3(
-                debugLedge.point.x,
-                debugLedge.point.y,
-                debugLedge.point.z,
-              );
-              const n = debugLedge.normal
-                ? new THREE.Vector3(debugLedge.normal.x, debugLedge.normal.y, debugLedge.normal.z)
-                : new THREE.Vector3(0, 1, 0);
-              const c = debugLedge.cont
-                ? new THREE.Vector3(debugLedge.cont.x, debugLedge.cont.y, debugLedge.cont.z)
-                : new THREE.Vector3(0, 0, 1);
-              const normalEnd = p.clone().add(n.multiplyScalar(35));
-              const contEnd = p
-                .clone()
-                .add(c.multiplyScalar(Math.max(0, debugLedge.maxMoveForward ?? 0)));
-              updateNpcDebugPoint(npcGroup, "_kccLedgeBestPoint", 0xfff200, 4, p, true);
-              updateNpcDebugRayLine(
-                npcGroup,
-                "_kccLedgeBestNormalLine",
-                0xff8a00,
-                3,
-                p,
-                normalEnd,
-                true,
-              );
-              updateNpcDebugRayLine(
-                npcGroup,
-                "_kccLedgeBestForwardLine",
-                0x00c8ff,
-                3,
-                p,
-                contEnd,
-                true,
-              );
-            } else {
-              updateNpcDebugPoint(
-                npcGroup,
-                "_kccLedgeBestPoint",
-                0xfff200,
-                4,
-                new THREE.Vector3(),
-                false,
-              );
-              updateNpcDebugRayLine(
-                npcGroup,
-                "_kccLedgeBestNormalLine",
-                0xff8a00,
-                3,
-                new THREE.Vector3(),
-                new THREE.Vector3(),
-                false,
-              );
-              updateNpcDebugRayLine(
-                npcGroup,
-                "_kccLedgeBestForwardLine",
-                0x00c8ff,
-                3,
-                new THREE.Vector3(),
-                new THREE.Vector3(),
-                false,
-              );
-            }
-          } else {
-            updateNpcDebugRayLine(
-              npcGroup,
-              "_kccLedgeScanRangeLine",
-              0x22ccff,
-              5,
-              new THREE.Vector3(),
-              new THREE.Vector3(),
-              false,
-            );
-            updateNpcDebugJumpScanRays(npcGroup, [], false);
-            updateNpcDebugPoint(
-              npcGroup,
-              "_kccLedgeBestPoint",
-              0xfff200,
-              4,
-              new THREE.Vector3(),
-              false,
-            );
-            updateNpcDebugRayLine(
-              npcGroup,
-              "_kccLedgeBestNormalLine",
-              0xff8a00,
-              3,
-              new THREE.Vector3(),
-              new THREE.Vector3(),
-              false,
-            );
-            updateNpcDebugRayLine(
-              npcGroup,
-              "_kccLedgeBestForwardLine",
-              0x00c8ff,
-              3,
-              new THREE.Vector3(),
-              new THREE.Vector3(),
-              false,
-            );
-          }
+          });
         } catch {
           // ignore
         }
