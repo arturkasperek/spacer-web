@@ -4,42 +4,16 @@ import type { ZenKit, ProcessedMeshData } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 
 /**
- * Loads a compiled TEX file as a Three.js DataTexture
+ * Decodes compiled TEX bytes into a Three.js DataTexture.
+ * This utility only transforms data and performs no I/O.
  */
-export async function loadCompiledTexAsDataTexture(
-  url: string | null,
+export function decodeCompiledTexAsDataTexture(
+  texBytes: Uint8Array,
   zenKit: ZenKit,
-): Promise<THREE.DataTexture | null> {
-  if (!url) return null;
-
+): THREE.DataTexture | null {
   try {
-    const candidateUrls: string[] = [url];
-    // Fallback 1: many textures reference _C1/_C2 variants that don't exist in shipped assets.
-    if (/_C\d+-C\.TEX$/i.test(url) && !/_C0-C\.TEX$/i.test(url)) {
-      candidateUrls.push(url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1"));
-    }
-    // Fallback 2 (OpenGothic-compatible): use DEFAULT texture when specific one is missing.
-    if (!url.toUpperCase().endsWith("/DEFAULT-C.TEX")) {
-      candidateUrls.push("/TEXTURES/_COMPILED/DEFAULT-C.TEX");
-    }
-
-    let res: Response | null = null;
-    for (const candidateUrl of candidateUrls) {
-      const response = await fetch(candidateUrl);
-      if (response.ok) {
-        res = response;
-        break;
-      }
-    }
-    if (!res) {
-      return null;
-    }
-
-    const buf = await res.arrayBuffer();
-    const arr = new Uint8Array(buf);
-
     const zkTex = new zenKit.Texture();
-    const ok = zkTex.loadFromArray(arr);
+    const ok = zkTex.loadFromArray(texBytes);
     if (!ok || !ok.success) return null;
 
     const w = zkTex.width;
@@ -71,60 +45,7 @@ export async function loadCompiledTexAsDataTexture(
     (tex.userData as any).hasAlpha = hasAlpha;
 
     return tex;
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * Loads a mesh file (.MRM or .MSH) and returns processed mesh data
- * Uses a cache to avoid reloading the same mesh
- */
-export async function loadMeshCached(
-  meshPath: string,
-  zenKit: ZenKit,
-  cache: Map<string, ProcessedMeshData>,
-): Promise<ProcessedMeshData | null> {
-  // Check cache first
-  const cached = cache.get(meshPath);
-  if (cached) {
-    return cached;
-  }
-
-  try {
-    const response = await fetch(meshPath);
-    if (!response.ok) {
-      return null;
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-
-    // Load mesh with ZenKit
-    const vobMesh = zenKit.createMesh();
-    const isMRM = meshPath.toUpperCase().endsWith(".MRM");
-    const loadResult = isMRM
-      ? vobMesh.loadMRMFromArray(uint8Array)
-      : vobMesh.loadFromArray(uint8Array);
-
-    if (!loadResult || !loadResult.success) {
-      return null;
-    }
-
-    // Get processed mesh data
-    const meshData = vobMesh.getMeshData();
-    const processed = meshData.getProcessedMeshData();
-
-    // Check if mesh has data
-    if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
-      return null;
-    }
-
-    // Cache and return
-    cache.set(meshPath, processed);
-    return processed;
-  } catch (error: unknown) {
-    console.warn(`Failed to load mesh ${meshPath}:`, error);
+  } catch {
     return null;
   }
 }
@@ -401,6 +322,7 @@ export async function createMeshMaterial(
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
   materialCache: Map<string, THREE.Material>,
+  textureLoader: (url: string | null, zenKit: ZenKit) => Promise<THREE.DataTexture | null>,
 ): Promise<THREE.MeshBasicMaterial> {
   const textureName = materialData.texture || "";
   const materialName = materialData.name || "";
@@ -452,7 +374,7 @@ export async function createMeshMaterial(
       // Check texture cache first
       tex = textureCache.get(url);
       if (!tex) {
-        const loadedTex = await loadCompiledTexAsDataTexture(url, zenKit);
+        const loadedTex = await textureLoader(url, zenKit);
         if (loadedTex) {
           textureCache.set(url, loadedTex);
           tex = loadedTex;
@@ -490,6 +412,7 @@ export async function buildThreeJSGeometryAndMaterials(
   zenKit: ZenKit,
   textureCache: Map<string, THREE.DataTexture>,
   materialCache: Map<string, THREE.Material>,
+  textureLoader: (url: string | null, zenKit: ZenKit) => Promise<THREE.DataTexture | null>,
 ): Promise<{ geometry: THREE.BufferGeometry; materials: THREE.MeshBasicMaterial[] }> {
   const matCount = processed.materials.size();
 
@@ -503,7 +426,13 @@ export async function buildThreeJSGeometryAndMaterials(
   const materialArray: THREE.MeshBasicMaterial[] = [];
   for (let mi = 0; mi < matCount; mi++) {
     const mat = processed.materials.get(mi);
-    const material = await createMeshMaterial(mat, zenKit, textureCache, materialCache);
+    const material = await createMeshMaterial(
+      mat,
+      zenKit,
+      textureCache,
+      materialCache,
+      textureLoader,
+    );
     materialArray.push(material);
   }
 

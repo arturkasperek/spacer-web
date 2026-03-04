@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import { fetchBinaryCached } from "./binary-cache";
 import { buildSkeletonFromHierarchy } from "./skeleton";
 import { buildSoftSkinMeshCPU } from "./soft-skin";
 import type { CharacterCaches } from "./character-instance";
 import type { CpuSkinningData } from "./cpu-skinning";
-import { buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 
 export function normalizeModelAssetKey(input: string | undefined): string {
   return (input || "")
@@ -48,8 +46,8 @@ export async function buildNpcModelCore(params: {
   const mdhPath = `/ANIMS/_COMPILED/${model}.MDH`;
   const mdmPath = `/ANIMS/_COMPILED/${mesh}.MDM`;
 
-  const mdhBytes = await fetchBinaryCached(mdhPath, caches.binary);
-  const mdmBytes = await fetchBinaryCached(mdmPath, caches.binary);
+  const mdhBytes = await caches.assetManager.fetchBinary(mdhPath);
+  const mdmBytes = await caches.assetManager.fetchBinary(mdmPath);
 
   const hierarchyLoader = zenKit.createModelHierarchyLoader();
   const mdhLoadResult = hierarchyLoader.loadFromArray(mdhBytes);
@@ -86,7 +84,7 @@ export async function buildNpcModelCore(params: {
       zenKit,
       softSkinMesh,
       bindWorld: skeleton.bindWorld,
-      textureCache: caches.textures,
+      assetManager: caches.assetManager,
       textureOverride: (name: string) => {
         const upper = (name || "").toUpperCase();
         if (!upper.includes("BODY")) return name;
@@ -109,11 +107,9 @@ export async function buildNpcModelCore(params: {
       continue;
     }
 
-    const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+    const { geometry, materials } = await caches.assetManager.buildGeometryAndMaterials(
       processed,
       zenKit,
-      caches.textures,
-      caches.materials,
     );
     const attachmentMesh = new THREE.Mesh(geometry, materials);
 

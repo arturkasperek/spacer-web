@@ -24,7 +24,7 @@ export function useNpcAnimationState(params: {
       const caches = characterCachesRef.current;
       const base = (modelName || "HUMANS").trim().toUpperCase() || "HUMANS";
       const key = `${base}:${(animationName || "").trim().toUpperCase()}`;
-      const seq: any = caches?.animations?.get(key);
+      const seq: any = caches?.assetManager?.animationCache?.get(key);
       const dur = seq?.totalTimeMs;
       return typeof dur === "number" && Number.isFinite(dur) && dur > 0 ? dur : null;
     };

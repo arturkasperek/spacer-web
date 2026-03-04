@@ -9,7 +9,6 @@ const mockCreateStreamingState = jest.fn(() => ({ isFirstUpdate: { current: fals
 const mockDisposeObject3D = jest.fn();
 const mockGetMapKey = jest.fn(() => "npcs-key");
 const mockPreloadAnimationSequences = jest.fn();
-const mockFetchBinaryCached = jest.fn();
 const mockCreateWaypointMover = jest.fn(() => ({ clearForNpc: jest.fn() }));
 const mockClearNpcFreepointReservations = jest.fn();
 const mockSetFreepointsWorld = jest.fn();
@@ -67,10 +66,6 @@ jest.mock("../data/npc-utils", () => ({
 
 jest.mock("../../character/animation", () => ({
   preloadAnimationSequences: (...args: unknown[]) => mockPreloadAnimationSequences(...args),
-}));
-
-jest.mock("../../character/binary-cache", () => ({
-  fetchBinaryCached: (...args: unknown[]) => mockFetchBinaryCached(...args),
 }));
 
 jest.mock("../navigation/npc-waypoint-mover", () => ({

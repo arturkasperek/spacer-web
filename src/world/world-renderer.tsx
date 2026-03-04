@@ -4,11 +4,8 @@ import type { World, ZenKit } from "@kolarz3/zenkit";
 import { useRapier } from "@react-three/rapier";
 import { loadVm, type ItemSpawnCallback, type NpcSpawnCallback } from "../vm-manager";
 import { loadCameraModes } from "../camera/camera-daedalus";
-import {
-  buildThreeJSGeometry,
-  buildMaterialGroups,
-  loadCompiledTexAsDataTexture,
-} from "../shared/mesh-utils";
+import { buildThreeJSGeometry, buildMaterialGroups } from "../shared/mesh-utils";
+import { AssetManager } from "../shared/asset-manager";
 import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 
 // World Renderer Component - loads ZenKit and renders world mesh
@@ -34,6 +31,7 @@ function WorldRenderer({
   } | null>(null);
   const hasLoadedRef = useRef(false);
   const rapierColliderRef = useRef<any>(null);
+  const assetManagerRef = useRef(new AssetManager());
 
   useEffect(() => {
     if (!rapierWorld || !rapier) return;
@@ -149,7 +147,8 @@ function WorldRenderer({
           // Load texture asynchronously using shared utility
           if (texName && texName.length) {
             const textureUrl = tgaNameToCompiledUrl(texName);
-            loadCompiledTexAsDataTexture(textureUrl, zenKit)
+            assetManagerRef.current
+              .loadTexture(textureUrl, zenKit)
               .then((tex) => {
                 if (tex && materialArray[mi]) {
                   materialArray[mi].map = tex;

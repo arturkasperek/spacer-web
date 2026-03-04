@@ -1,27 +1,12 @@
 import * as THREE from "three";
-import { createMeshMaterial, loadCompiledTexAsDataTexture } from "./mesh-utils";
+import { createMeshMaterial, decodeCompiledTexAsDataTexture } from "./mesh-utils";
 
-describe("loadCompiledTexAsDataTexture", () => {
+describe("decodeCompiledTexAsDataTexture", () => {
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it("falls back to DEFAULT-C.TEX when requested texture is missing", async () => {
-    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("/TEXTURES/_COMPILED/DEFAULT-C.TEX")) {
-        return {
-          ok: true,
-          arrayBuffer: async () => new ArrayBuffer(16),
-        } as Response;
-      }
-      return {
-        ok: false,
-        arrayBuffer: async () => new ArrayBuffer(0),
-      } as Response;
-    });
-    global.fetch = fetchMock as any;
-
+  it("decodes TEX bytes into DataTexture", async () => {
     const zenKit = {
       Texture: jest.fn(() => ({
         loadFromArray: jest.fn(() => ({ success: true })),
@@ -31,53 +16,25 @@ describe("loadCompiledTexAsDataTexture", () => {
       })),
     } as any;
 
-    const result = await loadCompiledTexAsDataTexture(
-      "/TEXTURES/_COMPILED/DOG_BODY_V0-C.TEX",
-      zenKit,
-    );
+    const result = decodeCompiledTexAsDataTexture(new Uint8Array([1, 2, 3]), zenKit);
 
     expect(result).not.toBeNull();
-    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([
-      "/TEXTURES/_COMPILED/DOG_BODY_V0-C.TEX",
-      "/TEXTURES/_COMPILED/DEFAULT-C.TEX",
-    ]);
+    expect(zenKit.Texture).toHaveBeenCalled();
   });
 
-  it("tries _C0 variant before DEFAULT-C.TEX", async () => {
-    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith("HUM_HEAD_V0_C0-C.TEX")) {
-        return {
-          ok: true,
-          arrayBuffer: async () => new ArrayBuffer(16),
-        } as Response;
-      }
-      return {
-        ok: false,
-        arrayBuffer: async () => new ArrayBuffer(0),
-      } as Response;
-    });
-    global.fetch = fetchMock as any;
-
+  it("returns null when ZenKit texture parse fails", async () => {
     const zenKit = {
       Texture: jest.fn(() => ({
-        loadFromArray: jest.fn(() => ({ success: true })),
+        loadFromArray: jest.fn(() => ({ success: false })),
         width: 2,
         height: 2,
         asRgba8: jest.fn(() => new Uint8Array(2 * 2 * 4)),
       })),
     } as any;
 
-    const result = await loadCompiledTexAsDataTexture(
-      "/TEXTURES/_COMPILED/HUM_HEAD_V0_C3-C.TEX",
-      zenKit,
-    );
+    const result = decodeCompiledTexAsDataTexture(new Uint8Array([1, 2, 3]), zenKit);
 
-    expect(result).not.toBeNull();
-    expect(fetchMock.mock.calls.map((c) => String(c[0]))).toEqual([
-      "/TEXTURES/_COMPILED/HUM_HEAD_V0_C3-C.TEX",
-      "/TEXTURES/_COMPILED/HUM_HEAD_V0_C0-C.TEX",
-    ]);
+    expect(result).toBeNull();
   });
 });
 
@@ -100,14 +57,10 @@ describe("createMeshMaterial material profile mapping", () => {
         }),
       })),
     }) as any;
+  const textureLoader = async (_url: string | null, zenKit: any) =>
+    decodeCompiledTexAsDataTexture(new Uint8Array([1, 2, 3]), zenKit);
 
   beforeEach(() => {
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      arrayBuffer: async () => new ArrayBuffer(16),
-      headers: { get: () => "application/octet-stream" },
-    })) as any;
-
     // Ensure fresh material objects with userData for each constructor call.
     (THREE.MeshBasicMaterial as unknown as jest.Mock).mockImplementation(() => ({
       color: { setHex: jest.fn() },
@@ -134,6 +87,7 @@ describe("createMeshMaterial material profile mapping", () => {
       makeZenKit(128),
       new Map(),
       new Map(),
+      textureLoader,
     );
     expect(mat.transparent).toBe(false);
     expect(mat.alphaTest).toBe(0.5);
@@ -147,6 +101,7 @@ describe("createMeshMaterial material profile mapping", () => {
       makeZenKit(255),
       new Map(),
       new Map(),
+      textureLoader,
     );
     expect(mat.transparent).toBe(true);
     expect(mat.alphaTest).toBe(0);
@@ -160,6 +115,7 @@ describe("createMeshMaterial material profile mapping", () => {
       makeZenKit(255),
       new Map(),
       new Map(),
+      textureLoader,
     );
     expect(mat.transparent).toBe(true);
     expect(mat.depthWrite).toBe(false);
@@ -173,6 +129,7 @@ describe("createMeshMaterial material profile mapping", () => {
       makeZenKit(255),
       new Map(),
       new Map(),
+      textureLoader,
     );
     expect(mat.transparent).toBe(false);
     expect(mat.alphaTest).toBe(0);
@@ -190,12 +147,14 @@ describe("createMeshMaterial material profile mapping", () => {
       zenKit,
       textureCache,
       materialCache,
+      textureLoader,
     );
     const blend = await createMeshMaterial(
       { texture: "ITAR_SCROLL1.TGA", alphaFunc: 2, colorA: 255 },
       zenKit,
       textureCache,
       materialCache,
+      textureLoader,
     );
 
     expect(solid).not.toBe(blend);

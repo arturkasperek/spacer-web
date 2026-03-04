@@ -5,8 +5,7 @@ import {
   buildMaterialGroups,
   createMeshMaterial,
 } from "../shared/mesh-utils";
-import type { BinaryCache } from "./binary-cache";
-import { fetchBinaryCached } from "./binary-cache";
+import type { AssetManager } from "../shared/asset-manager";
 
 export const DEFAULT_MALE_HEADS = [
   "HUM_HEAD_BALD",
@@ -30,7 +29,7 @@ export function findHeadBoneIndex(nodeNames: string[]): number {
 
 export async function loadHeadMesh(params: {
   zenKit: ZenKit;
-  binaryCache: BinaryCache;
+  assetManager: AssetManager;
   textureCache: Map<string, THREE.DataTexture>;
   materialCache: Map<string, THREE.Material>;
   headNames?: string[];
@@ -38,7 +37,7 @@ export async function loadHeadMesh(params: {
   skin?: number;
   teethTex?: number;
 }): Promise<THREE.Mesh | null> {
-  const { zenKit, binaryCache, textureCache, materialCache } = params;
+  const { zenKit, assetManager, textureCache, materialCache } = params;
   const headNames =
     params.headNames && params.headNames.length ? params.headNames : DEFAULT_MALE_HEADS;
   const headTex = params.headTex ?? 0;
@@ -55,7 +54,7 @@ export async function loadHeadMesh(params: {
     const path = `/ANIMS/_COMPILED/${normalized}.MMB`;
     let bytes: Uint8Array;
     try {
-      bytes = await fetchBinaryCached(path, binaryCache);
+      bytes = await assetManager.fetchBinary(path);
     } catch {
       continue;
     }
@@ -97,6 +96,7 @@ export async function loadHeadMesh(params: {
         zenKit,
         textureCache,
         materialCache,
+        (url, zk) => assetManager.loadTexture(url, zk),
       );
       materials.push(material);
     }

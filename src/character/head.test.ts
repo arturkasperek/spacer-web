@@ -1,17 +1,13 @@
 import type { ZenKit } from "@kolarz3/zenkit";
 import { DEFAULT_MALE_HEADS, findHeadBoneIndex, loadHeadMesh } from "./head";
 
-jest.mock("./binary-cache", () => ({
-  fetchBinaryCached: jest.fn(),
-}));
-
 jest.mock("../shared/mesh-utils", () => ({
   buildThreeJSGeometry: jest.fn(() => ({ mocked: true })),
   buildMaterialGroups: jest.fn(),
   createMeshMaterial: jest.fn(async () => ({ type: "MockMaterial" })),
 }));
 
-import { fetchBinaryCached } from "./binary-cache";
+const mockFetchBinary = jest.fn();
 import { createMeshMaterial } from "../shared/mesh-utils";
 
 describe("findHeadBoneIndex", () => {
@@ -34,7 +30,7 @@ describe("loadHeadMesh", () => {
   });
 
   it("uses DEFAULT_MALE_HEADS when headNames is not provided", async () => {
-    (fetchBinaryCached as unknown as jest.Mock).mockRejectedValue(new Error("not found"));
+    mockFetchBinary.mockRejectedValue(new Error("not found"));
 
     const zenKit = {
       createMorphMesh: jest.fn(() => ({
@@ -44,22 +40,19 @@ describe("loadHeadMesh", () => {
 
     const res = await loadHeadMesh({
       zenKit,
-      binaryCache: new Map(),
+      assetManager: { fetchBinary: mockFetchBinary } as any,
       textureCache: new Map(),
       materialCache: new Map(),
     });
 
     expect(res).toBeNull();
     // At least one attempt should be made when defaults are used
-    expect(fetchBinaryCached).toHaveBeenCalledWith(
-      `/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`,
-      expect.any(Map),
-    );
+    expect(mockFetchBinary).toHaveBeenCalledWith(`/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`);
   });
 
   it("normalizes head name and applies texture overrides for HEAD and TEETH materials", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
-    (fetchBinaryCached as unknown as jest.Mock).mockResolvedValue(bytes);
+    mockFetchBinary.mockResolvedValue(bytes);
 
     const processed = {
       indices: { size: () => 3 },
@@ -80,7 +73,7 @@ describe("loadHeadMesh", () => {
 
     const mesh = await loadHeadMesh({
       zenKit,
-      binaryCache: new Map(),
+      assetManager: { fetchBinary: mockFetchBinary } as any,
       textureCache: new Map(),
       materialCache: new Map(),
       headNames: ["  hum_head_custom.mmb  "],
@@ -90,21 +83,20 @@ describe("loadHeadMesh", () => {
     });
 
     expect(mesh).not.toBeNull();
-    expect(fetchBinaryCached).toHaveBeenCalledWith(
-      "/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB",
-      expect.any(Map),
-    );
+    expect(mockFetchBinary).toHaveBeenCalledWith("/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB");
     expect(createMeshMaterial).toHaveBeenCalledWith(
       { texture: "HUM_HEAD_V2_C3" },
       expect.anything(),
       expect.any(Map),
       expect.any(Map),
+      expect.any(Function),
     );
     expect(createMeshMaterial).toHaveBeenCalledWith(
       { texture: "HUM_TEETH_V1" },
       expect.anything(),
       expect.any(Map),
       expect.any(Map),
+      expect.any(Function),
     );
   });
 });

@@ -3,13 +3,8 @@ describe("buildSoftSkinMeshCPU", () => {
     jest.resetModules();
     jest.unmock("three");
 
-    jest.doMock("../shared/mesh-utils", () => ({
-      loadCompiledTexAsDataTexture: jest.fn(async () => ({ isMockTexture: true })),
-    }));
-
     const THREE = require("three");
     const { buildSoftSkinMeshCPU } = require("./soft-skin");
-    const { loadCompiledTexAsDataTexture } = require("../shared/mesh-utils");
 
     const makeVec = (x: number, y: number, z: number) => ({ x, y, z });
     const makeVec2 = (x: number, y: number) => ({ x, y });
@@ -70,13 +65,21 @@ describe("buildSoftSkinMeshCPU", () => {
     };
 
     const textureCache = new Map<string, any>();
+    const assetManager = {
+      textureCache,
+      loadTexture: jest.fn(async (url: string) => {
+        const tex = { isMockTexture: true, url };
+        textureCache.set(url, tex);
+        return tex;
+      }),
+    };
     const bindWorld = [new THREE.Matrix4().identity()];
 
     const { mesh, skinningData } = await buildSoftSkinMeshCPU({
       zenKit: {} as any,
       softSkinMesh,
       bindWorld,
-      textureCache,
+      assetManager,
     });
 
     expect(mesh).toBeTruthy();
@@ -84,7 +87,7 @@ describe("buildSoftSkinMeshCPU", () => {
     expect(mesh.geometry.groups).toHaveLength(1);
     expect(skinningData.skinIndex).toBeInstanceOf(Uint16Array);
     expect(skinningData.skinWeight).toBeInstanceOf(Float32Array);
-    expect(loadCompiledTexAsDataTexture).toHaveBeenCalled();
+    expect(assetManager.loadTexture).toHaveBeenCalled();
     expect(textureCache.size).toBe(1);
   });
 });

@@ -4,13 +4,14 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import type { World, ZenKit, Vob } from "@kolarz3/zenkit";
 import { getRuntimeVm } from "../vm-manager";
+import { AssetManager } from "../shared/asset-manager";
 
 jest.mock("../shared/mesh-utils", () => ({
-  loadMeshCached: jest.fn(),
   buildThreeJSGeometryAndMaterials: jest.fn(),
 }));
 
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
+import { buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
+const mockLoadMesh = jest.spyOn(AssetManager.prototype, "loadMesh");
 
 jest.mock("../vm-manager", () => ({
   getRuntimeVm: jest.fn(() => null),
@@ -743,7 +744,7 @@ describe("VOBRenderer", () => {
     configureThreeForVobRendererTests();
     const scene = configureStableSceneForTest();
 
-    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (mockLoadMesh as unknown as jest.Mock).mockResolvedValue({} as any);
     (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
       geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
       materials: [],
@@ -862,9 +863,8 @@ describe("VOBRenderer", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith("/ANIMS/_COMPILED/ITRW_CROSSBOW_L_02.MMB");
-    expect(loadMeshCached).not.toHaveBeenCalledWith(
+    expect(mockLoadMesh).not.toHaveBeenCalledWith(
       "/MESHES/_COMPILED/ITRW_CROSSBOW_L_02.MRM",
-      expect.anything(),
       expect.anything(),
     );
   });
@@ -926,9 +926,8 @@ describe("VOBRenderer", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith("/ANIMS/_COMPILED/ITRW_CROSSBOW_L_02.MDL");
-    expect(loadMeshCached).not.toHaveBeenCalledWith(
+    expect(mockLoadMesh).not.toHaveBeenCalledWith(
       "/MESHES/_COMPILED/ITRW_CROSSBOW_L_02.MRM",
-      expect.anything(),
       expect.anything(),
     );
   });
@@ -937,7 +936,7 @@ describe("VOBRenderer", () => {
     configureThreeForVobRendererTests();
     configureStableSceneForTest();
 
-    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (mockLoadMesh as unknown as jest.Mock).mockResolvedValue({} as any);
     (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
       geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
       materials: [],
@@ -977,9 +976,8 @@ describe("VOBRenderer", () => {
       await Promise.resolve();
     });
 
-    expect(loadMeshCached).toHaveBeenCalledWith(
+    expect(mockLoadMesh).toHaveBeenCalledWith(
       "/MESHES/_COMPILED/INVISIBLE_ZCVOBLIGHT.MRM",
-      expect.anything(),
       expect.anything(),
     );
   });
@@ -988,7 +986,7 @@ describe("VOBRenderer", () => {
     configureThreeForVobRendererTests();
     const scene = configureStableSceneForTest();
 
-    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (mockLoadMesh as unknown as jest.Mock).mockResolvedValue({} as any);
     (buildThreeJSGeometryAndMaterials as unknown as jest.Mock).mockResolvedValue({
       geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },
       materials: [],
@@ -1065,7 +1063,7 @@ describe("VOBRenderer", () => {
 
     const additiveBlendingValue = (THREE as any).AdditiveBlending;
 
-    (loadMeshCached as unknown as jest.Mock).mockResolvedValue({} as any);
+    (mockLoadMesh as unknown as jest.Mock).mockResolvedValue({} as any);
     (buildThreeJSGeometryAndMaterials as unknown as jest.Mock)
       .mockResolvedValueOnce({
         geometry: { attributes: { position: { count: 3 } }, dispose: jest.fn() },

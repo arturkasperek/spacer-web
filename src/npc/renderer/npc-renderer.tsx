@@ -8,7 +8,7 @@ import type { NpcData } from "../../shared/types";
 import { getMapKey } from "../data/npc-utils";
 import { type CharacterCaches } from "../../character/character-instance";
 import { preloadAnimationSequences } from "../../character/animation";
-import { fetchBinaryCached } from "../../character/binary-cache";
+import { AssetManager } from "../../shared/asset-manager";
 import { HUMAN_LOCOMOTION_PRELOAD_ANIS, type LocomotionMode } from "../physics/npc-locomotion";
 import { createWaypointMover, type WaypointMover } from "../navigation/npc-waypoint-mover";
 import {
@@ -104,11 +104,9 @@ export function NpcRenderer({
   const tmpManualUp = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const tmpTeleportForward = useMemo(() => new THREE.Vector3(), []);
   const tmpTeleportDesiredQuat = useMemo(() => new THREE.Quaternion(), []);
+  const characterAssetManager = useMemo(() => new AssetManager(), []);
   const characterCachesRef = useRef<CharacterCaches>({
-    binary: new Map(),
-    textures: new Map(),
-    materials: new Map(),
-    animations: new Map(),
+    assetManager: characterAssetManager,
   });
   const modelScriptRegistryRef = useRef<ModelScriptRegistry | null>(null);
   const didPreloadAnimationsRef = useRef(false);
@@ -342,24 +340,18 @@ export function NpcRenderer({
     if (didPreloadAnimationsRef.current) return;
     didPreloadAnimationsRef.current = true;
 
-    void preloadAnimationSequences(
-      zenKit,
-      characterCachesRef.current.binary,
-      characterCachesRef.current.animations,
-      "HUMANS",
-      [
-        ...HUMAN_LOCOMOTION_PRELOAD_ANIS,
-        "T_STAND_2_JUMP",
-        "T_RUNL_2_JUMP",
-        "S_JUMP",
-        "T_JUMP_2_STAND",
-        "S_HANG",
-        "T_HANG_2_STAND",
-        "T_1HATTACKL",
-        "T_1HATTACKR",
-        "T_2HATTACKL",
-      ],
-    );
+    void preloadAnimationSequences(zenKit, characterCachesRef.current.assetManager, "HUMANS", [
+      ...HUMAN_LOCOMOTION_PRELOAD_ANIS,
+      "T_STAND_2_JUMP",
+      "T_RUNL_2_JUMP",
+      "S_JUMP",
+      "T_JUMP_2_STAND",
+      "S_HANG",
+      "T_HANG_2_STAND",
+      "T_1HATTACKL",
+      "T_1HATTACKR",
+      "T_2HATTACKL",
+    ]);
   }, [enabled, zenKit]);
 
   useEffect(() => {
@@ -367,7 +359,7 @@ export function NpcRenderer({
     if (modelScriptRegistryRef.current) return;
     modelScriptRegistryRef.current = new ModelScriptRegistry({
       zenKit,
-      fetchBinary: (url: string) => fetchBinaryCached(url, characterCachesRef.current.binary),
+      fetchBinary: (url: string) => characterCachesRef.current.assetManager.fetchBinary(url),
     });
     modelScriptRegistryRef.current.startLoadScript("HUMANS");
   }, [zenKit]);

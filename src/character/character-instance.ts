@@ -1,18 +1,14 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { BinaryCache } from "./binary-cache";
-import type { AnimationCache } from "./animation";
 import { loadAnimationSequence, evaluatePose } from "./animation";
 import { applyCpuSkinning } from "./cpu-skinning";
 import { findHeadBoneIndex, loadHeadMesh } from "./head";
 import { disposeObject3D } from "../world/distance-streaming";
 import { buildNpcModelCore, normalizeModelAssetKey } from "./model-core";
+import type { AssetManager } from "../shared/asset-manager";
 
 export type CharacterCaches = {
-  binary: BinaryCache;
-  textures: Map<string, THREE.DataTexture>;
-  materials: Map<string, THREE.Material>;
-  animations: AnimationCache;
+  assetManager: AssetManager;
 };
 
 export type CharacterInstance = {
@@ -150,9 +146,9 @@ export async function createHumanoidCharacterInstance(params: {
     if (requestedHeadName && headNodeIndex >= 0 && headNodeIndex < skeleton.bones.length) {
       const headMesh = await loadHeadMesh({
         zenKit,
-        binaryCache: caches.binary,
-        textureCache: caches.textures,
-        materialCache: caches.materials,
+        assetManager: caches.assetManager,
+        textureCache: caches.assetManager.textureCache,
+        materialCache: caches.assetManager.materialCache,
         headNames: [requestedHeadName],
         headTex,
         skin,
@@ -164,9 +160,9 @@ export async function createHumanoidCharacterInstance(params: {
     } else if (requestedHeadName) {
       const headMeshObj = await loadHeadMesh({
         zenKit,
-        binaryCache: caches.binary,
-        textureCache: caches.textures,
-        materialCache: caches.materials,
+        assetManager: caches.assetManager,
+        textureCache: caches.assetManager.textureCache,
+        materialCache: caches.assetManager.materialCache,
         headNames: [requestedHeadName],
         headTex,
         skin,
@@ -208,8 +204,7 @@ export async function createHumanoidCharacterInstance(params: {
     for (const cand of initialCandidates) {
       const seq = await loadAnimationSequence(
         zenKit,
-        caches.binary,
-        caches.animations,
+        caches.assetManager,
         normalizedModelKey,
         cand,
         { canLoadAnimation },
@@ -339,8 +334,7 @@ export async function createHumanoidCharacterInstance(params: {
             if (failedAnis.has(key)) continue;
             const seq = await loadAnimationSequence(
               zenKit,
-              caches.binary,
-              caches.animations,
+              caches.assetManager,
               next.modelName,
               cand,
               { canLoadAnimation },

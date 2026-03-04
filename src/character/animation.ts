@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import type { BinaryCache } from "./binary-cache";
-import { fetchBinaryCached } from "./binary-cache";
+import type { AssetManager } from "../shared/asset-manager";
 
 export type AnimationSample = {
   position: { x: number; y: number; z: number };
@@ -28,8 +27,7 @@ export type EvaluatePoseOptions = {
 
 export async function preloadAnimationSequences(
   zenKit: ZenKit,
-  binaryCache: BinaryCache,
-  animationCache: AnimationCache,
+  assetManager: AssetManager,
   baseName: string,
   animationNames: string[],
 ): Promise<void> {
@@ -43,16 +41,13 @@ export async function preloadAnimationSequences(
   );
 
   await Promise.allSettled(
-    unique.map((name) =>
-      loadAnimationSequence(zenKit, binaryCache, animationCache, baseName, name),
-    ),
+    unique.map((name) => loadAnimationSequence(zenKit, assetManager, baseName, name)),
   );
 }
 
 export async function loadAnimationSequence(
   zenKit: ZenKit,
-  binaryCache: BinaryCache,
-  animationCache: AnimationCache,
+  assetManager: AssetManager,
   baseName: string,
   animationName: string,
   options?: {
@@ -60,7 +55,7 @@ export async function loadAnimationSequence(
   },
 ): Promise<AnimationSequence | null> {
   const cacheKey = `${baseName.toUpperCase()}:${animationName.toUpperCase()}`;
-  const cached = animationCache.get(cacheKey);
+  const cached = assetManager.animationCache.get(cacheKey);
   if (cached) return cached;
 
   const canLoad = options?.canLoadAnimation?.(baseName, animationName);
@@ -71,7 +66,7 @@ export async function loadAnimationSequence(
 
   let bytes: Uint8Array;
   try {
-    bytes = await fetchBinaryCached(manPath, binaryCache);
+    bytes = await assetManager.fetchBinary(manPath);
   } catch {
     return null;
   }
@@ -122,7 +117,7 @@ export async function loadAnimationSequence(
     totalTimeMs: (numFrames * 1000.0) / fpsRate,
   };
 
-  animationCache.set(cacheKey, seq);
+  assetManager.animationCache.set(cacheKey, seq);
   return seq;
 }
 

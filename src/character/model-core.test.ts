@@ -4,10 +4,9 @@ describe("model-core", () => {
   let THREE: typeof import("three");
   let mod: typeof import("./model-core");
 
-  const mockFetchBinaryCached = jest.fn();
   const mockBuildSkeletonFromHierarchy = jest.fn();
   const mockBuildSoftSkinMeshCPU = jest.fn();
-  const mockBuildThreeJSGeometryAndMaterials = jest.fn();
+  const mockBuildGeometryAndMaterials = jest.fn();
 
   function makeCollection<T>(values: T[]) {
     return {
@@ -19,18 +18,11 @@ describe("model-core", () => {
   beforeAll(async () => {
     jest.resetModules();
     jest.doMock("three", () => jest.requireActual("three"));
-    jest.doMock("./binary-cache", () => ({
-      fetchBinaryCached: (...args: any[]) => mockFetchBinaryCached(...args),
-    }));
     jest.doMock("./skeleton", () => ({
       buildSkeletonFromHierarchy: (...args: any[]) => mockBuildSkeletonFromHierarchy(...args),
     }));
     jest.doMock("./soft-skin", () => ({
       buildSoftSkinMeshCPU: (...args: any[]) => mockBuildSoftSkinMeshCPU(...args),
-    }));
-    jest.doMock("../shared/mesh-utils", () => ({
-      buildThreeJSGeometryAndMaterials: (...args: any[]) =>
-        mockBuildThreeJSGeometryAndMaterials(...args),
     }));
 
     THREE = await import("three");
@@ -39,12 +31,11 @@ describe("model-core", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockFetchBinaryCached.mockResolvedValue(new Uint8Array([1, 2, 3]));
     mockBuildSoftSkinMeshCPU.mockResolvedValue({
       mesh: new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial()),
       skinningData: { mock: true },
     });
-    mockBuildThreeJSGeometryAndMaterials.mockResolvedValue({
+    mockBuildGeometryAndMaterials.mockResolvedValue({
       geometry: new THREE.BufferGeometry(),
       materials: [new THREE.MeshBasicMaterial()],
     });
@@ -93,10 +84,12 @@ describe("model-core", () => {
     const result = await mod.buildNpcModelCore({
       zenKit,
       caches: {
-        binary: new Map(),
-        textures: new Map(),
-        materials: new Map(),
-        animations: {},
+        assetManager: {
+          fetchBinary: jest.fn(async () => new Uint8Array([1, 2, 3])),
+          textureCache: new Map(),
+          materialCache: new Map(),
+          buildGeometryAndMaterials: (...args: any[]) => mockBuildGeometryAndMaterials(...args),
+        },
       } as any,
       parent,
       modelKey: "MEATBUG",
@@ -139,10 +132,12 @@ describe("model-core", () => {
     const result = await mod.buildNpcModelCore({
       zenKit,
       caches: {
-        binary: new Map(),
-        textures: new Map(),
-        materials: new Map(),
-        animations: {},
+        assetManager: {
+          fetchBinary: jest.fn(async () => new Uint8Array([1, 2, 3])),
+          textureCache: new Map(),
+          materialCache: new Map(),
+          buildGeometryAndMaterials: (...args: any[]) => mockBuildGeometryAndMaterials(...args),
+        },
       } as any,
       parent,
       modelKey: "MEATBUG",

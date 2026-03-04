@@ -1,17 +1,17 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob/vob-utils";
-import { loadCompiledTexAsDataTexture } from "../shared/mesh-utils";
+import type { AssetManager } from "../shared/asset-manager";
 import type { CpuSkinningData } from "./cpu-skinning";
 
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;
   softSkinMesh: any;
   bindWorld: THREE.Matrix4[];
-  textureCache: Map<string, THREE.DataTexture>;
+  assetManager: AssetManager;
   textureOverride?: (name: string) => string;
 }) {
-  const { zenKit, softSkinMesh, bindWorld, textureCache, textureOverride } = params;
+  const { zenKit, softSkinMesh, bindWorld, assetManager, textureOverride } = params;
 
   const mrMesh = softSkinMesh.mesh;
   const normals_raw = mrMesh.normals;
@@ -170,14 +170,7 @@ export async function buildSoftSkinMeshCPU(params: {
       const finalName = textureOverride ? textureOverride(textureName) : textureName;
       const url = tgaNameToCompiledUrl(finalName);
       if (url) {
-        let tex = textureCache.get(url);
-        if (!tex) {
-          const loaded = await loadCompiledTexAsDataTexture(url, zenKit);
-          if (loaded) {
-            tex = loaded;
-            textureCache.set(url, tex);
-          }
-        }
+        const tex = await assetManager.loadTexture(url, zenKit);
         if (tex) {
           material.map = tex;
           material.needsUpdate = true;

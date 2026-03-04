@@ -3,7 +3,7 @@ import { useThree, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { World, ZenKit, WayPointData, WayEdgeData } from "@kolarz3/zenkit";
 import { getMeshPath } from "../vob/vob-utils";
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
+import { AssetManager } from "../shared/asset-manager";
 import {
   createStreamingState,
   shouldUpdateStreaming,
@@ -50,10 +50,7 @@ export function WaynetRenderer({
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  // Caches for waypoint mesh rendering
-  const meshCacheRef = useRef(new Map<string, any>());
-  const textureCacheRef = useRef(new Map<string, THREE.DataTexture>());
-  const materialCacheRef = useRef(new Map<string, THREE.Material>());
+  const assetManagerRef = useRef(new AssetManager());
 
   // Load waypoints and edges from world
   const waynetData = useMemo(() => {
@@ -153,15 +150,13 @@ export function WaynetRenderer({
         return null;
       }
 
-      const processed = await loadMeshCached(meshPath, zenKit, meshCacheRef.current);
+      const processed = await assetManagerRef.current.loadMesh(meshPath, zenKit);
       if (!processed) return null;
 
       // Build geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+      const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
         processed,
         zenKit,
-        textureCacheRef.current,
-        materialCacheRef.current,
       );
 
       if (

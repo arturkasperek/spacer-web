@@ -11,7 +11,6 @@ import {
   shouldUseHelperVisual,
 } from "./vob-utils";
 import { VOBBoundingBox } from "./vob-bounding-box";
-import { loadMeshCached, buildThreeJSGeometryAndMaterials } from "../shared/mesh-utils";
 import {
   createStreamingState,
   shouldUpdateStreaming,
@@ -19,7 +18,8 @@ import {
   disposeObject3D,
 } from "../world/distance-streaming";
 import { clearNpcVobDeferGate, updateNpcVobDeferGate } from "./vob-npc-defer-gate";
-import type { World, ZenKit, Vob, ProcessedMeshData, Model, MorphMesh } from "@kolarz3/zenkit";
+import { AssetManager } from "../shared/asset-manager";
+import type { World, ZenKit, Vob } from "@kolarz3/zenkit";
 import { getRuntimeVm } from "../vm-manager";
 import type { SpawnedItemData } from "../shared/types";
 
@@ -134,14 +134,8 @@ function VOBRenderer({
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
 
-  // Asset caches to avoid reloading
-  const meshCacheRef = useRef(new Map<string, ProcessedMeshData>()); // path -> processed mesh data
-  const textureCacheRef = useRef(new Map<string, THREE.DataTexture>()); // path -> THREE.DataTexture
-  const materialCacheRef = useRef(new Map<string, THREE.Material>()); // texture path -> THREE.Material
-  const modelCacheRef = useRef(new Map<string, Model>()); // path -> ZenKit Model instance
-  const morphMeshCacheRef = useRef(
-    new Map<string, { morphMesh: MorphMesh; processed: ProcessedMeshData; animations: string[] }>(),
-  ); // path -> { morphMesh, processed, animations }
+  // Unified asset manager (mesh/texture/material/model/morph caches + loading logic).
+  const assetManagerRef = useRef(new AssetManager());
   const itemVisualCacheRef = useRef(new Map<string, string>());
   const vmSymbolIndexCacheRef = useRef(new Map<string, number | null>());
 
@@ -988,14 +982,15 @@ function VOBRenderer({
 
     // Report stats to parent component
     if (onVobStats) {
+      const assetStats = assetManagerRef.current.getStats();
       onVobStats({
         loaded: loadedCount,
         total: totalCount,
         queue: queueCount, // Items waiting in queue
         loading: currentlyLoading, // Items currently being loaded
-        meshCache: meshCacheRef.current.size,
-        morphCache: morphMeshCacheRef.current.size,
-        textureCache: textureCacheRef.current.size,
+        meshCache: assetStats.meshCache,
+        morphCache: assetStats.morphCache,
+        textureCache: assetStats.textureCache,
       });
     }
 
@@ -1194,17 +1189,15 @@ function VOBRenderer({
 
     try {
       // Load mesh with caching
-      const processed = await loadMeshCached(meshPath, zenKit, meshCacheRef.current);
+      const processed = await assetManagerRef.current.loadMesh(meshPath, zenKit);
       if (!processed) {
         return false;
       }
 
       // Build Three.js geometry and materials
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+      const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
         processed,
         zenKit,
-        textureCacheRef.current,
-        materialCacheRef.current,
       );
 
       // Verify geometry has data
@@ -1272,7 +1265,7 @@ function VOBRenderer({
       }
 
       // Load model with caching
-      const model = await loadModelCached(modelPath, zenKit);
+      const model = await assetManagerRef.current.loadModel(modelPath, zenKit);
       if (!model) {
         return false;
       }
@@ -1323,11 +1316,9 @@ function VOBRenderer({
           }
 
           // Build Three.js geometry and materials
-          const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+          const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
             processed,
             zenKit,
-            textureCacheRef.current,
-            materialCacheRef.current,
           );
 
           // Create mesh - soft-skin meshes are positioned relative to root node
@@ -1421,11 +1412,9 @@ function VOBRenderer({
         }
 
         // Build Three.js geometry and materials using shared function
-        const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+        const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
           processed,
           zenKit,
-          textureCacheRef.current,
-          materialCacheRef.current,
         );
 
         // Create mesh for this attachment
@@ -1488,17 +1477,15 @@ function VOBRenderer({
       }
 
       // Load morph mesh with caching
-      const morphData = await loadMorphMeshCached(morphPath, zenKit);
+      const morphData = await assetManagerRef.current.loadMorphMesh(morphPath, zenKit);
       if (!morphData) {
         return false;
       }
 
       // Build Three.js geometry and materials from processed mesh data
-      const { geometry, materials } = await buildThreeJSGeometryAndMaterials(
+      const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
         morphData.processed,
         zenKit,
-        textureCacheRef.current,
-        materialCacheRef.current,
       );
 
       if (!geometry) {
@@ -1537,166 +1524,6 @@ function VOBRenderer({
         error,
       );
       return false;
-    }
-  };
-
-  // Cached model loader for .MDL files
-  const loadModelCached = async (modelPath: string, zenKit: ZenKit): Promise<Model | null> => {
-    // Check cache first
-    const cached = modelCacheRef.current.get(modelPath);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const response = await fetch(modelPath);
-
-      // Check if .MDL doesn't exist (404 or returns HTML)
-      const contentType = response.headers.get("content-type") || "";
-      const is404 = !response.ok || contentType.includes("text/html");
-
-      if (is404) {
-        // Try loading .MDH and .MDM separately
-        const basePath = modelPath.replace(/\.MDL$/i, "");
-        const mdhPath = `${basePath}.MDH`;
-        const mdmPath = `${basePath}.MDM`;
-
-        try {
-          // Load hierarchy (.MDH)
-          const mdhResponse = await fetch(mdhPath);
-          if (!mdhResponse.ok) {
-            return null;
-          }
-
-          const mdhArrayBuffer = await mdhResponse.arrayBuffer();
-          const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
-
-          const hierarchyLoader = zenKit.createModelHierarchyLoader();
-          const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
-
-          if (!mdhLoadResult || !mdhLoadResult.success) {
-            return null;
-          }
-
-          // Load mesh (.MDM)
-          const mdmResponse = await fetch(mdmPath);
-          if (!mdmResponse.ok) {
-            return null;
-          }
-
-          const mdmArrayBuffer = await mdmResponse.arrayBuffer();
-          const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
-
-          const meshLoader = zenKit.createModelMeshLoader();
-          const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
-
-          if (!mdmLoadResult || !mdmLoadResult.success) {
-            return null;
-          }
-
-          // Combine hierarchy and mesh into a Model
-          const model = zenKit.createModel();
-          model.setHierarchy(hierarchyLoader.getHierarchy());
-          model.setMesh(meshLoader.getMesh());
-
-          // Cache and return
-          modelCacheRef.current.set(modelPath, model);
-          return model;
-        } catch (error: unknown) {
-          return null;
-        }
-      }
-
-      // Load .MDL file normally
-      const arrayBuffer = await response.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-
-      // Load model with ZenKit
-      const model = zenKit.createModel();
-      const loadResult = model.loadFromArray(uint8Array);
-
-      if (!loadResult || !loadResult.success) {
-        console.warn(`Failed to load model ${modelPath}:`, model.getLastError());
-        return null;
-      }
-
-      // Check for attachments FIRST, before checking isLoaded
-      const attachmentNames = model.getAttachmentNames();
-      const hasAttachments = attachmentNames && attachmentNames.size && attachmentNames.size() > 0;
-
-      // Only reject if BOTH isLoaded is false AND there are no attachments
-      if (!model.isLoaded && !hasAttachments) {
-        return null;
-      }
-
-      // Cache and return
-      modelCacheRef.current.set(modelPath, model);
-      return model;
-    } catch (error: unknown) {
-      console.warn(`Failed to load model ${modelPath}:`, error);
-      return null;
-    }
-  };
-
-  // Cached morph mesh loader for .MMB files
-  const loadMorphMeshCached = async (
-    morphPath: string,
-    zenKit: ZenKit,
-  ): Promise<{
-    morphMesh: MorphMesh;
-    processed: ProcessedMeshData;
-    animations: string[];
-  } | null> => {
-    // Check cache first
-    const cached = morphMeshCacheRef.current.get(morphPath);
-    if (cached) {
-      return cached;
-    }
-
-    try {
-      const response = await fetch(morphPath);
-      if (!response.ok) {
-        return null;
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-
-      // Load morph mesh with ZenKit
-      const morphMesh = zenKit.createMorphMesh();
-      const loadResult = morphMesh.loadFromArray(uint8Array);
-
-      if (!loadResult || !loadResult.success) {
-        console.warn(`Failed to load morph mesh ${morphPath}:`, morphMesh.getLastError());
-        return null;
-      }
-
-      if (!morphMesh.isLoaded) {
-        console.warn(`Morph mesh ${morphPath} loaded but reports not loaded`);
-        return null;
-      }
-
-      // Get processed mesh data for rendering
-      const processed = morphMesh.convertToProcessedMesh();
-      const animationNames = morphMesh.getAnimationNames();
-      const animationCount = animationNames.size();
-      const animations: string[] = [];
-      for (let i = 0; i < animationCount; i++) {
-        animations.push(animationNames.get(i));
-      }
-
-      const result = {
-        morphMesh: morphMesh,
-        processed: processed,
-        animations: animations,
-      };
-
-      // Cache and return
-      morphMeshCacheRef.current.set(morphPath, result);
-      return result;
-    } catch (error: unknown) {
-      console.warn(`Failed to load morph mesh ${morphPath}:`, error);
-      return null;
     }
   };
 
