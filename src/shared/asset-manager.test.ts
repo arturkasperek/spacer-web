@@ -75,3 +75,67 @@ describe("AssetManager.loadTexture", () => {
     ]);
   });
 });
+
+describe("AssetManager.fetchBinary", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("deduplicates concurrent fetches for the same URL", async () => {
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      arrayBuffer: async () => new ArrayBuffer(8),
+    }));
+    global.fetch = fetchMock as any;
+
+    const manager = new AssetManager();
+    const [a, b, c] = await Promise.all([
+      manager.fetchBinary("/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM"),
+      manager.fetchBinary("/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM"),
+      manager.fetchBinary("/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(manager.binaryCache.get("/ANIMS/_COMPILED/HUM_BODY_NAKED0.MDM")).toBe(a);
+    expect(manager.binaryInFlight.size).toBe(0);
+  });
+});
+
+describe("AssetManager.loadTexture in-flight", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("deduplicates concurrent texture loads for the same URL", async () => {
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(16),
+    }));
+    global.fetch = fetchMock as any;
+
+    const zenKit = {
+      Texture: jest.fn(() => ({
+        loadFromArray: jest.fn(() => ({ success: true })),
+        width: 2,
+        height: 2,
+        asRgba8: jest.fn(() => new Uint8Array(2 * 2 * 4)),
+      })),
+    } as any;
+
+    const manager = new AssetManager();
+    const [a, b, c] = await Promise.all([
+      manager.loadTexture("/TEXTURES/_COMPILED/RATTE2-C.TEX", zenKit),
+      manager.loadTexture("/TEXTURES/_COMPILED/RATTE2-C.TEX", zenKit),
+      manager.loadTexture("/TEXTURES/_COMPILED/RATTE2-C.TEX", zenKit),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+    expect(manager.textureInFlight.size).toBe(0);
+  });
+});
