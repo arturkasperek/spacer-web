@@ -117,6 +117,7 @@ function VOBRenderer({
     geometryCacheBytes: number;
     hotObjectCacheCount: number;
     hotObjectCacheBytes: number;
+    hotObjectCacheLimitBytes: number;
   }) => void;
   selectedVob?: Vob | null;
   onSelectedVobBoundingBox?: (center: THREE.Vector3, size: THREE.Vector3) => void;
@@ -139,7 +140,7 @@ function VOBRenderer({
   const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
-  const HOT_VOB_CACHE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
+  const HOT_VOB_CACHE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB (estimated GPU-hot bytes)
 
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
@@ -154,6 +155,8 @@ function VOBRenderer({
   const loadingVOBsRef = useRef(new Set<string>()); // Track currently loading VOBs
   const deferredVobIdsRef = useRef(new Set<string>()); // Deferred until VM becomes available
   const vmWasReadyRef = useRef(false);
+  const npcVobGateDirtyRef = useRef(false);
+  const npcVobGateLastSyncMsRef = useRef(0);
   const MAX_CONCURRENT_LOADS = 15; // Load up to 15 VOBs concurrently
   const vobColliderHandlesRef = useRef(new Map<string, number>());
   const consumedDynamicItemSignaturesRef = useRef(new Set<string>());
@@ -473,6 +476,20 @@ function VOBRenderer({
     );
   };
 
+  const markNpcVobDeferGateDirty = () => {
+    npcVobGateDirtyRef.current = true;
+  };
+
+  const flushNpcVobDeferGateIfNeeded = () => {
+    if (!npcVobGateDirtyRef.current) return;
+    const now = performance.now();
+    // Throttle expensive gate rebuilds during heavy streaming churn.
+    if (now - npcVobGateLastSyncMsRef.current < 100) return;
+    npcVobGateDirtyRef.current = false;
+    npcVobGateLastSyncMsRef.current = now;
+    syncNpcVobDeferGate();
+  };
+
   const removeVobCollider = (vobId: string) => {
     if (!rapierWorld) return;
     const handle = vobColliderHandlesRef.current.get(vobId);
@@ -496,8 +513,23 @@ function VOBRenderer({
   const estimateHotObjectBytes = (obj: THREE.Object3D): number => {
     let bytes = 0;
     const seenGeometries = new Set<THREE.BufferGeometry>();
+    const seenTextures = new Set<THREE.Texture>();
     let nodeCount = 0;
     let meshCount = 0;
+    const addTextureBytes = (tex: THREE.Texture | null | undefined) => {
+      if (!tex || seenTextures.has(tex)) return;
+      seenTextures.add(tex);
+      const image: any = (tex as any).image;
+      const w = Number(image?.width || 0);
+      const h = Number(image?.height || 0);
+      if (w > 0 && h > 0) {
+        // RGBA8 estimate on GPU (driver/compression may differ in reality).
+        bytes += w * h * 4;
+      }
+      // Small texture object overhead.
+      bytes += 2048;
+    };
+
     obj.traverse((child) => {
       nodeCount += 1;
       const mesh = child as THREE.Mesh;
@@ -515,6 +547,21 @@ function VOBRenderer({
       const indexAttr: any = geom.index;
       if (indexAttr?.array) bytes += Number(indexAttr.array.byteLength || 0);
       bytes += 4096;
+
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of materials) {
+        const anyMat = mat as any;
+        addTextureBytes(anyMat?.map);
+        addTextureBytes(anyMat?.alphaMap);
+        addTextureBytes(anyMat?.aoMap);
+        addTextureBytes(anyMat?.emissiveMap);
+        addTextureBytes(anyMat?.bumpMap);
+        addTextureBytes(anyMat?.normalMap);
+        addTextureBytes(anyMat?.metalnessMap);
+        addTextureBytes(anyMat?.roughnessMap);
+        addTextureBytes(anyMat?.specularMap);
+        addTextureBytes(anyMat?.envMap);
+      }
     });
     bytes += nodeCount * 256;
     bytes += meshCount * 512;
@@ -551,7 +598,12 @@ function VOBRenderer({
       disposeObject3D(obj);
       return;
     }
-    const approxBytes = estimateHotObjectBytes(obj);
+    const ud = (obj.userData ??= {});
+    const approxBytes =
+      typeof (ud as any).__hotApproxBytes === "number"
+        ? Number((ud as any).__hotApproxBytes)
+        : estimateHotObjectBytes(obj);
+    (ud as any).__hotApproxBytes = approxBytes;
     const pool = hotVobPoolRef.current.get(visualKey) || [];
     pool.push({ obj, approxBytes });
     // Move this key to the end to emulate LRU ordering by key activity.
@@ -993,7 +1045,7 @@ function VOBRenderer({
         // Collect VOBs from world
         consumedDynamicItemSignaturesRef.current.clear();
         allVOBsRef.current = await collectVOBs(world);
-        syncNpcVobDeferGate();
+        markNpcVobDeferGateDirty();
 
         // Start the streaming loader
         onLoadingStatus(`🎬 Starting streaming VOB loader (${allVOBsRef.current.length} VOBs)...`);
@@ -1174,7 +1226,7 @@ function VOBRenderer({
           unloadedAny = true;
         }
       }
-      if (unloadedAny) syncNpcVobDeferGate();
+      if (unloadedAny) markNpcVobDeferGateDirty();
 
       const sortStart = performance.now();
       // Sort queue by distance (closest first)
@@ -1193,7 +1245,7 @@ function VOBRenderer({
       const vobData = vobLoadQueueRef.current.shift();
       if (vobData) {
         if (restoreHotVob(vobData.visualName, vobData.id, vobData.vob)) {
-          syncNpcVobDeferGate();
+          markNpcVobDeferGateDirty();
           continue;
         }
 
@@ -1222,7 +1274,7 @@ function VOBRenderer({
             return;
           }
           deferredVobIdsRef.current.delete(vobData.id);
-          syncNpcVobDeferGate();
+          markNpcVobDeferGateDirty();
         });
       }
     }
@@ -1252,6 +1304,7 @@ function VOBRenderer({
         geometryCacheBytes: assetStats.geometryCacheBytes,
         hotObjectCacheCount: hotVobPoolCountRef.current,
         hotObjectCacheBytes: hotVobPoolBytesRef.current,
+        hotObjectCacheLimitBytes: HOT_VOB_CACHE_MAX_BYTES,
       });
     }
 
@@ -1263,6 +1316,7 @@ function VOBRenderer({
     if (hasLoadedRef.current && allVOBsRef.current.length > 0) {
       updateVOBStreaming();
       sortTransparentLoadedVobs(cameraPosition);
+      flushNpcVobDeferGateIfNeeded();
     }
 
     if (!gl || typeof (gl as any).render !== "function" || !camera) return;
@@ -1308,7 +1362,7 @@ function VOBRenderer({
     if (newItems.length === 0) return;
     allVOBsRef.current = [...allVOBsRef.current, ...newItems];
     vobLoadQueueRef.current = [...newItems, ...vobLoadQueueRef.current];
-    syncNpcVobDeferGate();
+    markNpcVobDeferGateDirty();
   }, [world, dynamicItems]);
 
   useEffect(() => {
@@ -1505,6 +1559,7 @@ function VOBRenderer({
       applyVobTransform(vobMeshObj, vob);
       applyViewVisibility(vobMeshObj, vob);
       applyRenderQueueFromMaterials(vobMeshObj, materials as THREE.Material[]);
+      vobMeshObj.userData.__hotApproxBytes = estimateHotObjectBytes(vobMeshObj);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -1621,6 +1676,7 @@ function VOBRenderer({
         applyVobTransform(modelGroup, vob);
         applyViewVisibility(modelGroup, vob);
         applyRenderQueue(modelGroup);
+        modelGroup.userData.__hotApproxBytes = estimateHotObjectBytes(modelGroup);
         addObjectToRenderPass(modelGroup);
 
         if (vobId) {
@@ -1718,6 +1774,7 @@ function VOBRenderer({
       applyVobTransform(modelGroup, vob);
       applyViewVisibility(modelGroup, vob);
       applyRenderQueue(modelGroup);
+      modelGroup.userData.__hotApproxBytes = estimateHotObjectBytes(modelGroup);
 
       // Register loaded VOB and add to scene
       if (vobId) {
@@ -1794,6 +1851,7 @@ function VOBRenderer({
       applyVobTransform(morphMesh, vob);
       applyViewVisibility(morphMesh, vob);
       applyRenderQueue(morphMesh);
+      morphMesh.userData.__hotApproxBytes = estimateHotObjectBytes(morphMesh);
 
       // Register loaded VOB and add to scene
       if (vobId) {
