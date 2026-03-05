@@ -1,10 +1,6 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
-import {
-  buildThreeJSGeometry,
-  buildMaterialGroups,
-  createMeshMaterial,
-} from "../shared/mesh-utils";
+import { createMeshMaterial } from "../shared/mesh-utils";
 import type { AssetManager } from "../shared/asset-manager";
 
 export const DEFAULT_MALE_HEADS = [
@@ -52,22 +48,10 @@ export async function loadHeadMesh(params: {
       .toUpperCase();
     if (!normalized) continue;
     const path = `/ANIMS/_COMPILED/${normalized}.MMB`;
-    let bytes: Uint8Array;
-    try {
-      bytes = await assetManager.fetchBinary(path);
-    } catch {
-      continue;
-    }
-
-    const morphMesh = zenKit.createMorphMesh();
-    const loadResult = morphMesh.loadFromArray(bytes);
-    if (!loadResult || !loadResult.success) continue;
-
-    const processed = morphMesh.convertToProcessedMesh();
+    const morph = await assetManager.loadMorphMesh(path, zenKit);
+    const processed = morph?.processed;
     if (!processed || processed.indices.size() === 0 || processed.vertices.size() === 0) continue;
-
-    const geometry = buildThreeJSGeometry(processed as any);
-    buildMaterialGroups(geometry, processed as any);
+    const { geometry } = await assetManager.buildGeometryAndMaterials(processed, zenKit);
 
     const matCount = processed.materials.size();
     const materials: THREE.MeshBasicMaterial[] = [];
@@ -80,7 +64,7 @@ export async function loadHeadMesh(params: {
     };
 
     for (let mi = 0; mi < matCount; mi++) {
-      const mat = processed.materials.get(mi);
+      const mat = (processed.materials as any).get(mi);
       const originalTex = mat?.texture || "";
       const upper = originalTex.toUpperCase();
 

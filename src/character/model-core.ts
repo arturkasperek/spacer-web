@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { buildSkeletonFromHierarchy } from "./skeleton";
-import { buildSoftSkinMeshCPU } from "./soft-skin";
+import { buildSoftSkinMeshCPUFromBundle } from "./soft-skin";
 import type { CharacterCaches } from "./character-instance";
 import type { CpuSkinningData } from "./cpu-skinning";
 
@@ -45,44 +45,42 @@ export async function buildNpcModelCore(params: {
 
   const mdhPath = `/ANIMS/_COMPILED/${model}.MDH`;
   const mdmPath = `/ANIMS/_COMPILED/${mesh}.MDM`;
-
-  const mdhBytes = await caches.assetManager.fetchBinary(mdhPath);
-  const mdmBytes = await caches.assetManager.fetchBinary(mdmPath);
-
-  const hierarchyLoader = zenKit.createModelHierarchyLoader();
-  const mdhLoadResult = hierarchyLoader.loadFromArray(mdhBytes);
-  if (!mdhLoadResult || !mdhLoadResult.success) return null;
-
-  const meshLoader = zenKit.createModelMeshLoader();
-  const mdmLoadResult = meshLoader.loadFromArray(mdmBytes);
-  if (!mdmLoadResult || !mdmLoadResult.success) return null;
-
-  const zModel = zenKit.createModel();
-  zModel.setHierarchy(hierarchyLoader.getHierarchy());
-  zModel.setMesh(meshLoader.getMesh());
-
-  const hierarchy = zModel.getHierarchy();
+  const characterModel = await caches.assetManager.loadCharacterModel(mdhPath, mdmPath);
+  if (!characterModel) return null;
+  const hierarchy: any = {
+    rootTranslation: characterModel.rootTranslation,
+    nodes: {
+      size: () => characterModel.hierarchyNodes.length,
+      get: (i: number) => {
+        const node = characterModel.hierarchyNodes[i];
+        return {
+          name: node.name,
+          parentIndex: node.parentIndex,
+          getTransform: () => ({
+            get: (idx: number) => Number(node.transform[idx] ?? 0),
+            toArray: () => node.transform,
+          }),
+        };
+      },
+    },
+  };
   const skeleton = buildSkeletonFromHierarchy(hierarchy);
 
   for (const rootIdx of skeleton.rootNodes) {
     group.add(skeleton.bones[rootIdx]);
   }
 
-  const softSkinMeshes = zModel.getSoftSkinMeshes();
-  const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
+  const softSkinCount = characterModel.softSkins.length;
 
   const skinningDataList: CpuSkinningData[] = [];
-  const attachmentNames = zModel.getAttachmentNames?.();
-  const attachmentCount = attachmentNames && attachmentNames.size ? attachmentNames.size() : 0;
+  const attachmentCount = characterModel.attachments.length;
   let renderableMeshCount = 0;
 
   for (let i = 0; i < softSkinCount; i++) {
-    const softSkinMesh = softSkinMeshes.get(i);
-    if (!softSkinMesh) continue;
-
-    const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPU({
+    const softSkinBundle = characterModel.softSkins[i];
+    const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPUFromBundle({
       zenKit,
-      softSkinMesh,
+      bundle: softSkinBundle,
       bindWorld: skeleton.bindWorld,
       assetManager: caches.assetManager,
       textureOverride: (name: string) => {
@@ -98,11 +96,9 @@ export async function buildNpcModelCore(params: {
   }
 
   for (let i = 0; i < attachmentCount; i++) {
-    const attachmentName = attachmentNames.get(i);
-    const attachment = zModel.getAttachment?.(attachmentName);
-    if (!attachment) continue;
-
-    const processed = zModel.convertAttachmentToProcessedMesh?.(attachment);
+    const attachmentData = characterModel.attachments[i];
+    const attachmentName = attachmentData.name;
+    const processed = attachmentData.processed;
     if (!processed || processed.indices.size() === 0 || processed.vertices.size() === 0) {
       continue;
     }
@@ -114,10 +110,9 @@ export async function buildNpcModelCore(params: {
     const attachmentMesh = new THREE.Mesh(geometry, materials);
 
     let hierarchyNodeIndex = -1;
-    const nodes = hierarchy.nodes as any;
-    const nodeCount = nodes?.size ? nodes.size() : (nodes?.length ?? 0);
+    const nodeCount = characterModel.hierarchyNodes.length;
     for (let j = 0; j < nodeCount; j++) {
-      const node = nodes.get ? nodes.get(j) : nodes[j];
+      const node = characterModel.hierarchyNodes[j];
       if (node && node.name === attachmentName) {
         hierarchyNodeIndex = j;
         break;

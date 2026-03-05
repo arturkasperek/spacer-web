@@ -1,8 +1,51 @@
 import { AssetManager } from "./asset-manager";
 
+class MockTexWorker {
+  onmessage: ((event: MessageEvent<any>) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+
+  postMessage(msg: { id: number; type: "decodeTex"; url: string }) {
+    const run = async () => {
+      const candidates: string[] = [msg.url];
+      if (/_C\d+-C\.TEX$/i.test(msg.url) && !/_C0-C\.TEX$/i.test(msg.url)) {
+        candidates.push(msg.url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1"));
+      }
+      if (!msg.url.toUpperCase().endsWith("/DEFAULT-C.TEX")) {
+        candidates.push("/TEXTURES/_COMPILED/DEFAULT-C.TEX");
+      }
+
+      for (const candidate of candidates) {
+        const response = await fetch(candidate);
+        if (!response.ok) continue;
+        const data = {
+          id: msg.id,
+          ok: true as const,
+          width: 2,
+          height: 2,
+          rgba: new Uint8Array(2 * 2 * 4).buffer,
+          hasAlpha: false,
+          resolvedUrl: candidate,
+        };
+        this.onmessage?.({ data } as MessageEvent<any>);
+        return;
+      }
+      this.onmessage?.({
+        data: { id: msg.id, ok: false, error: "decode failed" },
+      } as MessageEvent<any>);
+    };
+    void run();
+  }
+
+  terminate() {
+    // no-op
+  }
+}
+
 describe("AssetManager.loadTexture", () => {
   afterEach(() => {
     jest.restoreAllMocks();
+    delete (globalThis as any).Worker;
+    delete (globalThis as any).__ASSET_MANAGER_TEX_WORKER_URL__;
   });
 
   it("falls back to DEFAULT-C.TEX when requested texture is missing", async () => {
@@ -20,6 +63,8 @@ describe("AssetManager.loadTexture", () => {
       } as Response;
     });
     global.fetch = fetchMock as any;
+    (globalThis as any).Worker = jest.fn(() => new MockTexWorker());
+    (globalThis as any).__ASSET_MANAGER_TEX_WORKER_URL__ = "https://localhost/mock-entry.js";
 
     const zenKit = {
       Texture: jest.fn(() => ({
@@ -55,6 +100,8 @@ describe("AssetManager.loadTexture", () => {
       } as Response;
     });
     global.fetch = fetchMock as any;
+    (globalThis as any).Worker = jest.fn(() => new MockTexWorker());
+    (globalThis as any).__ASSET_MANAGER_TEX_WORKER_URL__ = "https://localhost/mock-entry.js";
 
     const zenKit = {
       Texture: jest.fn(() => ({
@@ -116,6 +163,8 @@ describe("AssetManager.loadTexture in-flight", () => {
       arrayBuffer: async () => new ArrayBuffer(16),
     }));
     global.fetch = fetchMock as any;
+    (globalThis as any).Worker = jest.fn(() => new MockTexWorker());
+    (globalThis as any).__ASSET_MANAGER_TEX_WORKER_URL__ = "https://localhost/mock-entry.js";
 
     const zenKit = {
       Texture: jest.fn(() => ({

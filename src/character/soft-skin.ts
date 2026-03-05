@@ -4,6 +4,17 @@ import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 import type { AssetManager } from "../shared/asset-manager";
 import type { CpuSkinningData } from "./cpu-skinning";
 
+export type SerializedSoftSkinCpuBundle = {
+  materials: Array<{ texture: string }>;
+  groups: Array<{ start: number; count: number; matIndex: number }>;
+  uvs: Float32Array;
+  skinIndex: Uint16Array;
+  skinWeight: Float32Array;
+  infPos: Float32Array;
+  infNorm: Float32Array;
+  vertexCount: number;
+};
+
 export async function buildSoftSkinMeshCPU(params: {
   zenKit: ZenKit;
   softSkinMesh: any;
@@ -199,5 +210,120 @@ export async function buildSoftSkinMeshCPU(params: {
 
   mesh.userData.cpuSkinningData = skinningData;
 
+  return { mesh, skinningData };
+}
+
+export async function buildSoftSkinMeshCPUFromBundle(params: {
+  zenKit: ZenKit;
+  bundle: SerializedSoftSkinCpuBundle;
+  bindWorld: THREE.Matrix4[];
+  assetManager: AssetManager;
+  textureOverride?: (name: string) => string;
+}) {
+  const { zenKit, bundle, bindWorld, assetManager, textureOverride } = params;
+  const vertexCount = bundle.vertexCount;
+  const posArray = new Float32Array(vertexCount * 3);
+  const nrmArray = new Float32Array(vertexCount * 3);
+  const uvArray = new Float32Array(bundle.uvs);
+  const skinIndex = new Uint16Array(bundle.skinIndex);
+  const skinWeight = new Float32Array(bundle.skinWeight);
+  const infPos = new Float32Array(bundle.infPos);
+  const infNorm = new Float32Array(bundle.infNorm);
+
+  const safeBoneIndex = (idx: number): number => {
+    if (!Number.isFinite(idx) || idx < 0) return 0;
+    if (idx >= bindWorld.length) return 0;
+    return idx;
+  };
+
+  const normalMatrices: THREE.Matrix3[] = bindWorld.map((m) =>
+    new THREE.Matrix3().setFromMatrix4(m),
+  );
+  for (let vertex = 0; vertex < vertexCount; vertex++) {
+    const bindPos = new THREE.Vector3(0, 0, 0);
+    const bindNorm = new THREE.Vector3(0, 0, 0);
+    const dstOff3 = vertex * 3;
+    const dstOff4 = vertex * 4;
+    const dstOff12 = vertex * 12;
+
+    for (let j = 0; j < 4; j++) {
+      const w = skinWeight[dstOff4 + j] ?? 0;
+      const boneIndex = safeBoneIndex(skinIndex[dstOff4 + j] ?? 0);
+      if (w <= 0.0001) continue;
+      const bindMatrix = bindWorld[boneIndex] || new THREE.Matrix4();
+      const px = infPos[dstOff12 + j * 3] ?? 0;
+      const py = infPos[dstOff12 + j * 3 + 1] ?? 0;
+      const pz = infPos[dstOff12 + j * 3 + 2] ?? 0;
+      const nx = infNorm[dstOff12 + j * 3] ?? 0;
+      const ny = infNorm[dstOff12 + j * 3 + 1] ?? 0;
+      const nz = infNorm[dstOff12 + j * 3 + 2] ?? 0;
+
+      const posBind = new THREE.Vector3(px, py, pz).applyMatrix4(bindMatrix);
+      bindPos.addScaledVector(posBind, w);
+
+      const nBind = new THREE.Vector3(nx, ny, nz).applyMatrix3(
+        normalMatrices[boneIndex] || new THREE.Matrix3(),
+      );
+      bindNorm.addScaledVector(nBind, w);
+    }
+
+    posArray[dstOff3] = bindPos.x;
+    posArray[dstOff3 + 1] = bindPos.y;
+    posArray[dstOff3 + 2] = bindPos.z;
+    nrmArray[dstOff3] = bindNorm.x;
+    nrmArray[dstOff3 + 1] = bindNorm.y;
+    nrmArray[dstOff3 + 2] = bindNorm.z;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  const posAttr = new THREE.BufferAttribute(posArray, 3);
+  const normalAttr = new THREE.BufferAttribute(nrmArray, 3);
+  posAttr.setUsage(THREE.DynamicDrawUsage);
+  normalAttr.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute("position", posAttr);
+  geometry.setAttribute("normal", normalAttr);
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uvArray, 2));
+  for (const group of bundle.groups) {
+    geometry.addGroup(group.start, group.count, group.matIndex);
+  }
+
+  const materialArray: THREE.MeshBasicMaterial[] = [];
+  for (let mi = 0; mi < bundle.materials.length; mi++) {
+    const matData = bundle.materials[mi];
+    const textureName = matData.texture || "";
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      transparent: false,
+      alphaTest: 0.5,
+    });
+    if (textureName && textureName.length) {
+      const finalName = textureOverride ? textureOverride(textureName) : textureName;
+      const url = tgaNameToCompiledUrl(finalName);
+      if (url) {
+        const tex = await assetManager.loadTexture(url, zenKit);
+        if (tex) {
+          material.map = tex;
+          material.needsUpdate = true;
+        }
+      }
+    }
+    materialArray.push(material);
+  }
+
+  const mesh = new THREE.Mesh(geometry, materialArray.length > 0 ? materialArray : undefined);
+  mesh.frustumCulled = false;
+  const basePositions = new Float32Array(posArray);
+  const baseNormals = new Float32Array(nrmArray);
+  const skinningData: CpuSkinningData = {
+    geometry,
+    skinIndex,
+    skinWeight,
+    infPos,
+    infNorm,
+    basePositions,
+    baseNormals,
+  };
+  mesh.userData.cpuSkinningData = skinningData;
   return { mesh, skinningData };
 }

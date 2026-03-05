@@ -1269,16 +1269,14 @@ function VOBRenderer({
       if (!model) {
         return false;
       }
+      const loadedModel = model;
 
       // Check for attachments first
-      const attachmentNames = model.getAttachmentNames();
-      const attachmentCount = attachmentNames.size();
+      const attachmentCount = loadedModel.attachments.length;
 
       // Check for soft-skin meshes if no attachments
       if (attachmentCount === 0) {
-        // TypeScript may not recognize these methods, but they exist at runtime
-        const softSkinMeshes = (model as any).getSoftSkinMeshes?.();
-        const softSkinCount = softSkinMeshes ? softSkinMeshes.size() : 0;
+        const softSkinCount = loadedModel.softSkins.length;
 
         if (softSkinCount === 0) {
           return false;
@@ -1287,7 +1285,6 @@ function VOBRenderer({
         // Render soft-skin meshes
         // In OpenGothic, soft-skin meshes use skeleton transforms, but for static models
         // they're positioned relative to the root node translation
-        const hierarchy = model.getHierarchy();
         const modelGroup = new THREE.Group();
 
         // Store VOB reference for click detection
@@ -1297,20 +1294,16 @@ function VOBRenderer({
         // OpenGothic's mkBaseTranslation() extracts from processed root node transform and negates it
         // We use the hierarchy's root_translation directly, negated
         let rootNodeTranslation = new THREE.Vector3(0, 0, 0);
-        if (hierarchy.rootTranslation) {
+        if (loadedModel.rootTranslation) {
           rootNodeTranslation.set(
-            -hierarchy.rootTranslation.x,
-            -hierarchy.rootTranslation.y,
-            -hierarchy.rootTranslation.z,
+            -loadedModel.rootTranslation.x,
+            -loadedModel.rootTranslation.y,
+            -loadedModel.rootTranslation.z,
           );
         }
 
         for (let i = 0; i < softSkinCount; i++) {
-          const softSkinMesh = softSkinMeshes.get(i);
-          if (!softSkinMesh) continue;
-
-          // Convert soft-skin mesh to processed mesh data
-          const processed = (model as any).convertSoftSkinMeshToProcessedMesh(softSkinMesh);
+          const processed = loadedModel.softSkins[i];
           if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
             continue;
           }
@@ -1348,8 +1341,6 @@ function VOBRenderer({
       }
 
       // Get the model hierarchy to position attachments correctly
-      const hierarchy = model.getHierarchy();
-
       // Create a group to hold all attachment meshes
       const modelGroup = new THREE.Group();
 
@@ -1363,14 +1354,11 @@ function VOBRenderer({
 
         // Walk from leaf to root, accumulating transforms
         while (currentIndex >= 0) {
-          const node = hierarchy.nodes.get
-            ? hierarchy.nodes.get(currentIndex)
-            : hierarchy.nodes[currentIndex];
-          const nodeTransform = node.getTransform();
+          const node = loadedModel.hierarchyNodes[currentIndex];
           const nodeMatrix = new THREE.Matrix4();
 
           // Convert column-major matrix data to Three.js Matrix4
-          const matrixData = nodeTransform.toArray();
+          const matrixData = node.transform;
           for (let i = 0; i < 16; i++) {
             nodeMatrix.elements[i] = matrixData[i];
           }
@@ -1388,25 +1376,22 @@ function VOBRenderer({
 
       // Render each attachment with proper positioning from hierarchy
       for (let i = 0; i < attachmentCount; i++) {
-        const attachmentName = attachmentNames.get(i);
-        const attachment = model.getAttachment(attachmentName);
-        if (!attachment) continue;
+        const attachmentData = loadedModel.attachments[i];
+        const attachmentName = attachmentData.name;
 
         // Find the corresponding hierarchy node for this attachment
         let hierarchyNodeIndex = -1;
-        const nodeCount = hierarchy.nodes.size
-          ? hierarchy.nodes.size()
-          : (hierarchy.nodes.length ?? 0);
+        const nodeCount = loadedModel.hierarchyNodes.length;
         for (let j = 0; j < nodeCount; j++) {
-          const node = hierarchy.nodes.get ? hierarchy.nodes.get(j) : hierarchy.nodes[j];
+          const node = loadedModel.hierarchyNodes[j];
           if (node && node.name === attachmentName) {
             hierarchyNodeIndex = j;
             break;
           }
         }
 
-        // Convert attachment to processed mesh data
-        const processed = model.convertAttachmentToProcessedMesh(attachment);
+        // Attachment processed mesh data is precomputed in worker.
+        const processed = attachmentData.processed;
         if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
           continue;
         }

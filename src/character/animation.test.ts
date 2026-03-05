@@ -2,10 +2,10 @@ import type { ZenKit } from "@kolarz3/zenkit";
 import { loadAnimationSequence } from "./animation";
 
 describe("loadAnimationSequence", () => {
-  const mockFetchBinary = jest.fn();
+  const mockLoadAnimationData = jest.fn();
   const makeAssetManager = () =>
     ({
-      fetchBinary: mockFetchBinary,
+      loadAnimationData: mockLoadAnimationData,
       animationCache: new Map<string, any>(),
     }) as any;
 
@@ -14,23 +14,17 @@ describe("loadAnimationSequence", () => {
   });
 
   it("loads, parses, and caches animation sequence", async () => {
-    mockFetchBinary.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    mockLoadAnimationData.mockResolvedValue({
+      numFrames: 2,
+      fpsRate: 10,
+      nodeIndex: [0],
+      samples: [
+        { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+        { position: { x: 10, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+      ],
+    });
 
-    const man = {
-      loadFromArray: jest.fn(() => ({ success: true })),
-      getFrameCount: jest.fn(() => 2),
-      getFps: jest.fn(() => 10),
-      getNodeCount: jest.fn(() => 1),
-      getNodeIndex: jest.fn(() => 0),
-      getSample: jest.fn((frame: number) => ({
-        position: { x: frame * 10, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0, w: 1 },
-      })),
-    };
-
-    const zenKit = {
-      createModelAnimation: jest.fn(() => man),
-    } as unknown as ZenKit;
+    const zenKit = {} as unknown as ZenKit;
 
     const assetManager = makeAssetManager();
 
@@ -42,15 +36,12 @@ describe("loadAnimationSequence", () => {
     expect(seq1?.numFrames).toBe(2);
     expect(seq1?.fpsRate).toBe(10);
     expect(seq1?.totalTimeMs).toBe(200);
-    expect(mockFetchBinary).toHaveBeenCalledTimes(1);
+    expect(mockLoadAnimationData).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when MAN file fetch fails", async () => {
-    mockFetchBinary.mockRejectedValue(new Error("nope"));
-
-    const zenKit = {
-      createModelAnimation: jest.fn(),
-    } as unknown as ZenKit;
+    mockLoadAnimationData.mockResolvedValue(null);
+    const zenKit = {} as unknown as ZenKit;
 
     const seq = await loadAnimationSequence(zenKit, makeAssetManager(), "humans", "missing");
     expect(seq).toBeNull();
@@ -65,6 +56,6 @@ describe("loadAnimationSequence", () => {
       canLoadAnimation: () => false,
     });
     expect(seq).toBeNull();
-    expect(mockFetchBinary).not.toHaveBeenCalled();
+    expect(mockLoadAnimationData).not.toHaveBeenCalled();
   });
 });

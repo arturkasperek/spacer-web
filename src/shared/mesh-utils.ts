@@ -3,6 +3,239 @@ import * as THREE from "three";
 import type { ZenKit, ProcessedMeshData } from "@kolarz3/zenkit";
 import { tgaNameToCompiledUrl } from "../vob/vob-utils";
 
+type GeometryGroup = {
+  start: number;
+  count: number;
+  materialIndex: number;
+};
+
+type PreparedGeometryData = {
+  positions: Float32Array;
+  normals: Float32Array;
+  uvs: Float32Array;
+  groups: GeometryGroup[];
+};
+
+type RawProcessedMeshData = {
+  vertices: Float32Array;
+  indices: Uint32Array;
+  materialIds: Int32Array;
+};
+
+let geometryPrepWorker: Worker | null = null;
+let geometryPrepReqId = 0;
+const geometryPrepPending = new Map<
+  number,
+  {
+    resolve: (value: PreparedGeometryData) => void;
+    reject: (reason?: unknown) => void;
+  }
+>();
+
+function canUseGeometryWorker(): boolean {
+  return typeof window !== "undefined" && typeof Worker !== "undefined";
+}
+
+function getGeometryPrepWorker(): Worker | null {
+  if (!canUseGeometryWorker()) return null;
+  if (geometryPrepWorker) return geometryPrepWorker;
+
+  const workerCode = `
+    self.onmessage = function(event) {
+      var data = event.data || {};
+      var id = data.id;
+      var vertices = new Float32Array(data.vertices);
+      var indices = new Uint32Array(data.indices);
+      var materialIds = new Int32Array(data.materialIds);
+
+      var idxCount = indices.length;
+      var positions = new Float32Array(idxCount * 3);
+      var normals = new Float32Array(idxCount * 3);
+      var uvs = new Float32Array(idxCount * 2);
+
+      for (var i = 0; i < idxCount; i++) {
+        var vertIdx = indices[i];
+        var vertBase = vertIdx * 8;
+        var p3 = i * 3;
+        var p2 = i * 2;
+        positions[p3 + 0] = vertices[vertBase + 0];
+        positions[p3 + 1] = vertices[vertBase + 1];
+        positions[p3 + 2] = vertices[vertBase + 2];
+        normals[p3 + 0] = vertices[vertBase + 3];
+        normals[p3 + 1] = vertices[vertBase + 4];
+        normals[p3 + 2] = vertices[vertBase + 5];
+        uvs[p2 + 0] = vertices[vertBase + 6];
+        uvs[p2 + 1] = vertices[vertBase + 7];
+      }
+
+      var triCount = materialIds.length;
+      var groups = [];
+      if (triCount > 0) {
+        var currentMatId = materialIds[0];
+        var groupStart = 0;
+        for (var t = 1; t <= triCount; t++) {
+          var matId = t < triCount ? materialIds[t] : -1;
+          if (t === triCount || matId !== currentMatId) {
+            groups.push({
+              start: groupStart * 3,
+              count: (t - groupStart) * 3,
+              materialIndex: currentMatId
+            });
+            groupStart = t;
+            currentMatId = matId;
+          }
+        }
+      }
+
+      self.postMessage(
+        { id: id, positions: positions.buffer, normals: normals.buffer, uvs: uvs.buffer, groups: groups },
+        [positions.buffer, normals.buffer, uvs.buffer]
+      );
+    };
+  `;
+
+  const blob = new Blob([workerCode], { type: "application/javascript" });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url);
+  URL.revokeObjectURL(url);
+
+  worker.onmessage = (event: MessageEvent) => {
+    const data = event.data || {};
+    const id = Number(data.id);
+    const pending = geometryPrepPending.get(id);
+    if (!pending) return;
+    geometryPrepPending.delete(id);
+    pending.resolve({
+      positions: new Float32Array(data.positions),
+      normals: new Float32Array(data.normals),
+      uvs: new Float32Array(data.uvs),
+      groups: Array.isArray(data.groups) ? data.groups : [],
+    });
+  };
+
+  worker.onerror = (err) => {
+    // Reject all pending tasks on worker crash and force fallback path.
+    for (const pending of geometryPrepPending.values()) {
+      pending.reject(err);
+    }
+    geometryPrepPending.clear();
+    try {
+      worker.terminate();
+    } catch {
+      // no-op
+    }
+    geometryPrepWorker = null;
+  };
+
+  geometryPrepWorker = worker;
+  return geometryPrepWorker;
+}
+
+function extractRawProcessedMeshData(processed: ProcessedMeshData): RawProcessedMeshData {
+  const vertexScalarCount = processed.vertices.size();
+  const vertices = new Float32Array(vertexScalarCount);
+  for (let i = 0; i < vertexScalarCount; i++) {
+    vertices[i] = processed.vertices.get(i);
+  }
+
+  const indexCount = processed.indices.size();
+  const indices = new Uint32Array(indexCount);
+  for (let i = 0; i < indexCount; i++) {
+    indices[i] = processed.indices.get(i);
+  }
+
+  const triCount = processed.materialIds.size();
+  const materialIds = new Int32Array(triCount);
+  for (let i = 0; i < triCount; i++) {
+    materialIds[i] = processed.materialIds.get(i);
+  }
+
+  return { vertices, indices, materialIds };
+}
+
+function prepareGeometrySync(raw: RawProcessedMeshData): PreparedGeometryData {
+  const idxCount = raw.indices.length;
+  const positions = new Float32Array(idxCount * 3);
+  const normals = new Float32Array(idxCount * 3);
+  const uvs = new Float32Array(idxCount * 2);
+
+  for (let i = 0; i < idxCount; i++) {
+    const vertIdx = raw.indices[i];
+    const vertBase = vertIdx * 8;
+
+    positions[i * 3 + 0] = raw.vertices[vertBase + 0];
+    positions[i * 3 + 1] = raw.vertices[vertBase + 1];
+    positions[i * 3 + 2] = raw.vertices[vertBase + 2];
+
+    normals[i * 3 + 0] = raw.vertices[vertBase + 3];
+    normals[i * 3 + 1] = raw.vertices[vertBase + 4];
+    normals[i * 3 + 2] = raw.vertices[vertBase + 5];
+
+    uvs[i * 2 + 0] = raw.vertices[vertBase + 6];
+    uvs[i * 2 + 1] = raw.vertices[vertBase + 7];
+  }
+
+  const triCount = raw.materialIds.length;
+  const groups: GeometryGroup[] = [];
+  if (triCount > 0) {
+    let currentMatId = raw.materialIds[0];
+    let groupStart = 0;
+
+    for (let t = 1; t <= triCount; t++) {
+      const matId = t < triCount ? raw.materialIds[t] : -1;
+
+      if (t === triCount || matId !== currentMatId) {
+        groups.push({
+          start: groupStart * 3,
+          count: (t - groupStart) * 3,
+          materialIndex: currentMatId,
+        });
+
+        groupStart = t;
+        currentMatId = matId;
+      }
+    }
+  }
+
+  return { positions, normals, uvs, groups };
+}
+
+async function prepareGeometryOffThread(raw: RawProcessedMeshData): Promise<PreparedGeometryData> {
+  const worker = getGeometryPrepWorker();
+  if (!worker) return prepareGeometrySync(raw);
+
+  const id = ++geometryPrepReqId;
+  const task = new Promise<PreparedGeometryData>((resolve, reject) => {
+    geometryPrepPending.set(id, { resolve, reject });
+  });
+
+  worker.postMessage({
+    id,
+    vertices: raw.vertices.buffer,
+    indices: raw.indices.buffer,
+    materialIds: raw.materialIds.buffer,
+  });
+
+  try {
+    return await task;
+  } catch {
+    // Worker failed; fallback to sync path using re-extracted raw data.
+    return prepareGeometrySync(raw);
+  }
+}
+
+function buildGeometryFromPreparedData(prepared: PreparedGeometryData): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(prepared.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(prepared.normals, 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(prepared.uvs, 2));
+  geometry.clearGroups();
+  for (const group of prepared.groups) {
+    geometry.addGroup(group.start, group.count, group.materialIndex);
+  }
+  return geometry;
+}
+
 /**
  * Decodes compiled TEX bytes into a Three.js DataTexture.
  * This utility only transforms data and performs no I/O.
@@ -28,26 +261,34 @@ export function decodeCompiledTexAsDataTexture(
       }
     }
 
-    const tex = new THREE.DataTexture(rgba, w, h, THREE.RGBAFormat);
-    tex.needsUpdate = true;
-    tex.flipY = false; // OpenGothic doesn't flip Y
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4; // Enable some anisotropy for better quality
-    // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
-    if (!(tex as any).userData) {
-      (tex as any).userData = {};
-    }
-    (tex.userData as any).hasAlpha = hasAlpha;
-
-    return tex;
+    return createDataTextureFromRgba(rgba, w, h, hasAlpha);
   } catch {
     return null;
   }
+}
+
+export function createDataTextureFromRgba(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  hasAlpha: boolean,
+): THREE.DataTexture {
+  const tex = new THREE.DataTexture(rgba, width, height, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  tex.flipY = false; // OpenGothic doesn't flip Y
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4; // Enable some anisotropy for better quality
+  // IMPORTANT: world UVs frequently exceed [0,1]; enable tiling
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = true;
+  if (!(tex as any).userData) {
+    (tex as any).userData = {};
+  }
+  (tex.userData as any).hasAlpha = hasAlpha;
+  return tex;
 }
 
 /**
@@ -415,12 +656,9 @@ export async function buildThreeJSGeometryAndMaterials(
   textureLoader: (url: string | null, zenKit: ZenKit) => Promise<THREE.DataTexture | null>,
 ): Promise<{ geometry: THREE.BufferGeometry; materials: THREE.MeshBasicMaterial[] }> {
   const matCount = processed.materials.size();
-
-  // Build geometry
-  const geometry = buildThreeJSGeometry(processed);
-
-  // Build material groups
-  buildMaterialGroups(geometry, processed);
+  const raw = extractRawProcessedMeshData(processed);
+  const prepared = await prepareGeometryOffThread(raw);
+  const geometry = buildGeometryFromPreparedData(prepared);
 
   // Build materials using cache
   const materialArray: THREE.MeshBasicMaterial[] = [];

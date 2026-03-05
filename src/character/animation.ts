@@ -63,50 +63,19 @@ export async function loadAnimationSequence(
 
   const manFileName = `${baseName}-${animationName}.MAN`.toUpperCase();
   const manPath = `/ANIMS/_COMPILED/${manFileName}`;
+  void zenKit;
+  const decoded = await assetManager.loadAnimationData(manPath);
+  if (!decoded) return null;
 
-  let bytes: Uint8Array;
-  try {
-    bytes = await assetManager.fetchBinary(manPath);
-  } catch {
-    return null;
-  }
-
-  const man = zenKit.createModelAnimation();
-  const loadResult = man.loadFromArray(bytes);
-  if (!loadResult.success) return null;
-
-  const numFrames = man.getFrameCount ? man.getFrameCount() : 0;
-  const fpsRate = man.getFps ? man.getFps() : 25.0;
-  const nodeIdxCount = man.getNodeCount ? man.getNodeCount() : 0;
+  const numFrames = decoded.numFrames;
+  const fpsRate = decoded.fpsRate;
+  const nodeIdxCount = decoded.nodeIndex.length;
   if (numFrames <= 0 || fpsRate <= 0 || nodeIdxCount <= 0) return null;
-
-  const nodeIndex: number[] = [];
-  for (let i = 0; i < nodeIdxCount; i++) {
-    nodeIndex.push(man.getNodeIndex(i));
-  }
-
-  const samples: AnimationSample[] = [];
-  for (let frameIdx = 0; frameIdx < numFrames; frameIdx++) {
-    for (let nodeIdx = 0; nodeIdx < nodeIdxCount; nodeIdx++) {
-      const sample = man.getSample(frameIdx, nodeIdx);
-      if (sample && sample.position && sample.rotation) {
-        samples.push({
-          position: { x: sample.position.x, y: sample.position.y, z: sample.position.z },
-          rotation: {
-            x: sample.rotation.x,
-            y: sample.rotation.y,
-            z: sample.rotation.z,
-            w: sample.rotation.w,
-          },
-        });
-      } else {
-        samples.push({
-          position: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0, w: 1 },
-        });
-      }
-    }
-  }
+  const nodeIndex: number[] = decoded.nodeIndex.slice();
+  const samples: AnimationSample[] = decoded.samples.map((s) => ({
+    position: { x: s.position.x, y: s.position.y, z: s.position.z },
+    rotation: { x: s.rotation.x, y: s.rotation.y, z: s.rotation.z, w: s.rotation.w },
+  }));
 
   const seq: AnimationSequence = {
     name: animationName,

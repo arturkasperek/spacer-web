@@ -1,13 +1,410 @@
-import type { ZenKit, Model, MorphMesh, ProcessedMeshData } from "@kolarz3/zenkit";
+import type { ZenKit, ProcessedMeshData } from "@kolarz3/zenkit";
 import * as THREE from "three";
 import type { AnimationSequence } from "../character/animation";
-import { buildThreeJSGeometryAndMaterials, decodeCompiledTexAsDataTexture } from "./mesh-utils";
+import { buildThreeJSGeometryAndMaterials, createDataTextureFromRgba } from "./mesh-utils";
+
+type SerializedMaterialData = {
+  texture: string;
+  name?: string;
+  disableCollision?: boolean;
+  alphaFunc?: number;
+  colorA?: number;
+};
+
+type SerializedProcessedMeshData = {
+  vertices: Float32Array;
+  indices: Uint32Array;
+  materialIds: Int32Array;
+  materials: SerializedMaterialData[];
+};
+
+export type LoadedModelRenderData = {
+  rootTranslation: { x: number; y: number; z: number };
+  hierarchyNodes: Array<{
+    name: string;
+    parentIndex: number;
+    transform: number[];
+  }>;
+  attachments: Array<{
+    name: string;
+    processed: ProcessedMeshData;
+  }>;
+  softSkins: ProcessedMeshData[];
+};
+
+export type LoadedCharacterModelData = {
+  rootTranslation: { x: number; y: number; z: number };
+  hierarchyNodes: Array<{
+    name: string;
+    parentIndex: number;
+    transform: number[];
+  }>;
+  attachments: Array<{
+    name: string;
+    processed: ProcessedMeshData;
+  }>;
+  softSkins: Array<{
+    materials: Array<{ texture: string }>;
+    groups: Array<{ start: number; count: number; matIndex: number }>;
+    uvs: Float32Array;
+    skinIndex: Uint16Array;
+    skinWeight: Float32Array;
+    infPos: Float32Array;
+    infNorm: Float32Array;
+    vertexCount: number;
+  }>;
+};
+
+export type LoadedAnimationData = {
+  numFrames: number;
+  fpsRate: number;
+  nodeIndex: number[];
+  samples: Array<{
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number; w: number };
+  }>;
+};
 
 type MorphCacheEntry = {
-  morphMesh: MorphMesh;
   processed: ProcessedMeshData;
   animations: string[];
 };
+
+type DecodeTexWorkerResponse =
+  | {
+      id: number;
+      ok: true;
+      width: number;
+      height: number;
+      rgba: ArrayBuffer;
+      hasAlpha: boolean;
+      resolvedUrl: string;
+    }
+  | {
+      id: number;
+      ok: false;
+      error?: string;
+    };
+
+type AssetWorkerRequest =
+  | {
+      id: number;
+      type: "loadMesh";
+      path: string;
+    }
+  | {
+      id: number;
+      type: "loadMorph";
+      path: string;
+    }
+  | {
+      id: number;
+      type: "loadModel";
+      path: string;
+    }
+  | {
+      id: number;
+      type: "loadCharacterModel";
+      modelPath: string;
+      meshPath: string;
+    }
+  | {
+      id: number;
+      type: "loadAnimation";
+      path: string;
+    };
+
+type AssetWorkerResponse =
+  | {
+      id: number;
+      ok: true;
+      type: "loadMesh";
+      mesh: {
+        vertices: ArrayBuffer;
+        indices: ArrayBuffer;
+        materialIds: ArrayBuffer;
+        materials: SerializedMaterialData[];
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      type: "loadMorph";
+      mesh: {
+        vertices: ArrayBuffer;
+        indices: ArrayBuffer;
+        materialIds: ArrayBuffer;
+        materials: SerializedMaterialData[];
+      };
+      animations: string[];
+    }
+  | {
+      id: number;
+      ok: true;
+      type: "loadModel";
+      model: {
+        rootTranslation: { x: number; y: number; z: number };
+        hierarchyNodes: Array<{
+          name: string;
+          parentIndex: number;
+          transform: number[];
+        }>;
+        attachments: Array<{
+          name: string;
+          processed: {
+            vertices: ArrayBuffer;
+            indices: ArrayBuffer;
+            materialIds: ArrayBuffer;
+            materials: SerializedMaterialData[];
+          };
+        }>;
+        softSkins: Array<{
+          vertices: ArrayBuffer;
+          indices: ArrayBuffer;
+          materialIds: ArrayBuffer;
+          materials: SerializedMaterialData[];
+        }>;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      type: "loadCharacterModel";
+      character: {
+        rootTranslation: { x: number; y: number; z: number };
+        hierarchyNodes: Array<{
+          name: string;
+          parentIndex: number;
+          transform: number[];
+        }>;
+        attachments: Array<{
+          name: string;
+          processed: {
+            vertices: ArrayBuffer;
+            indices: ArrayBuffer;
+            materialIds: ArrayBuffer;
+            materials: SerializedMaterialData[];
+          };
+        }>;
+        softSkins: Array<{
+          materials: Array<{ texture: string }>;
+          groups: Array<{ start: number; count: number; matIndex: number }>;
+          uvs: ArrayBuffer;
+          skinIndex: ArrayBuffer;
+          skinWeight: ArrayBuffer;
+          infPos: ArrayBuffer;
+          infNorm: ArrayBuffer;
+          vertexCount: number;
+        }>;
+      };
+    }
+  | {
+      id: number;
+      ok: true;
+      type: "loadAnimation";
+      animation: LoadedAnimationData;
+    }
+  | {
+      id: number;
+      ok: false;
+      type: "loadMesh" | "loadMorph" | "loadModel" | "loadCharacterModel" | "loadAnimation";
+      error: string;
+      missing?: boolean;
+    };
+
+let texDecodeWorker: Worker | null = null;
+let texDecodeReqId = 0;
+const texDecodePending = new Map<
+  number,
+  {
+    resolve: (value: DecodeTexWorkerResponse) => void;
+    reject: (reason?: unknown) => void;
+  }
+>();
+let texDecodeWorkerDisabled = false;
+let assetDecodeWorker: Worker | null = null;
+let assetDecodeReqId = 0;
+let assetDecodeWorkerDisabled = false;
+const assetDecodePending = new Map<
+  number,
+  {
+    resolve: (value: AssetWorkerResponse) => void;
+    reject: (reason?: unknown) => void;
+  }
+>();
+
+function canUseTexDecodeWorker(): boolean {
+  return typeof window !== "undefined" && typeof Worker !== "undefined";
+}
+
+function getImportMetaUrlSafe(): string | null {
+  const override = (globalThis as any).__ASSET_MANAGER_TEX_WORKER_URL__;
+  if (typeof override === "string" && override.length > 0) return override;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return new URL("/src/shared/zenkit-tex.worker.ts", window.location.origin).toString();
+  }
+  return null;
+}
+
+function getAssetWorkerUrl(): string | null {
+  const override = (globalThis as any).__ASSET_MANAGER_ZK_WORKER_URL__;
+  if (typeof override === "string" && override.length > 0) return override;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return new URL("/src/shared/zenkit-asset.worker.ts", window.location.origin).toString();
+  }
+  return null;
+}
+
+function getTexDecodeWorker(): Worker | null {
+  if (texDecodeWorkerDisabled) return null;
+  if (!canUseTexDecodeWorker()) {
+    return null;
+  }
+  if (texDecodeWorker) return texDecodeWorker;
+
+  try {
+    const moduleUrl = getImportMetaUrlSafe();
+    if (!moduleUrl) {
+      texDecodeWorkerDisabled = true;
+      return null;
+    }
+    const worker = new Worker(new URL("./zenkit-tex.worker.ts", moduleUrl), {
+      type: "module",
+    });
+    worker.onmessage = (event: MessageEvent<DecodeTexWorkerResponse>) => {
+      const msg = event.data;
+      const pending = texDecodePending.get(msg.id);
+      if (!pending) return;
+      texDecodePending.delete(msg.id);
+      pending.resolve(msg);
+    };
+    worker.onerror = (err) => {
+      for (const pending of texDecodePending.values()) pending.reject(err);
+      texDecodePending.clear();
+      try {
+        worker.terminate();
+      } catch {
+        // no-op
+      }
+      texDecodeWorker = null;
+      texDecodeWorkerDisabled = true;
+    };
+    texDecodeWorker = worker;
+    return texDecodeWorker;
+  } catch {
+    texDecodeWorkerDisabled = true;
+    return null;
+  }
+}
+
+async function decodeTextureViaWorker(url: string): Promise<DecodeTexWorkerResponse | null> {
+  const worker = getTexDecodeWorker();
+  if (!worker) return null;
+  const id = ++texDecodeReqId;
+  const req = new Promise<DecodeTexWorkerResponse>((resolve, reject) => {
+    texDecodePending.set(id, { resolve, reject });
+  });
+  worker.postMessage({ id, type: "decodeTex", url });
+  try {
+    return await req;
+  } catch {
+    return null;
+  }
+}
+
+function getAssetDecodeWorker(): Worker | null {
+  if (assetDecodeWorkerDisabled) return null;
+  if (!canUseTexDecodeWorker()) return null;
+  if (assetDecodeWorker) return assetDecodeWorker;
+  try {
+    const workerUrl = getAssetWorkerUrl();
+    if (!workerUrl) {
+      assetDecodeWorkerDisabled = true;
+      return null;
+    }
+    const worker = new Worker(new URL("./zenkit-asset.worker.ts", workerUrl), {
+      type: "module",
+    });
+    worker.onmessage = (event: MessageEvent<AssetWorkerResponse>) => {
+      const msg = event.data;
+      const pending = assetDecodePending.get(msg.id);
+      if (!pending) return;
+      assetDecodePending.delete(msg.id);
+      pending.resolve(msg);
+    };
+    worker.onerror = (err) => {
+      for (const pending of assetDecodePending.values()) pending.reject(err);
+      assetDecodePending.clear();
+      try {
+        worker.terminate();
+      } catch {
+        // no-op
+      }
+      assetDecodeWorker = null;
+      assetDecodeWorkerDisabled = true;
+    };
+    assetDecodeWorker = worker;
+    return assetDecodeWorker;
+  } catch {
+    assetDecodeWorkerDisabled = true;
+    return null;
+  }
+}
+
+async function decodeAssetViaWorker(
+  request:
+    | { type: "loadMesh"; path: string }
+    | { type: "loadMorph"; path: string }
+    | { type: "loadModel"; path: string }
+    | { type: "loadCharacterModel"; modelPath: string; meshPath: string }
+    | { type: "loadAnimation"; path: string },
+): Promise<AssetWorkerResponse | null> {
+  const worker = getAssetDecodeWorker();
+  if (!worker) return null;
+  const id = ++assetDecodeReqId;
+  const req = new Promise<AssetWorkerResponse>((resolve, reject) => {
+    assetDecodePending.set(id, { resolve, reject });
+  });
+  const payload: AssetWorkerRequest = { id, ...(request as any) } as AssetWorkerRequest;
+  worker.postMessage(payload);
+  try {
+    return await req;
+  } catch {
+    return null;
+  }
+}
+
+function makeArrayLike<T>(array: ArrayLike<T>): { size: () => number; get: (i: number) => T } {
+  return {
+    size: () => array.length,
+    get: (i: number) => array[i] as T,
+  };
+}
+
+function processedFromSerialized(serialized: SerializedProcessedMeshData): ProcessedMeshData {
+  const materials = serialized.materials.map((m) => ({ ...m }));
+  const out: any = {
+    vertices: makeArrayLike(serialized.vertices),
+    indices: makeArrayLike(serialized.indices),
+    materialIds: makeArrayLike(serialized.materialIds),
+    materials: makeArrayLike(materials),
+  };
+  return out as ProcessedMeshData;
+}
+
+function restoreSerializedProcessedMeshData(payload: {
+  vertices: ArrayBuffer;
+  indices: ArrayBuffer;
+  materialIds: ArrayBuffer;
+  materials: SerializedMaterialData[];
+}): SerializedProcessedMeshData {
+  return {
+    vertices: new Float32Array(payload.vertices),
+    indices: new Uint32Array(payload.indices),
+    materialIds: new Int32Array(payload.materialIds),
+    materials: payload.materials,
+  };
+}
 
 export class AssetManager {
   readonly binaryCache = new Map<string, Uint8Array>();
@@ -18,8 +415,11 @@ export class AssetManager {
   readonly textureCache = new Map<string, THREE.DataTexture>();
   readonly textureInFlight = new Map<string, Promise<THREE.DataTexture | null>>();
   readonly materialCache = new Map<string, THREE.Material>();
-  readonly modelCache = new Map<string, Model>();
-  readonly modelInFlight = new Map<string, Promise<Model | null>>();
+  readonly modelCache = new Map<string, LoadedModelRenderData>();
+  readonly modelInFlight = new Map<string, Promise<LoadedModelRenderData | null>>();
+  readonly characterModelCache = new Map<string, LoadedCharacterModelData>();
+  readonly characterModelInFlight = new Map<string, Promise<LoadedCharacterModelData | null>>();
+  readonly animationDataInFlight = new Map<string, Promise<LoadedAnimationData | null>>();
   readonly morphMeshCache = new Map<string, MorphCacheEntry>();
   readonly morphMeshInFlight = new Map<string, Promise<MorphCacheEntry | null>>();
   readonly missingPathCache = new Set<string>();
@@ -36,6 +436,9 @@ export class AssetManager {
       animationCache: this.animationCache.size,
       modelCache: this.modelCache.size,
       modelInFlight: this.modelInFlight.size,
+      characterModelCache: this.characterModelCache.size,
+      characterModelInFlight: this.characterModelInFlight.size,
+      animationDataInFlight: this.animationDataInFlight.size,
       morphCache: this.morphMeshCache.size,
       morphInFlight: this.morphMeshInFlight.size,
       missingPathCache: this.missingPathCache.size,
@@ -72,40 +475,26 @@ export class AssetManager {
 
   async loadTexture(url: string | null, zenKit: ZenKit): Promise<THREE.DataTexture | null> {
     if (!url) return null;
+    void zenKit;
     const cached = this.textureCache.get(url);
     if (cached) return cached;
     const inFlight = this.textureInFlight.get(url);
     if (inFlight) return inFlight;
 
     const request = (async (): Promise<THREE.DataTexture | null> => {
-      const candidateUrls: string[] = [url];
-      // Fallback 1: many textures reference _C1/_C2 variants that don't exist in shipped assets.
-      if (/_C\d+-C\.TEX$/i.test(url) && !/_C0-C\.TEX$/i.test(url)) {
-        candidateUrls.push(url.replace(/_C\d+(-C\.TEX)$/i, "_C0$1"));
+      const workerDecoded = await decodeTextureViaWorker(url);
+      if (!workerDecoded?.ok) return null;
+      const tex = createDataTextureFromRgba(
+        new Uint8Array(workerDecoded.rgba),
+        workerDecoded.width,
+        workerDecoded.height,
+        workerDecoded.hasAlpha,
+      );
+      this.textureCache.set(url, tex);
+      if (workerDecoded.resolvedUrl && workerDecoded.resolvedUrl !== url) {
+        this.textureCache.set(workerDecoded.resolvedUrl, tex);
       }
-      // Fallback 2 (OpenGothic-compatible): use DEFAULT texture when specific one is missing.
-      if (!url.toUpperCase().endsWith("/DEFAULT-C.TEX")) {
-        candidateUrls.push("/TEXTURES/_COMPILED/DEFAULT-C.TEX");
-      }
-
-      for (const candidateUrl of candidateUrls) {
-        try {
-          const response = await fetch(candidateUrl);
-          if (!response.ok) continue;
-          const buf = await response.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const tex = decodeCompiledTexAsDataTexture(bytes, zenKit);
-          if (tex) {
-            this.textureCache.set(url, tex);
-            if (candidateUrl !== url) this.textureCache.set(candidateUrl, tex);
-            return tex;
-          }
-        } catch {
-          // Try next fallback candidate.
-        }
-      }
-
-      return null;
+      return tex;
     })();
 
     this.textureInFlight.set(url, request);
@@ -126,32 +515,18 @@ export class AssetManager {
 
     const request = (async (): Promise<ProcessedMeshData | null> => {
       try {
-        const response = await fetch(meshPath);
-        if (!response.ok) {
+        void zenKit;
+        const decoded = await decodeAssetViaWorker({ type: "loadMesh", path: meshPath });
+        if (!decoded || !decoded.ok || decoded.type !== "loadMesh") {
           this.missingPathCache.add(meshPath);
           return null;
         }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        const vobMesh = zenKit.createMesh();
-        const isMRM = meshPath.toUpperCase().endsWith(".MRM");
-        const loadResult = isMRM
-          ? vobMesh.loadMRMFromArray(uint8Array)
-          : vobMesh.loadFromArray(uint8Array);
-
-        if (!loadResult || !loadResult.success) {
+        const serialized = restoreSerializedProcessedMeshData(decoded.mesh);
+        if (!serialized.indices.length || !serialized.vertices.length) {
           this.missingPathCache.add(meshPath);
           return null;
         }
-
-        const meshData = vobMesh.getMeshData();
-        const processed = meshData.getProcessedMeshData();
-        if (processed.indices.size() === 0 || processed.vertices.size() === 0) {
-          this.missingPathCache.add(meshPath);
-          return null;
-        }
+        const processed = processedFromSerialized(serialized);
 
         this.meshCache.set(meshPath, processed);
         return processed;
@@ -179,7 +554,7 @@ export class AssetManager {
     );
   }
 
-  async loadModel(modelPath: string, zenKit: ZenKit): Promise<Model | null> {
+  async loadModel(modelPath: string, zenKit: ZenKit): Promise<LoadedModelRenderData | null> {
     if (!modelPath) return null;
     const cacheKey = modelPath.toUpperCase();
     const cached = this.modelCache.get(cacheKey);
@@ -188,93 +563,25 @@ export class AssetManager {
     const inFlight = this.modelInFlight.get(cacheKey);
     if (inFlight) return inFlight;
 
-    const request = (async (): Promise<Model | null> => {
+    const request = (async (): Promise<LoadedModelRenderData | null> => {
       try {
-        const response = await fetch(modelPath);
-
-        const contentType = response.headers.get("content-type") || "";
-        const is404 = !response.ok || contentType.includes("text/html");
-
-        if (is404) {
-          const basePath = modelPath.replace(/\.MDL$/i, "");
-          const mdhPath = `${basePath}.MDH`;
-          const mdmPath = `${basePath}.MDM`;
-          const mdhKey = mdhPath.toUpperCase();
-          const mdmKey = mdmPath.toUpperCase();
-          if (this.missingPathCache.has(mdhKey) || this.missingPathCache.has(mdmKey)) {
-            this.missingPathCache.add(cacheKey);
-            return null;
-          }
-
-          try {
-            const mdhResponse = await fetch(mdhPath);
-            if (!mdhResponse.ok) {
-              this.missingPathCache.add(mdhKey);
-              this.missingPathCache.add(cacheKey);
-              return null;
-            }
-
-            const mdhArrayBuffer = await mdhResponse.arrayBuffer();
-            const mdhUint8Array = new Uint8Array(mdhArrayBuffer);
-
-            const hierarchyLoader = zenKit.createModelHierarchyLoader();
-            const mdhLoadResult = hierarchyLoader.loadFromArray(mdhUint8Array);
-
-            if (!mdhLoadResult || !mdhLoadResult.success) {
-              this.missingPathCache.add(mdhKey);
-              this.missingPathCache.add(cacheKey);
-              return null;
-            }
-
-            const mdmResponse = await fetch(mdmPath);
-            if (!mdmResponse.ok) {
-              this.missingPathCache.add(mdmKey);
-              this.missingPathCache.add(cacheKey);
-              return null;
-            }
-
-            const mdmArrayBuffer = await mdmResponse.arrayBuffer();
-            const mdmUint8Array = new Uint8Array(mdmArrayBuffer);
-
-            const meshLoader = zenKit.createModelMeshLoader();
-            const mdmLoadResult = meshLoader.loadFromArray(mdmUint8Array);
-
-            if (!mdmLoadResult || !mdmLoadResult.success) {
-              this.missingPathCache.add(mdmKey);
-              this.missingPathCache.add(cacheKey);
-              return null;
-            }
-
-            const model = zenKit.createModel();
-            model.setHierarchy(hierarchyLoader.getHierarchy());
-            model.setMesh(meshLoader.getMesh());
-            this.modelCache.set(cacheKey, model);
-            return model;
-          } catch {
-            this.missingPathCache.add(cacheKey);
-            return null;
-          }
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        const model = zenKit.createModel();
-        const loadResult = model.loadFromArray(uint8Array);
-
-        if (!loadResult || !loadResult.success) {
+        void zenKit;
+        const decoded = await decodeAssetViaWorker({ type: "loadModel", path: modelPath });
+        if (!decoded || !decoded.ok || decoded.type !== "loadModel") {
           this.missingPathCache.add(cacheKey);
           return null;
         }
-
-        const attachmentNames = model.getAttachmentNames();
-        const hasAttachments =
-          attachmentNames && attachmentNames.size && attachmentNames.size() > 0;
-        if (!model.isLoaded && !hasAttachments) {
-          this.missingPathCache.add(cacheKey);
-          return null;
-        }
-
+        const model: LoadedModelRenderData = {
+          rootTranslation: decoded.model.rootTranslation,
+          hierarchyNodes: decoded.model.hierarchyNodes,
+          attachments: decoded.model.attachments.map((a) => ({
+            name: a.name,
+            processed: processedFromSerialized(restoreSerializedProcessedMeshData(a.processed)),
+          })),
+          softSkins: decoded.model.softSkins.map((s) =>
+            processedFromSerialized(restoreSerializedProcessedMeshData(s)),
+          ),
+        };
         this.modelCache.set(cacheKey, model);
         return model;
       } catch {
@@ -302,32 +609,14 @@ export class AssetManager {
 
     const request = (async (): Promise<MorphCacheEntry | null> => {
       try {
-        const response = await fetch(morphPath);
-        if (!response.ok) {
+        void zenKit;
+        const decoded = await decodeAssetViaWorker({ type: "loadMorph", path: morphPath });
+        if (!decoded || !decoded.ok || decoded.type !== "loadMorph") {
           this.missingPathCache.add(cacheKey);
           return null;
         }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        const morphMesh = zenKit.createMorphMesh();
-        const loadResult = morphMesh.loadFromArray(uint8Array);
-
-        if (!loadResult || !loadResult.success || !morphMesh.isLoaded) {
-          this.missingPathCache.add(cacheKey);
-          return null;
-        }
-
-        const processed = morphMesh.convertToProcessedMesh();
-        const animationNames = morphMesh.getAnimationNames();
-        const animationCount = animationNames.size();
-        const animations: string[] = [];
-        for (let i = 0; i < animationCount; i++) {
-          animations.push(animationNames.get(i));
-        }
-
-        const result = { morphMesh, processed, animations };
+        const processed = processedFromSerialized(restoreSerializedProcessedMeshData(decoded.mesh));
+        const result = { processed, animations: decoded.animations };
         this.morphMeshCache.set(cacheKey, result);
         return result;
       } catch {
@@ -341,6 +630,94 @@ export class AssetManager {
       return await request;
     } finally {
       this.morphMeshInFlight.delete(cacheKey);
+    }
+  }
+
+  async loadCharacterModel(
+    modelPath: string,
+    meshPath: string,
+  ): Promise<LoadedCharacterModelData | null> {
+    if (!modelPath || !meshPath) return null;
+    const cacheKey = `${modelPath.toUpperCase()}|${meshPath.toUpperCase()}`;
+    const cached = this.characterModelCache.get(cacheKey);
+    if (cached) return cached;
+    if (this.missingPathCache.has(cacheKey)) return null;
+    const inFlight = this.characterModelInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async (): Promise<LoadedCharacterModelData | null> => {
+      try {
+        const decoded = await decodeAssetViaWorker({
+          type: "loadCharacterModel",
+          modelPath,
+          meshPath,
+        });
+        if (!decoded || !decoded.ok || decoded.type !== "loadCharacterModel") {
+          this.missingPathCache.add(cacheKey);
+          return null;
+        }
+
+        const character: LoadedCharacterModelData = {
+          rootTranslation: decoded.character.rootTranslation,
+          hierarchyNodes: decoded.character.hierarchyNodes,
+          attachments: decoded.character.attachments.map((a) => ({
+            name: a.name,
+            processed: processedFromSerialized(restoreSerializedProcessedMeshData(a.processed)),
+          })),
+          softSkins: decoded.character.softSkins.map((s) => ({
+            materials: s.materials,
+            groups: s.groups,
+            uvs: new Float32Array(s.uvs),
+            skinIndex: new Uint16Array(s.skinIndex),
+            skinWeight: new Float32Array(s.skinWeight),
+            infPos: new Float32Array(s.infPos),
+            infNorm: new Float32Array(s.infNorm),
+            vertexCount: s.vertexCount,
+          })),
+        };
+
+        this.characterModelCache.set(cacheKey, character);
+        return character;
+      } catch {
+        this.missingPathCache.add(cacheKey);
+        return null;
+      }
+    })();
+
+    this.characterModelInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      this.characterModelInFlight.delete(cacheKey);
+    }
+  }
+
+  async loadAnimationData(path: string): Promise<LoadedAnimationData | null> {
+    if (!path) return null;
+    const cacheKey = path.toUpperCase();
+    if (this.missingPathCache.has(cacheKey)) return null;
+    const inFlight = this.animationDataInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async (): Promise<LoadedAnimationData | null> => {
+      try {
+        const decoded = await decodeAssetViaWorker({ type: "loadAnimation", path });
+        if (!decoded || !decoded.ok || decoded.type !== "loadAnimation") {
+          this.missingPathCache.add(cacheKey);
+          return null;
+        }
+        return decoded.animation;
+      } catch {
+        this.missingPathCache.add(cacheKey);
+        return null;
+      }
+    })();
+
+    this.animationDataInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      this.animationDataInFlight.delete(cacheKey);
     }
   }
 }
