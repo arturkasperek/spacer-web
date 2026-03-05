@@ -98,6 +98,8 @@ function Scene({
     textureCache: number;
     geometryBuiltCache: number;
     geometryCacheBytes: number;
+    hotObjectCacheCount: number;
+    hotObjectCacheBytes: number;
   }) => void;
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
@@ -326,6 +328,8 @@ export function App() {
     textureCache: number;
     geometryBuiltCache: number;
     geometryCacheBytes: number;
+    hotObjectCacheCount: number;
+    hotObjectCacheBytes: number;
   } | null>(null);
 
   const handleCameraChange = useCallback(
@@ -363,6 +367,8 @@ export function App() {
       textureCache: number;
       geometryBuiltCache: number;
       geometryCacheBytes: number;
+      hotObjectCacheCount: number;
+      hotObjectCacheBytes: number;
     }) => {
       setVobStats(stats);
     },
@@ -598,7 +604,9 @@ export function App() {
           <div>Morph: {vobStats.morphCache}</div>
           <div>Texture: {vobStats.textureCache}</div>
           <div>Built Geometry: {vobStats.geometryBuiltCache}</div>
-          <div>LRU Memory: {formatBytes(vobStats.geometryCacheBytes)}</div>
+          <div>Geometry LRU: {formatBytes(vobStats.geometryCacheBytes)}</div>
+          <div>Hot Objects: {vobStats.hotObjectCacheCount}</div>
+          <div>Hot Objects Memory: {formatBytes(vobStats.hotObjectCacheBytes)}</div>
         </div>
       )}
 

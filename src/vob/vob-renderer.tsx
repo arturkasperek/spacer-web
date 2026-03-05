@@ -115,6 +115,8 @@ function VOBRenderer({
     textureCache: number;
     geometryBuiltCache: number;
     geometryCacheBytes: number;
+    hotObjectCacheCount: number;
+    hotObjectCacheBytes: number;
   }) => void;
   selectedVob?: Vob | null;
   onSelectedVobBoundingBox?: (center: THREE.Vector3, size: THREE.Vector3) => void;
@@ -128,10 +130,16 @@ function VOBRenderer({
 
   // VOB management state
   const loadedVOBsRef = useRef(new Map<string, THREE.Object3D>()); // vob id -> THREE.Mesh/Object3D
+  const hotVobPoolRef = useRef(
+    new Map<string, Array<{ obj: THREE.Object3D; approxBytes: number }>>(),
+  ); // visual key -> detached hot objects
+  const hotVobPoolCountRef = useRef(0);
+  const hotVobPoolBytesRef = useRef(0);
   const renderPassGroupsRef = useRef<Partial<Record<RenderPass, THREE.Group>>>({});
   const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
+  const HOT_VOB_CACHE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
 
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
@@ -478,6 +486,104 @@ function VOBRenderer({
       }
     }
     vobColliderHandlesRef.current.delete(vobId);
+  };
+
+  const toVisualCacheKey = (visualName: string): string =>
+    String(visualName || "")
+      .trim()
+      .toUpperCase();
+
+  const estimateHotObjectBytes = (obj: THREE.Object3D): number => {
+    let bytes = 0;
+    const seenGeometries = new Set<THREE.BufferGeometry>();
+    let nodeCount = 0;
+    let meshCount = 0;
+    obj.traverse((child) => {
+      nodeCount += 1;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      meshCount += 1;
+      const geom = mesh.geometry as THREE.BufferGeometry | undefined;
+      if (!geom || seenGeometries.has(geom)) return;
+      seenGeometries.add(geom);
+      const attrs = geom.attributes || {};
+      for (const key of Object.keys(attrs)) {
+        const attr: any = (attrs as any)[key];
+        if (!attr?.array) continue;
+        bytes += Number(attr.array.byteLength || 0);
+      }
+      const indexAttr: any = geom.index;
+      if (indexAttr?.array) bytes += Number(indexAttr.array.byteLength || 0);
+      bytes += 4096;
+    });
+    bytes += nodeCount * 256;
+    bytes += meshCount * 512;
+    return bytes;
+  };
+
+  const pruneHotVobCache = () => {
+    while (hotVobPoolBytesRef.current > HOT_VOB_CACHE_MAX_BYTES) {
+      const oldestKey = hotVobPoolRef.current.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      const pool = hotVobPoolRef.current.get(oldestKey);
+      if (!pool || pool.length === 0) {
+        hotVobPoolRef.current.delete(oldestKey);
+        continue;
+      }
+      const evicted = pool.shift();
+      hotVobPoolCountRef.current = Math.max(0, hotVobPoolCountRef.current - 1);
+      hotVobPoolBytesRef.current = Math.max(
+        0,
+        hotVobPoolBytesRef.current - Number(evicted?.approxBytes || 0),
+      );
+      if (pool.length === 0) {
+        hotVobPoolRef.current.delete(oldestKey);
+      } else {
+        hotVobPoolRef.current.set(oldestKey, pool);
+      }
+      if (evicted?.obj) disposeObject3D(evicted.obj);
+    }
+  };
+
+  const cacheHotVob = (obj: THREE.Object3D): void => {
+    const visualKey = String((obj.userData as any)?.__hotVisualKey || "").trim();
+    if (!visualKey) {
+      disposeObject3D(obj);
+      return;
+    }
+    const approxBytes = estimateHotObjectBytes(obj);
+    const pool = hotVobPoolRef.current.get(visualKey) || [];
+    pool.push({ obj, approxBytes });
+    // Move this key to the end to emulate LRU ordering by key activity.
+    hotVobPoolRef.current.delete(visualKey);
+    hotVobPoolRef.current.set(visualKey, pool);
+    hotVobPoolCountRef.current += 1;
+    hotVobPoolBytesRef.current += approxBytes;
+    pruneHotVobCache();
+  };
+
+  const restoreHotVob = (visualName: string, vobId: string, vob: Vob): THREE.Object3D | null => {
+    const visualKey = toVisualCacheKey(visualName);
+    if (!visualKey) return null;
+    const pool = hotVobPoolRef.current.get(visualKey);
+    if (!pool || pool.length === 0) return null;
+    const cached = pool.pop();
+    if (!cached?.obj) return null;
+    hotVobPoolCountRef.current = Math.max(0, hotVobPoolCountRef.current - 1);
+    hotVobPoolBytesRef.current = Math.max(0, hotVobPoolBytesRef.current - cached.approxBytes);
+    if (pool.length === 0) {
+      hotVobPoolRef.current.delete(visualKey);
+    } else {
+      hotVobPoolRef.current.set(visualKey, pool);
+    }
+    const obj = cached.obj;
+    obj.userData.vob = vob;
+    applyVobTransform(obj, vob);
+    applyViewVisibility(obj, vob);
+    addObjectToRenderPass(obj);
+    loadedVOBsRef.current.set(vobId, obj);
+    createVobCollider(vobId, obj, vob);
+    return obj;
   };
 
   const buildTrimeshFromObject = (
@@ -1062,9 +1168,9 @@ function VOBRenderer({
         const mesh = loadedVOBsRef.current.get(id);
         if (mesh) {
           removeObjectFromSceneOrPass(mesh);
-          disposeObject3D(mesh);
           loadedVOBsRef.current.delete(id);
           removeVobCollider(id);
+          cacheHotVob(mesh);
           unloadedAny = true;
         }
       }
@@ -1086,6 +1192,11 @@ function VOBRenderer({
     for (let i = 0; i < Math.min(availableSlots, vobLoadQueueRef.current.length); i++) {
       const vobData = vobLoadQueueRef.current.shift();
       if (vobData) {
+        if (restoreHotVob(vobData.visualName, vobData.id, vobData.vob)) {
+          syncNpcVobDeferGate();
+          continue;
+        }
+
         if (shouldDeferUntilVmReady(vobData)) {
           deferredVobIdsRef.current.add(vobData.id);
           continue;
@@ -1139,6 +1250,8 @@ function VOBRenderer({
         textureCache: assetStats.textureCache,
         geometryBuiltCache: assetStats.geometryBuiltCache,
         geometryCacheBytes: assetStats.geometryCacheBytes,
+        hotObjectCacheCount: hotVobPoolCountRef.current,
+        hotObjectCacheBytes: hotVobPoolBytesRef.current,
       });
     }
 
@@ -1200,6 +1313,12 @@ function VOBRenderer({
 
   useEffect(() => {
     return () => {
+      for (const pool of hotVobPoolRef.current.values()) {
+        for (const entry of pool) disposeObject3D(entry.obj);
+      }
+      hotVobPoolRef.current.clear();
+      hotVobPoolCountRef.current = 0;
+      hotVobPoolBytesRef.current = 0;
       clearNpcVobDeferGate();
     };
   }, []);
@@ -1255,6 +1374,10 @@ function VOBRenderer({
     // Skip if no visual name
     if (!visualName) return false;
 
+    if (vobId && restoreHotVob(visualName, vobId, vob)) {
+      return true;
+    }
+
     // Check if this is a helper visual (visual name starts with INVISIBLE_)
     const isHelperVisual = shouldUseHelperVisual(vobData?.vobType);
 
@@ -1271,7 +1394,7 @@ function VOBRenderer({
       if (!meshPath) {
         return false;
       }
-      return await renderMeshVOB(vob, vobId, meshPath);
+      return await renderMeshVOB(vob, vobId, meshPath, visualName);
     }
 
     // Only render mesh/model/morph visuals
@@ -1294,29 +1417,29 @@ function VOBRenderer({
     if (isItemVisualFallback) {
       const upper = visualName.toUpperCase();
       if (upper.endsWith(".MDL") || upper.endsWith(".MDS")) {
-        return await renderModelVOB(vob, vobId, visualName);
+        return await renderModelVOB(vob, vobId, visualName, visualName);
       }
       if (upper.endsWith(".MMB") || upper.endsWith(".MMS") || upper.endsWith(".MMSB")) {
-        return await renderMorphMeshVOB(vob, vobId, visualName);
+        return await renderMorphMeshVOB(vob, vobId, visualName, visualName);
       }
       if (vob.visual.type === 5) {
-        return await renderModelVOB(vob, vobId, visualName);
+        return await renderModelVOB(vob, vobId, visualName, visualName);
       }
       if (vob.visual.type === 6) {
-        return await renderMorphMeshVOB(vob, vobId, visualName);
+        return await renderMorphMeshVOB(vob, vobId, visualName, visualName);
       }
       const meshPath = getMeshPath(visualName);
       if (!meshPath) return false;
-      return await renderMeshVOB(vob, vobId, meshPath);
+      return await renderMeshVOB(vob, vobId, meshPath, visualName);
     }
 
     // Handle different visual types
     if (vob.visual.type === 5) {
       // MODEL (5) - load .MDL file
-      return await renderModelVOB(vob, vobId, visualName);
+      return await renderModelVOB(vob, vobId, visualName, visualName);
     } else if (vob.visual.type === 6) {
       // MORPH_MESH (6) - load .MMB file
-      return await renderMorphMeshVOB(vob, vobId, visualName);
+      return await renderMorphMeshVOB(vob, vobId, visualName, visualName);
     } else {
       // MESH (1) or MULTI_RES_MESH (2) - load mesh file
       const meshPath = getMeshPath(visualName);
@@ -1324,7 +1447,7 @@ function VOBRenderer({
         return false;
       }
 
-      return await renderMeshVOB(vob, vobId, meshPath);
+      return await renderMeshVOB(vob, vobId, meshPath, visualName);
     }
   };
 
@@ -1333,6 +1456,7 @@ function VOBRenderer({
     vob: Vob,
     vobId: string | null,
     meshPath: string,
+    hotVisualName: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
     const totalStart = performance.now();
@@ -1370,6 +1494,7 @@ function VOBRenderer({
 
       // Store VOB reference for click detection
       vobMeshObj.userData.vob = vob;
+      vobMeshObj.userData.__hotVisualKey = toVisualCacheKey(hotVisualName);
 
       // Verify materials
       if (!materials || (Array.isArray(materials) && materials.length === 0)) {
@@ -1410,6 +1535,7 @@ function VOBRenderer({
     vob: Vob,
     vobId: string | null,
     visualNameOverride?: string,
+    hotVisualName?: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
     const totalStart = performance.now();
@@ -1450,6 +1576,7 @@ function VOBRenderer({
 
         // Store VOB reference for click detection
         modelGroup.userData.vob = vob;
+        modelGroup.userData.__hotVisualKey = toVisualCacheKey(hotVisualName ?? visualName);
 
         // Get root translation from hierarchy (similar to OpenGothic's mkBaseTranslation)
         // OpenGothic's mkBaseTranslation() extracts from processed root node transform and negates it
@@ -1511,6 +1638,7 @@ function VOBRenderer({
 
       // Store VOB reference for click detection
       modelGroup.userData.vob = vob;
+      modelGroup.userData.__hotVisualKey = toVisualCacheKey(hotVisualName ?? visualName);
 
       // Helper function to accumulate transforms up the hierarchy chain
       function getAccumulatedTransform(nodeIndex: number) {
@@ -1620,6 +1748,7 @@ function VOBRenderer({
     vob: Vob,
     vobId: string | null,
     visualNameOverride?: string,
+    hotVisualName?: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
     const totalStart = performance.now();
@@ -1659,6 +1788,7 @@ function VOBRenderer({
 
       // Store VOB reference for click detection
       morphMesh.userData.vob = vob;
+      morphMesh.userData.__hotVisualKey = toVisualCacheKey(hotVisualName ?? visualName);
 
       // Apply VOB transform
       applyVobTransform(morphMesh, vob);

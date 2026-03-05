@@ -407,7 +407,7 @@ function restoreSerializedProcessedMeshData(payload: {
 }
 
 export class AssetManager {
-  private static readonly GEOMETRY_LRU_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
+  private static readonly GEOMETRY_LRU_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
   private processedKeySeq = 0;
   private readonly processedKeyByRef = new WeakMap<object, string>();
   private geometryCacheBytes = 0;
