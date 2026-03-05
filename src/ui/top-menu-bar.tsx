@@ -258,6 +258,11 @@ export function TopMenuBar({
               onClick={() => toggleViewSetting("showJumpDebugRange")}
             />
             <MenuItem
+              label="NPC Streaming"
+              checked={view.showNpcStreaming}
+              onClick={() => toggleViewSetting("showNpcStreaming")}
+            />
+            <MenuItem
               label="Hide Hero"
               checked={view.hideHero}
               onClick={() => toggleViewSetting("hideHero")}

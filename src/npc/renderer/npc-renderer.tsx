@@ -355,6 +355,34 @@ export function NpcRenderer({
   }, [enabled, zenKit]);
 
   useEffect(() => {
+    if (enabled) return;
+    setPlayerPoseFromObject3D(null);
+    if (!npcsGroupRef.current) return;
+    for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+      const ud = ensureNpcUserData(npcGroup);
+      ud.isDisposed = true;
+      clearNpcRuntimeValue(ud, "jumpDebugLabelRoot");
+      clearNpcRuntimeValue(ud, "jumpDebugLabelSetText");
+      removeNpcKccCollider(npcGroup);
+      const npcData = ud.npcData;
+      if (npcData) {
+        clearNpcFreepointReservations(npcData.instanceIndex);
+        removeNpcWorldPosition(npcData.instanceIndex);
+        clearNpcEmRuntimeState(npcData.instanceIndex);
+        clearNpcEmQueueState(npcData.instanceIndex);
+        waypointMoverRef.current?.clearForNpc?.(npcId);
+      }
+      const instance = ud.characterInstance;
+      const isLoading = Boolean(ud.modelLoading);
+      if (instance && !isLoading) instance.dispose();
+      npcsGroupRef.current.remove(npcGroup);
+      disposeObject3D(npcGroup);
+      if (playerGroupRef.current === npcGroup) playerGroupRef.current = null;
+    }
+    loadedNpcsRef.current.clear();
+  }, [enabled, removeNpcKccCollider]);
+
+  useEffect(() => {
     if (!zenKit) return;
     if (modelScriptRegistryRef.current) return;
     modelScriptRegistryRef.current = new ModelScriptRegistry({

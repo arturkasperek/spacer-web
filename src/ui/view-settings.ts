@@ -9,6 +9,7 @@ export type ViewSettingsState = {
   showKccCapsule: boolean;
   showGroundProbeRay: boolean;
   showJumpDebugRange: boolean;
+  showNpcStreaming: boolean;
   hideHero: boolean;
   timeScale: number;
 };
@@ -22,6 +23,7 @@ const defaultState: ViewSettingsState = {
   showKccCapsule: false,
   showGroundProbeRay: false,
   showJumpDebugRange: false,
+  showNpcStreaming: true,
   hideHero: false,
   timeScale: 1,
 };
@@ -39,6 +41,7 @@ function setSnapshot(next: ViewSettingsState) {
     snapshot.showKccCapsule === next.showKccCapsule &&
     snapshot.showGroundProbeRay === next.showGroundProbeRay &&
     snapshot.showJumpDebugRange === next.showJumpDebugRange &&
+    snapshot.showNpcStreaming === next.showNpcStreaming &&
     snapshot.hideHero === next.hideHero &&
     snapshot.timeScale === next.timeScale
   ) {
@@ -62,6 +65,7 @@ export function setViewSettings(partial: Partial<ViewSettingsState>): void {
     showKccCapsule: partial.showKccCapsule ?? snapshot.showKccCapsule,
     showGroundProbeRay: partial.showGroundProbeRay ?? snapshot.showGroundProbeRay,
     showJumpDebugRange: partial.showJumpDebugRange ?? snapshot.showJumpDebugRange,
+    showNpcStreaming: partial.showNpcStreaming ?? snapshot.showNpcStreaming,
     hideHero: partial.hideHero ?? snapshot.hideHero,
     timeScale: partial.timeScale ?? snapshot.timeScale,
   });

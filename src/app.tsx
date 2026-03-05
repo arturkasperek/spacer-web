@@ -116,6 +116,7 @@ function Scene({
     showKccCapsule: boolean;
     showGroundProbeRay: boolean;
     showJumpDebugRange: boolean;
+    showNpcStreaming: boolean;
     hideHero: boolean;
     timeScale: number;
   };
@@ -293,7 +294,7 @@ function Scene({
           zenKit={zenKit}
           npcs={npcs}
           cameraPosition={cameraPosition}
-          enabled={true}
+          enabled={viewSettings.showNpcStreaming}
           showKccCapsule={viewSettings.showKccCapsule}
           showGroundProbeRay={viewSettings.showGroundProbeRay}
           showJumpDebugRange={viewSettings.showJumpDebugRange}
