@@ -407,6 +407,25 @@ function restoreSerializedProcessedMeshData(payload: {
 }
 
 export class AssetManager {
+  private static readonly GEOMETRY_LRU_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB
+  private processedKeySeq = 0;
+  private readonly processedKeyByRef = new WeakMap<object, string>();
+  private geometryCacheBytes = 0;
+  private readonly geometryBuildInFlight = new Map<
+    string,
+    Promise<{ geometry: THREE.BufferGeometry; materials: THREE.MeshBasicMaterial[] }>
+  >();
+  private readonly geometryBuiltCache = new Map<
+    string,
+    {
+      key: string;
+      geometry: THREE.BufferGeometry;
+      materials: THREE.MeshBasicMaterial[];
+      approxBytes: number;
+      refs: number;
+      evicted: boolean;
+    }
+  >();
   readonly binaryCache = new Map<string, Uint8Array>();
   readonly binaryInFlight = new Map<string, Promise<Uint8Array>>();
   readonly animationCache = new Map<string, AnimationSequence>();
@@ -430,6 +449,9 @@ export class AssetManager {
       meshInFlight: this.meshInFlight.size,
       textureCache: this.textureCache.size,
       textureInFlight: this.textureInFlight.size,
+      geometryBuiltCache: this.geometryBuiltCache.size,
+      geometryBuildInFlight: this.geometryBuildInFlight.size,
+      geometryCacheBytes: this.geometryCacheBytes,
       materialCache: this.materialCache.size,
       binaryCache: this.binaryCache.size,
       binaryInFlight: this.binaryInFlight.size,
@@ -545,13 +567,131 @@ export class AssetManager {
   }
 
   async buildGeometryAndMaterials(processed: ProcessedMeshData, zenKit: ZenKit) {
-    return buildThreeJSGeometryAndMaterials(
-      processed,
-      zenKit,
-      this.textureCache,
-      this.materialCache,
-      (url, zk) => this.loadTexture(url, zk),
-    );
+    const key = this.getProcessedKey(processed as any);
+    const cached = this.geometryBuiltCache.get(key);
+    if (cached) {
+      this.touchGeometryEntry(key, cached);
+      this.retainGeometryEntry(cached);
+      return { geometry: cached.geometry, materials: cached.materials };
+    }
+
+    const inFlight = this.geometryBuildInFlight.get(key);
+    if (inFlight) {
+      const built = await inFlight;
+      const entry = this.geometryBuiltCache.get(key);
+      if (entry) {
+        this.retainGeometryEntry(entry);
+      }
+      return built;
+    }
+
+    const request = (async () => {
+      const built = await buildThreeJSGeometryAndMaterials(
+        processed,
+        zenKit,
+        this.textureCache,
+        this.materialCache,
+        (url, zk) => this.loadTexture(url, zk),
+      );
+      const approxBytes = this.estimateGeometryBytes(built.geometry, built.materials);
+      const entry = {
+        key,
+        geometry: built.geometry,
+        materials: built.materials,
+        approxBytes,
+        refs: 0,
+        evicted: false,
+      };
+      this.geometryBuiltCache.set(key, entry);
+      this.geometryCacheBytes += approxBytes;
+      this.touchGeometryEntry(key, entry);
+      this.retainGeometryEntry(entry);
+      this.evictGeometryLruIfNeeded();
+      return built;
+    })();
+
+    this.geometryBuildInFlight.set(key, request);
+    try {
+      return await request;
+    } finally {
+      this.geometryBuildInFlight.delete(key);
+    }
+  }
+
+  private getProcessedKey(processed: object): string {
+    const known = this.processedKeyByRef.get(processed);
+    if (known) return known;
+    const key = `processed-${++this.processedKeySeq}`;
+    this.processedKeyByRef.set(processed, key);
+    return key;
+  }
+
+  private touchGeometryEntry(
+    key: string,
+    entry: {
+      key: string;
+      geometry: THREE.BufferGeometry;
+      materials: THREE.MeshBasicMaterial[];
+      approxBytes: number;
+      refs: number;
+      evicted: boolean;
+    },
+  ): void {
+    if (this.geometryBuiltCache.get(key) !== entry) return;
+    this.geometryBuiltCache.delete(key);
+    this.geometryBuiltCache.set(key, entry);
+  }
+
+  private retainGeometryEntry(entry: {
+    key: string;
+    geometry: THREE.BufferGeometry;
+    materials: THREE.MeshBasicMaterial[];
+    approxBytes: number;
+    refs: number;
+    evicted: boolean;
+  }): void {
+    entry.refs += 1;
+    const geom = entry.geometry as any;
+    if (!geom.userData) geom.userData = {};
+    geom.userData.__assetManagerReleaseGeometry = () => {
+      if (entry.refs > 0) entry.refs -= 1;
+      if (!entry.evicted) return false;
+      if (entry.refs > 0) return false;
+      return true;
+    };
+  }
+
+  private estimateGeometryBytes(
+    geometry: THREE.BufferGeometry,
+    materials: THREE.MeshBasicMaterial[],
+  ): number {
+    let bytes = 0;
+    const attrs = geometry.attributes || {};
+    for (const key of Object.keys(attrs)) {
+      const attr: any = (attrs as any)[key];
+      if (!attr?.array) continue;
+      bytes += Number(attr.array.byteLength || 0);
+    }
+    const indexAttr: any = geometry.index;
+    if (indexAttr?.array) bytes += Number(indexAttr.array.byteLength || 0);
+    // Small fixed cost for geometry/groups/material refs bookkeeping.
+    bytes += 4096;
+    bytes += materials.length * 1024;
+    return bytes;
+  }
+
+  private evictGeometryLruIfNeeded(): void {
+    const max = AssetManager.GEOMETRY_LRU_MAX_BYTES;
+    if (this.geometryCacheBytes <= max) return;
+    for (const [key, entry] of this.geometryBuiltCache) {
+      if (this.geometryCacheBytes <= max) break;
+      this.geometryBuiltCache.delete(key);
+      this.geometryCacheBytes -= entry.approxBytes;
+      entry.evicted = true;
+      if (entry.refs <= 0) {
+        entry.geometry.dispose();
+      }
+    }
   }
 
   async loadModel(modelPath: string, zenKit: ZenKit): Promise<LoadedModelRenderData | null> {

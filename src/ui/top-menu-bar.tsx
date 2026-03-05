@@ -238,6 +238,11 @@ export function TopMenuBar({
               onClick={() => toggleViewSetting("showFpsMeter")}
             />
             <MenuItem
+              label="Asset Cache Popup"
+              checked={view.showAssetCachePopup}
+              onClick={() => toggleViewSetting("showAssetCachePopup")}
+            />
+            <MenuItem
               label="WASM Mem Diagnose"
               checked={view.showWasmMemDiagnose}
               onClick={() => toggleViewSetting("showWasmMemDiagnose")}

@@ -95,7 +95,14 @@ export function disposeObject3D(object: THREE.Object3D): void {
 
   // If it's a Mesh, dispose its geometry
   if ((object as THREE.Mesh).geometry) {
-    (object as THREE.Mesh).geometry.dispose();
+    const geometry = (object as THREE.Mesh).geometry as any;
+    const release = geometry?.userData?.__assetManagerReleaseGeometry;
+    if (typeof release === "function") {
+      const shouldDispose = Boolean(release());
+      if (shouldDispose) geometry.dispose();
+    } else {
+      geometry.dispose();
+    }
   }
 
   // If it's a Group or has children, recursively dispose children

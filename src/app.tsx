@@ -96,6 +96,8 @@ function Scene({
     meshCache: number;
     morphCache: number;
     textureCache: number;
+    geometryBuiltCache: number;
+    geometryCacheBytes: number;
   }) => void;
   selectedVob: Vob | null;
   onSelectedVobBoundingBox: (center: THREE.Vector3, size: THREE.Vector3) => void;
@@ -112,6 +114,7 @@ function Scene({
     showVobSpots: boolean;
     showLights: boolean;
     showFpsMeter: boolean;
+    showAssetCachePopup: boolean;
     showWasmMemDiagnose: boolean;
     showKccCapsule: boolean;
     showGroundProbeRay: boolean;
@@ -321,6 +324,8 @@ export function App() {
     meshCache: number;
     morphCache: number;
     textureCache: number;
+    geometryBuiltCache: number;
+    geometryCacheBytes: number;
   } | null>(null);
 
   const handleCameraChange = useCallback(
@@ -356,11 +361,24 @@ export function App() {
       meshCache: number;
       morphCache: number;
       textureCache: number;
+      geometryBuiltCache: number;
+      geometryCacheBytes: number;
     }) => {
       setVobStats(stats);
     },
     [],
   );
+
+  const formatBytes = useCallback((bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+    const gb = 1024 * 1024 * 1024;
+    const mb = 1024 * 1024;
+    const kb = 1024;
+    if (bytes >= gb) return `${(bytes / gb).toFixed(2)} GB`;
+    if (bytes >= mb) return `${(bytes / mb).toFixed(1)} MB`;
+    if (bytes >= kb) return `${(bytes / kb).toFixed(1)} KB`;
+    return `${Math.round(bytes)} B`;
+  }, []);
 
   const [selectedVob, setSelectedVob] = useState<Vob | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<WayPointData | null>(null);
@@ -557,6 +575,30 @@ export function App() {
               {vobStats.morphCache} morphs, {vobStats.textureCache} textures
             </div>
           )}
+        </div>
+      )}
+      {viewSettings.showAssetCachePopup && vobStats && (
+        <div
+          style={{
+            position: "absolute",
+            top: `${TOP_MENU_HEIGHT + 10}px`,
+            right: "10px",
+            background: "rgba(0, 0, 0, 0.8)",
+            color: "white",
+            padding: "10px",
+            borderRadius: "5px",
+            fontSize: "12px",
+            fontFamily: "monospace",
+            zIndex: 1000,
+            minWidth: "260px",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: "6px" }}>Asset Cache</div>
+          <div>Mesh: {vobStats.meshCache}</div>
+          <div>Morph: {vobStats.morphCache}</div>
+          <div>Texture: {vobStats.textureCache}</div>
+          <div>Built Geometry: {vobStats.geometryBuiltCache}</div>
+          <div>LRU Memory: {formatBytes(vobStats.geometryCacheBytes)}</div>
         </div>
       )}
 
