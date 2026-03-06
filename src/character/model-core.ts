@@ -1,9 +1,8 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { buildSkeletonFromHierarchy } from "./skeleton";
-import { buildSoftSkinMeshCPUFromBundle } from "./soft-skin";
+import { buildSoftSkinSkinnedMeshFromBundle } from "./soft-skin";
 import type { CharacterCaches } from "./character-instance";
-import type { CpuSkinningData } from "./cpu-skinning";
 
 export function normalizeModelAssetKey(input: string | undefined): string {
   return (input || "")
@@ -17,7 +16,6 @@ export type BuiltModelCore = {
   root: THREE.Group;
   group: THREE.Group;
   skeleton: ReturnType<typeof buildSkeletonFromHierarchy>;
-  skinningDataList: CpuSkinningData[];
 };
 
 export async function buildNpcModelCore(params: {
@@ -69,19 +67,23 @@ export async function buildNpcModelCore(params: {
   for (const rootIdx of skeleton.rootNodes) {
     group.add(skeleton.bones[rootIdx]);
   }
+  for (const rootIdx of skeleton.rootNodes) {
+    skeleton.bones[rootIdx].updateMatrixWorld(true);
+  }
 
   const softSkinCount = characterModel.softSkins.length;
-
-  const skinningDataList: CpuSkinningData[] = [];
+  const boneInverses = skeleton.bindWorld.map((m) => m.clone().invert());
+  const threeSkeleton = new THREE.Skeleton(skeleton.bones, boneInverses);
   const attachmentCount = characterModel.attachments.length;
   let renderableMeshCount = 0;
 
   for (let i = 0; i < softSkinCount; i++) {
     const softSkinBundle = characterModel.softSkins[i];
-    const { mesh: threeMesh, skinningData } = await buildSoftSkinMeshCPUFromBundle({
+    const threeMesh = await buildSoftSkinSkinnedMeshFromBundle({
       zenKit,
       bundle: softSkinBundle,
       bindWorld: skeleton.bindWorld,
+      threeSkeleton,
       assetManager: caches.assetManager,
       textureOverride: (name: string) => {
         const upper = (name || "").toUpperCase();
@@ -90,7 +92,6 @@ export async function buildNpcModelCore(params: {
       },
     });
 
-    skinningDataList.push(skinningData);
     group.add(threeMesh);
     renderableMeshCount++;
   }
@@ -137,6 +138,5 @@ export async function buildNpcModelCore(params: {
     root,
     group,
     skeleton,
-    skinningDataList,
   };
 }

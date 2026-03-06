@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import type { ZenKit } from "@kolarz3/zenkit";
 import { loadAnimationSequence, evaluatePose } from "./animation";
-import { applyCpuSkinning } from "./cpu-skinning";
 import { findHeadBoneIndex, loadHeadMesh } from "./head";
 import { disposeObject3D } from "../world/distance-streaming";
 import { buildNpcModelCore, normalizeModelAssetKey } from "./model-core";
@@ -135,7 +134,7 @@ export async function createHumanoidCharacterInstance(params: {
       skin,
     });
     if (!core) return null;
-    const { root, group, skeleton, skinningDataList } = core;
+    const { root, group, skeleton } = core;
     createdRoot = root;
 
     // OG-like: head mesh is script-driven (Mdl_SetVisualBody). If no explicit head
@@ -519,10 +518,6 @@ export async function createHumanoidCharacterInstance(params: {
           blendFromWorld = null;
           blendDurationMs = 0;
         }
-      }
-
-      for (let i = 0; i < skinningDataList.length; i++) {
-        applyCpuSkinning(skeleton.animWorld, skinningDataList[i]);
       }
     };
 

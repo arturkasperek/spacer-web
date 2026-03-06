@@ -5,7 +5,7 @@ describe("model-core", () => {
   let mod: typeof import("./model-core");
 
   const mockBuildSkeletonFromHierarchy = jest.fn();
-  const mockBuildSoftSkinMeshCPU = jest.fn();
+  const mockBuildSoftSkinSkinnedMesh = jest.fn();
   const mockBuildGeometryAndMaterials = jest.fn();
 
   function makeCollection<T>(values: T[]) {
@@ -22,7 +22,7 @@ describe("model-core", () => {
       buildSkeletonFromHierarchy: (...args: any[]) => mockBuildSkeletonFromHierarchy(...args),
     }));
     jest.doMock("./soft-skin", () => ({
-      buildSoftSkinMeshCPU: (...args: any[]) => mockBuildSoftSkinMeshCPU(...args),
+      buildSoftSkinSkinnedMeshFromBundle: (...args: any[]) => mockBuildSoftSkinSkinnedMesh(...args),
     }));
 
     THREE = await import("three");
@@ -31,10 +31,9 @@ describe("model-core", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockBuildSoftSkinMeshCPU.mockResolvedValue({
-      mesh: new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial()),
-      skinningData: { mock: true },
-    });
+    mockBuildSoftSkinSkinnedMesh.mockResolvedValue(
+      new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial()),
+    );
     mockBuildGeometryAndMaterials.mockResolvedValue({
       geometry: new THREE.BufferGeometry(),
       materials: [new THREE.MeshBasicMaterial()],
@@ -161,8 +160,7 @@ describe("model-core", () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result?.skinningDataList).toHaveLength(0);
-    expect(mockBuildSoftSkinMeshCPU).not.toHaveBeenCalled();
+    expect(mockBuildSoftSkinSkinnedMesh).not.toHaveBeenCalled();
     expect(result?.skeleton.bones[0].children.length).toBe(1);
   });
 });
