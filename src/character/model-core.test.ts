@@ -85,7 +85,14 @@ describe("model-core", () => {
       zenKit,
       caches: {
         assetManager: {
-          fetchBinary: jest.fn(async () => new Uint8Array([1, 2, 3])),
+          loadCharacterModel: jest.fn(async () => ({
+            rootTranslation: { x: 0, y: 0, z: 0 },
+            hierarchyNodes: [
+              { name: "ATTACH_BONE", parentIndex: -1, transform: new Array(16).fill(0) },
+            ],
+            attachments: [],
+            softSkins: [],
+          })),
           textureCache: new Map(),
           materialCache: new Map(),
           buildGeometryAndMaterials: (...args: any[]) => mockBuildGeometryAndMaterials(...args),
@@ -133,7 +140,14 @@ describe("model-core", () => {
       zenKit,
       caches: {
         assetManager: {
-          fetchBinary: jest.fn(async () => new Uint8Array([1, 2, 3])),
+          loadCharacterModel: jest.fn(async () => ({
+            rootTranslation: { x: 0, y: 0, z: 0 },
+            hierarchyNodes: [
+              { name: "ATTACH_BONE", parentIndex: -1, transform: new Array(16).fill(0) },
+            ],
+            attachments: [{ name: "ATTACH_BONE", processed }],
+            softSkins: [],
+          })),
           textureCache: new Map(),
           materialCache: new Map(),
           buildGeometryAndMaterials: (...args: any[]) => mockBuildGeometryAndMaterials(...args),

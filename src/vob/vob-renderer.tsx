@@ -18,6 +18,7 @@ import {
   disposeObject3D,
 } from "../world/distance-streaming";
 import { clearNpcVobDeferGate, updateNpcVobDeferGate } from "./vob-npc-defer-gate";
+import { HotObjectPool } from "./hot-object-pool";
 import { AssetManager } from "../shared/asset-manager";
 import type { World, ZenKit, Vob } from "@kolarz3/zenkit";
 import { getRuntimeVm } from "../vm-manager";
@@ -131,16 +132,14 @@ function VOBRenderer({
 
   // VOB management state
   const loadedVOBsRef = useRef(new Map<string, THREE.Object3D>()); // vob id -> THREE.Mesh/Object3D
-  const hotVobPoolRef = useRef(
-    new Map<string, Array<{ obj: THREE.Object3D; approxBytes: number }>>(),
-  ); // visual key -> detached hot objects
-  const hotVobPoolCountRef = useRef(0);
-  const hotVobPoolBytesRef = useRef(0);
   const renderPassGroupsRef = useRef<Partial<Record<RenderPass, THREE.Group>>>({});
   const allVOBsRef = useRef<VobData[]>([]); // All VOB data from world
   const VOB_LOAD_DISTANCE = 5000; // Load VOBs within this distance
   const VOB_UNLOAD_DISTANCE = 6000; // Unload VOBs beyond this distance
   const HOT_VOB_CACHE_MAX_BYTES = 1024 * 1024 * 1024; // 1 GB (estimated GPU-hot bytes)
+  const hotVobPoolRef = useRef(
+    new HotObjectPool<THREE.Object3D>(HOT_VOB_CACHE_MAX_BYTES, (obj) => disposeObject3D(obj)),
+  );
 
   // Streaming state using shared utility
   const streamingState = useRef(createStreamingState());
@@ -161,130 +160,6 @@ function VOBRenderer({
   const vobColliderHandlesRef = useRef(new Map<string, number>());
   const consumedDynamicItemSignaturesRef = useRef(new Set<string>());
   const ITEM_VOB_TYPE = 2; // oCItem
-  const vobPerfRef = useRef({
-    windowStartMs: performance.now(),
-    updateCalls: 0,
-    updateTotalMs: 0,
-    updateMaxMs: 0,
-    discoverMs: 0,
-    sortMs: 0,
-    loadCandidates: 0,
-    unloadCount: 0,
-    loadsStarted: 0,
-    renderCalls: 0,
-    renderSuccess: 0,
-    renderFail: 0,
-    renderTotalMs: 0,
-    renderMaxMs: 0,
-    phases: new Map<string, { totalMs: number; calls: number; maxMs: number }>(),
-    visuals: new Map<string, { totalMs: number; calls: number; success: number; fail: number }>(),
-  });
-
-  const recordVobPhasePerf = (phase: string, durationMs: number) => {
-    const perf = vobPerfRef.current;
-    const prev = perf.phases.get(phase) || { totalMs: 0, calls: 0, maxMs: 0 };
-    prev.totalMs += durationMs;
-    prev.calls += 1;
-    prev.maxMs = Math.max(prev.maxMs, durationMs);
-    perf.phases.set(phase, prev);
-  };
-
-  const recordVobRenderPerf = (visual: string, success: boolean, durationMs: number) => {
-    const perf = vobPerfRef.current;
-    perf.renderCalls += 1;
-    perf.renderTotalMs += durationMs;
-    perf.renderMaxMs = Math.max(perf.renderMaxMs, durationMs);
-    if (success) perf.renderSuccess += 1;
-    else perf.renderFail += 1;
-    const key = visual || "<empty>";
-    const prev = perf.visuals.get(key) || { totalMs: 0, calls: 0, success: 0, fail: 0 };
-    prev.totalMs += durationMs;
-    prev.calls += 1;
-    if (success) prev.success += 1;
-    else prev.fail += 1;
-    perf.visuals.set(key, prev);
-  };
-
-  const flushVobPerfWindow = () => {
-    const now = performance.now();
-    const perf = vobPerfRef.current;
-    const windowMs = now - perf.windowStartMs;
-    if (windowMs < 5000) return;
-    const hadActivity = perf.updateCalls > 0 || perf.renderCalls > 0;
-    if (hadActivity) {
-      const topPhases = Array.from(perf.phases.entries())
-        .map(([name, v]) => ({
-          name,
-          calls: v.calls,
-          totalMs: Number(v.totalMs.toFixed(3)),
-          avgMs: Number((v.totalMs / Math.max(1, v.calls)).toFixed(4)),
-          maxMs: Number(v.maxMs.toFixed(3)),
-        }))
-        .sort((a, b) => b.totalMs - a.totalMs)
-        .slice(0, 10);
-      const topVisuals = Array.from(perf.visuals.entries())
-        .map(([visual, v]) => ({
-          visual,
-          calls: v.calls,
-          success: v.success,
-          fail: v.fail,
-          totalMs: Number(v.totalMs.toFixed(3)),
-          avgMs: Number((v.totalMs / Math.max(1, v.calls)).toFixed(4)),
-        }))
-        .sort((a, b) => b.totalMs - a.totalMs)
-        .slice(0, 8);
-
-      console.log(
-        JSON.stringify({
-          channel: "vob-streaming-json",
-          type: "vob-streaming-perf",
-          windowMs: Number(windowMs.toFixed(1)),
-          ts: Date.now(),
-          update: {
-            calls: perf.updateCalls,
-            totalMs: Number(perf.updateTotalMs.toFixed(3)),
-            avgMs: Number((perf.updateTotalMs / Math.max(1, perf.updateCalls)).toFixed(4)),
-            maxMs: Number(perf.updateMaxMs.toFixed(3)),
-            discoverMs: Number(perf.discoverMs.toFixed(3)),
-            sortMs: Number(perf.sortMs.toFixed(3)),
-            loadCandidates: perf.loadCandidates,
-            unloadCount: perf.unloadCount,
-            loadsStarted: perf.loadsStarted,
-          },
-          render: {
-            calls: perf.renderCalls,
-            success: perf.renderSuccess,
-            fail: perf.renderFail,
-            totalMs: Number(perf.renderTotalMs.toFixed(3)),
-            avgMs: Number((perf.renderTotalMs / Math.max(1, perf.renderCalls)).toFixed(4)),
-            maxMs: Number(perf.renderMaxMs.toFixed(3)),
-          },
-          topPhases,
-          topVisuals,
-        }),
-      );
-    }
-
-    vobPerfRef.current = {
-      windowStartMs: now,
-      updateCalls: 0,
-      updateTotalMs: 0,
-      updateMaxMs: 0,
-      discoverMs: 0,
-      sortMs: 0,
-      loadCandidates: 0,
-      unloadCount: 0,
-      loadsStarted: 0,
-      renderCalls: 0,
-      renderSuccess: 0,
-      renderFail: 0,
-      renderTotalMs: 0,
-      renderMaxMs: 0,
-      phases: new Map(),
-      visuals: new Map(),
-    };
-  };
-
   const findWaypointPosition = (
     worldObj: World,
     name: string,
@@ -568,30 +443,6 @@ function VOBRenderer({
     return bytes;
   };
 
-  const pruneHotVobCache = () => {
-    while (hotVobPoolBytesRef.current > HOT_VOB_CACHE_MAX_BYTES) {
-      const oldestKey = hotVobPoolRef.current.keys().next().value as string | undefined;
-      if (!oldestKey) break;
-      const pool = hotVobPoolRef.current.get(oldestKey);
-      if (!pool || pool.length === 0) {
-        hotVobPoolRef.current.delete(oldestKey);
-        continue;
-      }
-      const evicted = pool.shift();
-      hotVobPoolCountRef.current = Math.max(0, hotVobPoolCountRef.current - 1);
-      hotVobPoolBytesRef.current = Math.max(
-        0,
-        hotVobPoolBytesRef.current - Number(evicted?.approxBytes || 0),
-      );
-      if (pool.length === 0) {
-        hotVobPoolRef.current.delete(oldestKey);
-      } else {
-        hotVobPoolRef.current.set(oldestKey, pool);
-      }
-      if (evicted?.obj) disposeObject3D(evicted.obj);
-    }
-  };
-
   const cacheHotVob = (obj: THREE.Object3D): void => {
     const visualKey = String((obj.userData as any)?.__hotVisualKey || "").trim();
     if (!visualKey) {
@@ -604,31 +455,15 @@ function VOBRenderer({
         ? Number((ud as any).__hotApproxBytes)
         : estimateHotObjectBytes(obj);
     (ud as any).__hotApproxBytes = approxBytes;
-    const pool = hotVobPoolRef.current.get(visualKey) || [];
-    pool.push({ obj, approxBytes });
-    // Move this key to the end to emulate LRU ordering by key activity.
-    hotVobPoolRef.current.delete(visualKey);
-    hotVobPoolRef.current.set(visualKey, pool);
-    hotVobPoolCountRef.current += 1;
-    hotVobPoolBytesRef.current += approxBytes;
-    pruneHotVobCache();
+    hotVobPoolRef.current.put(visualKey, obj, approxBytes);
   };
 
   const restoreHotVob = (visualName: string, vobId: string, vob: Vob): THREE.Object3D | null => {
     const visualKey = toVisualCacheKey(visualName);
     if (!visualKey) return null;
-    const pool = hotVobPoolRef.current.get(visualKey);
-    if (!pool || pool.length === 0) return null;
-    const cached = pool.pop();
-    if (!cached?.obj) return null;
-    hotVobPoolCountRef.current = Math.max(0, hotVobPoolCountRef.current - 1);
-    hotVobPoolBytesRef.current = Math.max(0, hotVobPoolBytesRef.current - cached.approxBytes);
-    if (pool.length === 0) {
-      hotVobPoolRef.current.delete(visualKey);
-    } else {
-      hotVobPoolRef.current.set(visualKey, pool);
-    }
-    const obj = cached.obj;
+    const cached = hotVobPoolRef.current.take(visualKey);
+    if (!cached?.value) return null;
+    const obj = cached.value;
     obj.userData.vob = vob;
     applyVobTransform(obj, vob);
     applyViewVisibility(obj, vob);
@@ -1163,7 +998,6 @@ function VOBRenderer({
 
   // Streaming VOB loader - loads/unloads based on camera distance
   const updateVOBStreaming = () => {
-    const updateStart = performance.now();
     const vmReadyNow = !!getRuntimeVm();
     if (vmReadyNow && !vmWasReadyRef.current && deferredVobIdsRef.current.size > 0) {
       for (const deferredId of deferredVobIdsRef.current) {
@@ -1197,7 +1031,6 @@ function VOBRenderer({
     );
 
     if (shouldUpdate) {
-      const discoverStart = performance.now();
       // Find VOBs to load/unload using shared utility
       const { toLoad, toUnload } = getItemsToLoadUnload(
         allVOBsRef.current,
@@ -1205,11 +1038,6 @@ function VOBRenderer({
         config,
         loadedVOBsRef.current,
       );
-      const discoverMs = performance.now() - discoverStart;
-      const perf = vobPerfRef.current;
-      perf.discoverMs += discoverMs;
-      perf.loadCandidates += toLoad.length;
-      perf.unloadCount += toUnload.length;
 
       // Add items to load queue
       vobLoadQueueRef.current = toLoad;
@@ -1228,12 +1056,10 @@ function VOBRenderer({
       }
       if (unloadedAny) markNpcVobDeferGateDirty();
 
-      const sortStart = performance.now();
       // Sort queue by distance (closest first)
       vobLoadQueueRef.current.sort((a, b) => {
         return cameraPos.distanceTo(a.position) - cameraPos.distanceTo(b.position);
       });
-      vobPerfRef.current.sortMs += performance.now() - sortStart;
     }
 
     // Load multiple VOBs concurrently (up to MAX_CONCURRENT_LOADS) to speed up loading
@@ -1255,15 +1081,8 @@ function VOBRenderer({
         }
 
         loadingVOBsRef.current.add(vobData.id);
-        vobPerfRef.current.loadsStarted += 1;
-        const renderStart = performance.now();
 
         renderVOB(vobData.vob, vobData.id, vobData).then((success) => {
-          recordVobRenderPerf(
-            vobData.visualName || vobData.vob?.visual?.name || "",
-            success,
-            performance.now() - renderStart,
-          );
           loadingVOBsRef.current.delete(vobData.id);
           if (!success) {
             if (shouldDeferUntilVmReady(vobData)) {
@@ -1278,11 +1097,6 @@ function VOBRenderer({
         });
       }
     }
-    const updateDuration = performance.now() - updateStart;
-    const perf = vobPerfRef.current;
-    perf.updateCalls += 1;
-    perf.updateTotalMs += updateDuration;
-    perf.updateMaxMs = Math.max(perf.updateMaxMs, updateDuration);
 
     // Update debug info and stats
     const loadedCount = loadedVOBsRef.current.size;
@@ -1292,6 +1106,7 @@ function VOBRenderer({
     // Report stats to parent component
     if (onVobStats) {
       const assetStats = assetManagerRef.current.getStats();
+      const hotStats = hotVobPoolRef.current.getStats();
       onVobStats({
         loaded: loadedCount,
         total: totalCount,
@@ -1302,9 +1117,9 @@ function VOBRenderer({
         textureCache: assetStats.textureCache,
         geometryBuiltCache: assetStats.geometryBuiltCache,
         geometryCacheBytes: assetStats.geometryCacheBytes,
-        hotObjectCacheCount: hotVobPoolCountRef.current,
-        hotObjectCacheBytes: hotVobPoolBytesRef.current,
-        hotObjectCacheLimitBytes: HOT_VOB_CACHE_MAX_BYTES,
+        hotObjectCacheCount: hotStats.count,
+        hotObjectCacheBytes: hotStats.bytes,
+        hotObjectCacheLimitBytes: hotStats.limitBytes,
       });
     }
 
@@ -1353,7 +1168,6 @@ function VOBRenderer({
     }
     resetPassGlobalState();
     (gl as any).autoClear = prevAutoClear;
-    flushVobPerfWindow();
   }, 1);
 
   useEffect(() => {
@@ -1367,12 +1181,7 @@ function VOBRenderer({
 
   useEffect(() => {
     return () => {
-      for (const pool of hotVobPoolRef.current.values()) {
-        for (const entry of pool) disposeObject3D(entry.obj);
-      }
       hotVobPoolRef.current.clear();
-      hotVobPoolCountRef.current = 0;
-      hotVobPoolBytesRef.current = 0;
       clearNpcVobDeferGate();
     };
   }, []);
@@ -1513,24 +1322,19 @@ function VOBRenderer({
     hotVisualName: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
-    const totalStart = performance.now();
 
     try {
       // Load mesh with caching
-      const assetLoadStart = performance.now();
       const processed = await assetManagerRef.current.loadMesh(meshPath, zenKit);
-      recordVobPhasePerf("renderMesh.assetLoad", performance.now() - assetLoadStart);
       if (!processed) {
         return false;
       }
 
       // Build Three.js geometry and materials
-      const buildStart = performance.now();
       const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
         processed,
         zenKit,
       );
-      recordVobPhasePerf("renderMesh.buildGeometryMaterials", performance.now() - buildStart);
 
       // Verify geometry has data
       if (
@@ -1543,7 +1347,6 @@ function VOBRenderer({
       }
 
       // Create mesh
-      const attachStart = performance.now();
       const vobMeshObj = new THREE.Mesh(geometry, materials);
 
       // Store VOB reference for click detection
@@ -1574,14 +1377,10 @@ function VOBRenderer({
       } else {
         console.warn(`⚠️ Skipping VOB add to scene - no vobId: ${vob.visual.name}`);
       }
-      recordVobPhasePerf("renderMesh.sceneAttach", performance.now() - attachStart);
-
       return true;
     } catch (error) {
       console.warn(`Failed to render mesh VOB ${vob.visual.name}:`, error);
       return false;
-    } finally {
-      recordVobPhasePerf("renderMesh.total", performance.now() - totalStart);
     }
   };
 
@@ -1593,7 +1392,6 @@ function VOBRenderer({
     hotVisualName?: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
-    const totalStart = performance.now();
 
     try {
       const visualName = visualNameOverride ?? vob.visual.name;
@@ -1605,9 +1403,7 @@ function VOBRenderer({
       }
 
       // Load model with caching
-      const assetLoadStart = performance.now();
       const model = await assetManagerRef.current.loadModel(modelPath, zenKit);
-      recordVobPhasePerf("renderModel.assetLoad", performance.now() - assetLoadStart);
       if (!model) {
         return false;
       }
@@ -1652,12 +1448,10 @@ function VOBRenderer({
           }
 
           // Build Three.js geometry and materials
-          const buildStart = performance.now();
           const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
             processed,
             zenKit,
           );
-          recordVobPhasePerf("renderModel.buildGeometryMaterials", performance.now() - buildStart);
 
           // Create mesh - soft-skin meshes are positioned relative to root node
           // Apply root node translation offset (similar to OpenGothic's mkBaseTranslation logic)
@@ -1672,7 +1466,6 @@ function VOBRenderer({
         }
 
         // Apply VOB transform
-        const attachStart = performance.now();
         applyVobTransform(modelGroup, vob);
         applyViewVisibility(modelGroup, vob);
         applyRenderQueue(modelGroup);
@@ -1683,8 +1476,6 @@ function VOBRenderer({
           loadedVOBsRef.current.set(vobId, modelGroup);
           createVobCollider(vobId, modelGroup, vob);
         }
-        recordVobPhasePerf("renderModel.sceneAttach", performance.now() - attachStart);
-
         return true;
       }
 
@@ -1746,12 +1537,10 @@ function VOBRenderer({
         }
 
         // Build Three.js geometry and materials using shared function
-        const buildStart = performance.now();
         const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
           processed,
           zenKit,
         );
-        recordVobPhasePerf("renderModel.buildGeometryMaterials", performance.now() - buildStart);
 
         // Create mesh for this attachment
         const attachmentMesh = new THREE.Mesh(geometry, materials);
@@ -1770,7 +1559,6 @@ function VOBRenderer({
       }
 
       // Apply VOB transform using the same approach as regular VOBs
-      const attachStart = performance.now();
       applyVobTransform(modelGroup, vob);
       applyViewVisibility(modelGroup, vob);
       applyRenderQueue(modelGroup);
@@ -1789,14 +1577,10 @@ function VOBRenderer({
       } else {
         console.warn(`⚠️ Skipping model VOB add to scene - no vobId: ${vob.visual.name}`);
       }
-      recordVobPhasePerf("renderModel.sceneAttach", performance.now() - attachStart);
-
       return true;
     } catch (error) {
       console.warn(`Failed to render model VOB ${visualNameOverride ?? vob.visual.name}:`, error);
       return false;
-    } finally {
-      recordVobPhasePerf("renderModel.total", performance.now() - totalStart);
     }
   };
 
@@ -1808,7 +1592,6 @@ function VOBRenderer({
     hotVisualName?: string,
   ): Promise<boolean> => {
     if (!zenKit) return false;
-    const totalStart = performance.now();
 
     try {
       const visualName = visualNameOverride ?? vob.visual.name;
@@ -1820,27 +1603,22 @@ function VOBRenderer({
       }
 
       // Load morph mesh with caching
-      const assetLoadStart = performance.now();
       const morphData = await assetManagerRef.current.loadMorphMesh(morphPath, zenKit);
-      recordVobPhasePerf("renderMorph.assetLoad", performance.now() - assetLoadStart);
       if (!morphData) {
         return false;
       }
 
       // Build Three.js geometry and materials from processed mesh data
-      const buildStart = performance.now();
       const { geometry, materials } = await assetManagerRef.current.buildGeometryAndMaterials(
         morphData.processed,
         zenKit,
       );
-      recordVobPhasePerf("renderMorph.buildGeometryMaterials", performance.now() - buildStart);
 
       if (!geometry) {
         return false;
       }
 
       // Create mesh with materials
-      const attachStart = performance.now();
       const morphMesh = new THREE.Mesh(geometry, materials);
 
       // Store VOB reference for click detection
@@ -1866,8 +1644,6 @@ function VOBRenderer({
       } else {
         console.warn(`⚠️ Skipping morph mesh VOB add to scene - no vobId: ${vob.visual.name}`);
       }
-      recordVobPhasePerf("renderMorph.sceneAttach", performance.now() - attachStart);
-
       return true;
     } catch (error) {
       console.warn(
@@ -1875,8 +1651,6 @@ function VOBRenderer({
         error,
       );
       return false;
-    } finally {
-      recordVobPhasePerf("renderMorph.total", performance.now() - totalStart);
     }
   };
 

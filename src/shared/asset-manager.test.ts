@@ -188,3 +188,21 @@ describe("AssetManager.loadTexture in-flight", () => {
     expect(manager.textureInFlight.size).toBe(0);
   });
 });
+
+describe("AssetManager geometry cache limit", () => {
+  it("uses 100MB geometry LRU limit", () => {
+    expect((AssetManager as any).GEOMETRY_LRU_MAX_BYTES).toBe(100 * 1024 * 1024);
+  });
+
+  it("exposes geometry cache counters in stats", () => {
+    const manager = new AssetManager();
+    const stats = manager.getStats();
+    expect(stats).toEqual(
+      expect.objectContaining({
+        geometryBuiltCache: expect.any(Number),
+        geometryBuildInFlight: expect.any(Number),
+        geometryCacheBytes: expect.any(Number),
+      }),
+    );
+  });
+});

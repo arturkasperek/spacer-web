@@ -7,7 +7,7 @@ jest.mock("../shared/mesh-utils", () => ({
   createMeshMaterial: jest.fn(async () => ({ type: "MockMaterial" })),
 }));
 
-const mockFetchBinary = jest.fn();
+const mockLoadMorphMesh = jest.fn();
 import { createMeshMaterial } from "../shared/mesh-utils";
 
 describe("findHeadBoneIndex", () => {
@@ -27,10 +27,11 @@ describe("findHeadBoneIndex", () => {
 describe("loadHeadMesh", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockLoadMorphMesh.mockReset();
   });
 
   it("uses DEFAULT_MALE_HEADS when headNames is not provided", async () => {
-    mockFetchBinary.mockRejectedValue(new Error("not found"));
+    mockLoadMorphMesh.mockResolvedValue(null);
 
     const zenKit = {
       createMorphMesh: jest.fn(() => ({
@@ -40,20 +41,24 @@ describe("loadHeadMesh", () => {
 
     const res = await loadHeadMesh({
       zenKit,
-      assetManager: { fetchBinary: mockFetchBinary } as any,
+      assetManager: {
+        loadMorphMesh: mockLoadMorphMesh,
+        buildGeometryAndMaterials: jest.fn(),
+        loadTexture: jest.fn(),
+      } as any,
       textureCache: new Map(),
       materialCache: new Map(),
     });
 
     expect(res).toBeNull();
     // At least one attempt should be made when defaults are used
-    expect(mockFetchBinary).toHaveBeenCalledWith(`/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`);
+    expect(mockLoadMorphMesh).toHaveBeenCalledWith(
+      `/ANIMS/_COMPILED/${DEFAULT_MALE_HEADS[0]}.MMB`,
+      expect.anything(),
+    );
   });
 
   it("normalizes head name and applies texture overrides for HEAD and TEETH materials", async () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    mockFetchBinary.mockResolvedValue(bytes);
-
     const processed = {
       indices: { size: () => 3 },
       vertices: { size: () => 3 },
@@ -65,15 +70,23 @@ describe("loadHeadMesh", () => {
     };
 
     const zenKit = {
-      createMorphMesh: jest.fn(() => ({
-        loadFromArray: jest.fn(() => ({ success: true })),
-        convertToProcessedMesh: jest.fn(() => processed),
-      })),
+      createMorphMesh: jest.fn(),
     } as unknown as ZenKit;
+
+    mockLoadMorphMesh.mockResolvedValue({
+      processed,
+    });
 
     const mesh = await loadHeadMesh({
       zenKit,
-      assetManager: { fetchBinary: mockFetchBinary } as any,
+      assetManager: {
+        loadMorphMesh: mockLoadMorphMesh,
+        buildGeometryAndMaterials: jest.fn(async () => ({
+          geometry: { mocked: true },
+          materials: [],
+        })),
+        loadTexture: jest.fn(),
+      } as any,
       textureCache: new Map(),
       materialCache: new Map(),
       headNames: ["  hum_head_custom.mmb  "],
@@ -83,7 +96,10 @@ describe("loadHeadMesh", () => {
     });
 
     expect(mesh).not.toBeNull();
-    expect(mockFetchBinary).toHaveBeenCalledWith("/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB");
+    expect(mockLoadMorphMesh).toHaveBeenCalledWith(
+      "/ANIMS/_COMPILED/HUM_HEAD_CUSTOM.MMB",
+      expect.anything(),
+    );
     expect(createMeshMaterial).toHaveBeenCalledWith(
       { texture: "HUM_HEAD_V2_C3" },
       expect.anything(),
