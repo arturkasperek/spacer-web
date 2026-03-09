@@ -202,6 +202,11 @@ Minimalny zakres UT:
 3. `Phase 3`: Hardening
 - timeout intentów, reconnect, snapshot drop handling, profiling.
 
+4. `Phase 4`: Hybrid control split
+- hero pozostaje na lokalnym Rapier/KCC (main thread),
+- NPC (non-hero) pozostają worker-driven,
+- cel: zachować poprawne kolizje/grawitację hero przy utrzymaniu odciążenia main thread dla tłumu NPC.
+
 ### Phase 3 Implementation Notes
 
 Aktualnie wdrożone:

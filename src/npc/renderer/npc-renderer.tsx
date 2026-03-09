@@ -97,7 +97,7 @@ export function NpcRenderer({
   hideHero = false,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
-  const NPC_WORKER_INTERPOLATION_DELAY_MS = 0;
+  const NPC_WORKER_INTERPOLATION_DELAY_MS = 16;
   const NPC_WORKER_AUTHORITATIVE = true;
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
@@ -119,6 +119,7 @@ export function NpcRenderer({
   const playerGroupRef = useRef<THREE.Group | null>(null);
   const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
   const workerFrameIntentsRef = useRef<Map<string, NpcIntent>>(new Map());
+  const workerLogicPositionRef = useRef<Map<string, THREE.Vector3>>(new Map());
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -451,6 +452,37 @@ export function NpcRenderer({
   });
 
   const resolveFrameCameraPos = () => cameraPosition || (camera ? camera.position : undefined);
+  const isWorkerDrivenNpc = (npcGroup: THREE.Group) =>
+    NPC_WORKER_AUTHORITATIVE && playerGroupRef.current !== npcGroup;
+  const restoreWorkerLogicPositions = () => {
+    const loaded = loadedNpcsRef.current;
+    const logicPos = workerLogicPositionRef.current;
+    for (const [npcId, npcGroup] of loaded.entries()) {
+      if (!isWorkerDrivenNpc(npcGroup)) {
+        logicPos.delete(npcId);
+        continue;
+      }
+      const p = logicPos.get(npcId);
+      if (!p) continue;
+      npcGroup.position.copy(p);
+    }
+    for (const npcId of logicPos.keys()) {
+      if (!loaded.has(npcId)) logicPos.delete(npcId);
+    }
+  };
+  const captureWorkerLogicPositions = () => {
+    const loaded = loadedNpcsRef.current;
+    const logicPos = workerLogicPositionRef.current;
+    for (const [npcId, npcGroup] of loaded.entries()) {
+      if (!isWorkerDrivenNpc(npcGroup)) {
+        logicPos.delete(npcId);
+        continue;
+      }
+      const existing = logicPos.get(npcId);
+      if (existing) existing.copy(npcGroup.position);
+      else logicPos.set(npcId, npcGroup.position.clone());
+    }
+  };
 
   const applyMoveConstraintForTick = (
     npcGroup: THREE.Group,
@@ -458,7 +490,7 @@ export function NpcRenderer({
     desiredZ: number,
     deltaSeconds: number,
   ) => {
-    if (!NPC_WORKER_AUTHORITATIVE) {
+    if (!isWorkerDrivenNpc(npcGroup)) {
       return applyMoveConstraint(npcGroup, desiredX, desiredZ, deltaSeconds);
     }
 
@@ -493,9 +525,10 @@ export function NpcRenderer({
     return { moved };
   };
 
-  const trySnapNpcToGroundForTick = NPC_WORKER_AUTHORITATIVE
-    ? (_npcGroup: THREE.Group) => true
-    : trySnapNpcToGroundWithRapier;
+  const trySnapNpcToGroundForTick = (npcGroup: THREE.Group) => {
+    if (!isWorkerDrivenNpc(npcGroup)) return trySnapNpcToGroundWithRapier(npcGroup);
+    return true;
+  };
 
   const tickNpc = createTickNpc({
     loadedNpcsRef,
@@ -533,6 +566,7 @@ export function NpcRenderer({
   // Frame pipeline: keep stages explicit to reduce cognitive load and side-effect coupling.
   useFrame((_state, delta) => {
     if (NPC_WORKER_AUTHORITATIVE) workerFrameIntentsRef.current.clear();
+    if (NPC_WORKER_AUTHORITATIVE) restoreWorkerLogicPositions();
     const frameCtx: FrameContext = {
       loadedNpcsRef,
       waypointMoverRef,
@@ -564,12 +598,14 @@ export function NpcRenderer({
     if (!cameraPos) return;
 
     tickNpc(delta, physicsFrame, cameraPos);
+    if (NPC_WORKER_AUTHORITATIVE) captureWorkerLogicPositions();
 
     const workerClient = npcPhysicsWorkerClientRef.current;
     if (workerClient) {
       const intents: NpcIntent[] = [];
       if (NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+          if (!isWorkerDrivenNpc(npcGroup)) continue;
           const fromTick = workerFrameIntentsRef.current.get(npcId);
           if (fromTick) intents.push(fromTick);
           else {
@@ -602,28 +638,29 @@ export function NpcRenderer({
         NPC_WORKER_INTERPOLATION_DELAY_MS,
       );
       const sampledLatest = NPC_WORKER_AUTHORITATIVE ? workerClient.sampleLatestStates() : null;
-      if (sampledLatest && NPC_WORKER_AUTHORITATIVE) {
+      if (sampledPairs && NPC_WORKER_AUTHORITATIVE) {
+        for (const [npcId, pair] of sampledPairs.entries()) {
+          const npcGroup = loadedNpcsRef.current.get(npcId);
+          if (!npcGroup) continue;
+          if (!isWorkerDrivenNpc(npcGroup)) continue;
+          npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
+          npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
+          npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
+        }
+      } else if (sampledLatest && NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, latest] of sampledLatest.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
-          const dx = latest.px - npcGroup.position.x;
-          const dy = latest.py - npcGroup.position.y;
-          const dz = latest.pz - npcGroup.position.z;
-          const err = Math.hypot(dx, dz);
-          // Bridge mode: keep local XZ movement responsive and use worker state for
-          // coarse correction only. This avoids per-frame pullback jitter/slowdown.
-          if (err > 80) {
-            npcGroup.position.x = latest.px;
-            npcGroup.position.y = latest.py;
-            npcGroup.position.z = latest.pz;
-          } else {
-            npcGroup.position.y += dy;
-          }
+          if (!isWorkerDrivenNpc(npcGroup)) continue;
+          npcGroup.position.x = latest.px;
+          npcGroup.position.y = latest.py;
+          npcGroup.position.z = latest.pz;
         }
       } else if (sampledPairs && !NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, pair] of sampledPairs.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
+          if (!isWorkerDrivenNpc(npcGroup)) continue;
           npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
           npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
           npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
