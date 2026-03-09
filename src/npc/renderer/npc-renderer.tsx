@@ -35,6 +35,8 @@ import { useNpcManualControl } from "./hooks/use-npc-manual-control";
 import { useNpcAnimationState } from "./hooks/use-npc-animation-state";
 import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
 import { useNpcStreaming } from "./hooks/use-npc-streaming";
+import { NpcPhysicsWorkerClient } from "../physics/npc-physics-worker-client";
+import type { NpcIntent } from "../physics/npc-physics-worker-protocol";
 import {
   type FrameContext,
   tickCombatStage,
@@ -95,6 +97,8 @@ export function NpcRenderer({
   hideHero = false,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
+  const NPC_WORKER_INTERPOLATION_DELAY_MS = 20;
+  const NPC_WORKER_APPLY_TO_TRANSFORMS = false;
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
   const playerInput = usePlayerInput();
@@ -113,6 +117,7 @@ export function NpcRenderer({
   const waypointMoverRef = useRef<WaypointMover | null>(null);
   const physicsFrameRef = useRef(0);
   const playerGroupRef = useRef<THREE.Group | null>(null);
+  const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -130,6 +135,21 @@ export function NpcRenderer({
     showGroundProbeRay,
     showJumpDebugRange,
   });
+
+  useEffect(() => {
+    if (!enabled) {
+      npcPhysicsWorkerClientRef.current?.stop();
+      npcPhysicsWorkerClientRef.current = null;
+      return;
+    }
+    const client = new NpcPhysicsWorkerClient();
+    client.start();
+    npcPhysicsWorkerClientRef.current = client;
+    return () => {
+      client.stop();
+      if (npcPhysicsWorkerClientRef.current === client) npcPhysicsWorkerClientRef.current = null;
+    };
+  }, [enabled]);
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(
@@ -497,6 +517,36 @@ export function NpcRenderer({
     if (!cameraPos) return;
 
     tickNpc(delta, physicsFrame, cameraPos);
+
+    const workerClient = npcPhysicsWorkerClientRef.current;
+    if (workerClient) {
+      const intents: NpcIntent[] = [];
+      for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+        intents.push({
+          npcId,
+          inputSeq: physicsFrame,
+          desiredX: npcGroup.position.x,
+          desiredZ: npcGroup.position.z,
+          jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
+        });
+      }
+      workerClient.pushIntents(physicsFrame, intents);
+
+      const sampledPairs = workerClient.samplePairs(
+        performance.now(),
+        NPC_WORKER_INTERPOLATION_DELAY_MS,
+      );
+      if (sampledPairs && NPC_WORKER_APPLY_TO_TRANSFORMS) {
+        for (const [npcId, pair] of sampledPairs.entries()) {
+          const npcGroup = loadedNpcsRef.current.get(npcId);
+          if (!npcGroup) continue;
+          npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
+          npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
+          npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
+        }
+      }
+    }
+
     tickCombatStage({
       delta,
       loadedNpcsRef,
