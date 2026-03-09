@@ -37,7 +37,6 @@ import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
 import { useNpcStreaming } from "./hooks/use-npc-streaming";
 import { NpcPhysicsWorkerClient } from "../physics/npc-physics-worker-client";
 import type { NpcIntent } from "../physics/npc-physics-worker-protocol";
-import { npcPhysicsDebugLog } from "../physics/npc-physics-debug";
 import {
   type FrameContext,
   tickCombatStage,
@@ -120,27 +119,6 @@ export function NpcRenderer({
   const playerGroupRef = useRef<THREE.Group | null>(null);
   const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
   const workerFrameIntentsRef = useRef<Map<string, NpcIntent>>(new Map());
-  const heroWorkerIntentLogAtMsRef = useRef(0);
-  const heroWorkerApplyLogAtMsRef = useRef(0);
-  const heroWorkerDiagRef = useRef<{
-    windowStartMs: number;
-    intentCount: number;
-    applyCount: number;
-    intentDistSum: number;
-    appliedDistSum: number;
-    lastAppliedPos: { x: number; y: number; z: number } | null;
-    lastIntent: { desiredX: number; desiredY: number; desiredZ: number; moved: boolean } | null;
-    lastApplied: { x: number; y: number; z: number; alpha: number } | null;
-  }>({
-    windowStartMs: performance.now(),
-    intentCount: 0,
-    applyCount: 0,
-    intentDistSum: 0,
-    appliedDistSum: 0,
-    lastAppliedPos: null,
-    lastIntent: null,
-    lastApplied: null,
-  });
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -512,42 +490,6 @@ export function NpcRenderer({
       npcGroup.position.x = desiredX;
       npcGroup.position.z = desiredZ;
     }
-
-    if (playerGroupRef.current === npcGroup) {
-      const nowMs = performance.now();
-      const diag = heroWorkerDiagRef.current;
-      diag.intentCount += 1;
-      if (moved) {
-        diag.intentDistSum += Math.hypot(
-          desiredX - npcGroup.position.x,
-          desiredZ - npcGroup.position.z,
-        );
-      }
-      diag.lastIntent = {
-        desiredX,
-        desiredY: npcGroup.position.y,
-        desiredZ,
-        moved,
-      };
-      if (nowMs - heroWorkerIntentLogAtMsRef.current > 1200) {
-        heroWorkerIntentLogAtMsRef.current = nowMs;
-        npcPhysicsDebugLog(
-          "[NPCHeroWorkerIntentJSON]" +
-            JSON.stringify({
-              t: nowMs,
-              frame: physicsFrameRef.current,
-              moved,
-              current: {
-                x: npcGroup.position.x,
-                y: npcGroup.position.y,
-                z: npcGroup.position.z,
-              },
-              desired: { x: desiredX, y: npcGroup.position.y, z: desiredZ },
-              intent,
-            }),
-        );
-      }
-    }
     return { moved };
   };
 
@@ -677,49 +619,6 @@ export function NpcRenderer({
           } else {
             npcGroup.position.y += dy;
           }
-
-          const isHero = playerGroupRef.current === npcGroup;
-          if (isHero) {
-            const nowMs = performance.now();
-            const diag = heroWorkerDiagRef.current;
-            diag.applyCount += 1;
-            if (diag.lastAppliedPos) {
-              diag.appliedDistSum += Math.hypot(
-                npcGroup.position.x - diag.lastAppliedPos.x,
-                npcGroup.position.z - diag.lastAppliedPos.z,
-              );
-            }
-            diag.lastAppliedPos = {
-              x: npcGroup.position.x,
-              y: npcGroup.position.y,
-              z: npcGroup.position.z,
-            };
-            diag.lastApplied = {
-              x: npcGroup.position.x,
-              y: npcGroup.position.y,
-              z: npcGroup.position.z,
-              alpha: 1,
-            };
-            if (nowMs - heroWorkerApplyLogAtMsRef.current > 1200) {
-              heroWorkerApplyLogAtMsRef.current = nowMs;
-              npcPhysicsDebugLog(
-                "[NPCHeroWorkerApplyJSON]" +
-                  JSON.stringify({
-                    t: nowMs,
-                    frame: physicsFrame,
-                    npcId,
-                    alpha: 1,
-                    prev: null,
-                    next: { x: latest.px, y: latest.py, z: latest.pz },
-                    applied: {
-                      x: npcGroup.position.x,
-                      y: npcGroup.position.y,
-                      z: npcGroup.position.z,
-                    },
-                  }),
-              );
-            }
-          }
         }
       } else if (sampledPairs && !NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, pair] of sampledPairs.entries()) {
@@ -728,39 +627,6 @@ export function NpcRenderer({
           npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
           npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
           npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
-        }
-      }
-
-      const hero = playerGroupRef.current;
-      if (hero) {
-        const nowMs = performance.now();
-        const diag = heroWorkerDiagRef.current;
-        if (nowMs - diag.windowStartMs >= 1000) {
-          const ratio =
-            diag.intentDistSum > 1e-6
-              ? diag.appliedDistSum / Math.max(1e-6, diag.intentDistSum)
-              : null;
-          npcPhysicsDebugLog(
-            "[NPCHeroWorkerDiag1sJSON]" +
-              JSON.stringify({
-                t: nowMs,
-                frame: physicsFrame,
-                npcId: (hero.userData as any)?.npcId ?? null,
-                pos: { x: hero.position.x, y: hero.position.y, z: hero.position.z },
-                intentCount: diag.intentCount,
-                applyCount: diag.applyCount,
-                intentDistSum: diag.intentDistSum,
-                appliedDistSum: diag.appliedDistSum,
-                appliedToIntentRatio: ratio,
-                lastIntent: diag.lastIntent,
-                lastApplied: diag.lastApplied,
-              }),
-          );
-          diag.windowStartMs = nowMs;
-          diag.intentCount = 0;
-          diag.applyCount = 0;
-          diag.intentDistSum = 0;
-          diag.appliedDistSum = 0;
         }
       }
     }
