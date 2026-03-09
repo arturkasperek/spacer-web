@@ -670,16 +670,17 @@ export function NpcRenderer({
             const dy = latest.py - npcGroup.position.y;
             const dz = latest.pz - npcGroup.position.z;
             const err = Math.hypot(dx, dz);
-            // Hero prediction: avoid tiny per-frame corrections that look like jitter.
-            if (err > 10) {
+            // Hero prediction in bridge mode:
+            // keep local movement authoritative for responsiveness/speed and only hard-correct
+            // when divergence is clearly abnormal.
+            if (err > 80) {
               npcGroup.position.x = latest.px;
               npcGroup.position.y = latest.py;
               npcGroup.position.z = latest.pz;
-            } else if (err > 1.5) {
-              const k = 0.35;
-              npcGroup.position.x += dx * k;
-              npcGroup.position.y += dy * k;
-              npcGroup.position.z += dz * k;
+            } else {
+              // Keep XZ untouched to avoid per-frame pullback that slows hero movement.
+              // Sync Y only (for future cases where terrain correction comes from worker).
+              npcGroup.position.y += dy;
             }
           } else {
             npcGroup.position.x = latest.px;
