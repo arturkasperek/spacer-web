@@ -27,6 +27,13 @@ ctx.onmessage = (event: MessageEvent<NpcWorkerInboundMessage>) => {
     return;
   }
 
+  if (msg.type === "npc_worker_world_geometry") {
+    runtime.setWorldGeometry(msg.vertices, msg.indices).catch(() => {
+      // Keep worker alive and continue with fallback bridge movement.
+    });
+    return;
+  }
+
   if (msg.type === "npc_intent_batch") {
     if (!isRunning) return;
     runtime.applyIntentBatch(msg.intents, msg.sentAtMs);

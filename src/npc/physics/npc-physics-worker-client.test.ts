@@ -75,6 +75,23 @@ describe("NpcPhysicsWorkerClient", () => {
     );
   });
 
+  it("sends world geometry to worker", () => {
+    const client = new NpcPhysicsWorkerClient();
+    client.start();
+    const vertices = new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    const indices = new Uint32Array([0, 1, 2]);
+    client.setWorldGeometry(vertices, indices);
+
+    expect(createdWorkers[0]?.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "npc_worker_world_geometry",
+        vertices: expect.any(ArrayBuffer),
+        indices: expect.any(ArrayBuffer),
+      }),
+      expect.any(Array),
+    );
+  });
+
   it("stores incoming snapshots and returns sampled pairs", () => {
     const perfSpy = jest.spyOn(performance, "now");
     perfSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1016.67);
@@ -168,12 +185,24 @@ describe("NpcPhysicsWorkerClient", () => {
   it("reconnects worker when worker emits error", () => {
     const client = new NpcPhysicsWorkerClient();
     client.start();
+    client.setWorldGeometry(
+      new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]),
+      new Uint32Array([0, 1, 2]),
+    );
 
     createdWorkers[0]?.onerror?.(new Event("error"));
 
     expect(global.Worker).toHaveBeenCalledTimes(2);
     expect(createdWorkers[0]?.terminate).toHaveBeenCalledTimes(1);
     expect(createdWorkers[1]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
+    expect(createdWorkers[1]?.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "npc_worker_world_geometry",
+        vertices: expect.any(ArrayBuffer),
+        indices: expect.any(ArrayBuffer),
+      }),
+      expect.any(Array),
+    );
     const diag = client.getDiagnostics();
     expect(diag.workerErrorCount).toBe(1);
     expect(diag.reconnectCount).toBe(1);

@@ -63,6 +63,7 @@ export interface NpcRendererProps {
   showGroundProbeRay?: boolean;
   showJumpDebugRange?: boolean;
   hideHero?: boolean;
+  worldColliderData?: { vertices: Float32Array; indices: Uint32Array } | null;
 }
 
 /**
@@ -95,6 +96,7 @@ export function NpcRenderer({
   showGroundProbeRay = false,
   showJumpDebugRange = false,
   hideHero = false,
+  worldColliderData = null,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
   const NPC_WORKER_INTERPOLATION_DELAY_MS = 16;
@@ -120,6 +122,7 @@ export function NpcRenderer({
   const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
   const workerFrameIntentsRef = useRef<Map<string, NpcIntent>>(new Map());
   const workerLogicPositionRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  const workerWorldGeometrySentRef = useRef(false);
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -142,16 +145,26 @@ export function NpcRenderer({
     if (!enabled) {
       npcPhysicsWorkerClientRef.current?.stop();
       npcPhysicsWorkerClientRef.current = null;
+      workerWorldGeometrySentRef.current = false;
       return;
     }
     const client = new NpcPhysicsWorkerClient();
     client.start();
     npcPhysicsWorkerClientRef.current = client;
+    workerWorldGeometrySentRef.current = false;
     return () => {
       client.stop();
       if (npcPhysicsWorkerClientRef.current === client) npcPhysicsWorkerClientRef.current = null;
+      workerWorldGeometrySentRef.current = false;
     };
   }, [enabled]);
+
+  useEffect(() => {
+    workerWorldGeometrySentRef.current = false;
+  }, [world]);
+  useEffect(() => {
+    workerWorldGeometrySentRef.current = false;
+  }, [worldColliderData]);
 
   const allNpcsRef = useRef<Array<{ npcData: NpcData; position: THREE.Vector3; waybox: Aabb }>>([]); // All NPC data
   const allNpcsByIdRef = useRef(
@@ -514,14 +527,6 @@ export function NpcRenderer({
       jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
     };
     workerFrameIntentsRef.current.set(npcId, intent);
-
-    // Keep local transform in sync with intended movement so multi-substep motion logic inside `tickNpc`
-    // can accumulate movement within a single frame (it expects `applyMoveConstraint` to mutate position).
-    // Worker snapshots remain authoritative and will reconcile this on the next apply.
-    if (moved) {
-      npcGroup.position.x = desiredX;
-      npcGroup.position.z = desiredZ;
-    }
     return { moved };
   };
 
@@ -602,6 +607,13 @@ export function NpcRenderer({
 
     const workerClient = npcPhysicsWorkerClientRef.current;
     if (workerClient) {
+      if (!workerWorldGeometrySentRef.current && worldColliderData) {
+        const { vertices, indices } = worldColliderData;
+        if (vertices.length > 0 && indices.length > 0) {
+          workerClient.setWorldGeometry(vertices, indices);
+          workerWorldGeometrySentRef.current = true;
+        }
+      }
       const intents: NpcIntent[] = [];
       if (NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {

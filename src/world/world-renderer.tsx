@@ -15,12 +15,14 @@ function WorldRenderer({
   onWorldLoaded,
   onNpcSpawn,
   onItemSpawn,
+  onWorldColliderData,
 }: Readonly<{
   worldPath: string;
   onLoadingStatus: (status: string) => void;
   onWorldLoaded?: (world: World, zenKit: ZenKit) => void;
   onNpcSpawn?: NpcSpawnCallback;
   onItemSpawn?: ItemSpawnCallback;
+  onWorldColliderData?: (data: { vertices: Float32Array; indices: Uint32Array } | null) => void;
 }>) {
   const { world: rapierWorld, rapier } = useRapier();
   const meshRef = useRef<THREE.Mesh>(null);
@@ -230,8 +232,10 @@ function WorldRenderer({
           }
 
           setWorldColliderData({ vertices: outVertices, indices: outIndices });
+          onWorldColliderData?.({ vertices: outVertices, indices: outIndices });
         } catch (e) {
           console.warn("[World] Failed to build Rapier trimesh collider:", e);
+          onWorldColliderData?.(null);
         }
 
         setWorldMesh(threeMesh);
@@ -291,7 +295,7 @@ function WorldRenderer({
     };
 
     loadWorld();
-  }, [worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn, onItemSpawn]);
+  }, [worldPath, onLoadingStatus, onWorldLoaded, onNpcSpawn, onItemSpawn, onWorldColliderData]);
 
   return worldMesh ? <primitive object={worldMesh as THREE.Object3D} ref={meshRef} /> : null;
 }

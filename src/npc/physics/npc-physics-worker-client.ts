@@ -28,6 +28,7 @@ export class NpcPhysicsWorkerClient {
   private worker: Worker | null = null;
   private readonly stateBuffer = createNpcStateBuffer(128);
   private workerToMainTimeOffsetMs: number | null = null;
+  private worldGeometry: { vertices: Float32Array; indices: Uint32Array } | null = null;
   private reconnectCount = 0;
   private workerErrorCount = 0;
   private snapshotReceivedCount = 0;
@@ -73,6 +74,12 @@ export class NpcPhysicsWorkerClient {
       intents,
     });
     this.maybeReconnectForStaleSnapshot();
+  }
+
+  setWorldGeometry(vertices: Float32Array, indices: Uint32Array) {
+    this.worldGeometry = { vertices: vertices.slice(), indices: indices.slice() };
+    if (!this.worker) return;
+    this.postWorldGeometry();
   }
 
   samplePairs(nowMs: number, interpolationDelayMs: number) {
@@ -138,6 +145,7 @@ export class NpcPhysicsWorkerClient {
     };
     this.worker = worker;
     this.post({ type: "npc_worker_init" });
+    this.postWorldGeometry();
   }
 
   private reconnectWorker() {
@@ -167,5 +175,20 @@ export class NpcPhysicsWorkerClient {
   private post(msg: NpcWorkerInboundMessage) {
     if (!this.worker) return;
     this.worker.postMessage(msg);
+  }
+
+  private postWorldGeometry() {
+    if (!this.worker) return;
+    if (!this.worldGeometry) return;
+    const verts = this.worldGeometry.vertices.slice();
+    const inds = this.worldGeometry.indices.slice();
+    this.worker.postMessage(
+      {
+        type: "npc_worker_world_geometry",
+        vertices: verts.buffer,
+        indices: inds.buffer,
+      },
+      [verts.buffer, inds.buffer],
+    );
   }
 }

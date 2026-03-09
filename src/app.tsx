@@ -78,6 +78,8 @@ function Scene({
   spawnedItems,
   onNpcSpawn,
   onItemSpawn,
+  worldColliderData,
+  onWorldColliderData,
   viewSettings,
 }: Readonly<{
   cameraControlsRef: React.RefObject<CameraControlsRef | null>;
@@ -112,6 +114,8 @@ function Scene({
   spawnedItems: Map<number, SpawnedItemData>;
   onNpcSpawn: NpcSpawnCallback;
   onItemSpawn: ItemSpawnCallback;
+  worldColliderData: { vertices: Float32Array; indices: Uint32Array } | null;
+  onWorldColliderData: (data: { vertices: Float32Array; indices: Uint32Array } | null) => void;
   viewSettings: {
     showWaypoints: boolean;
     showVobSpots: boolean;
@@ -249,6 +253,7 @@ function Scene({
         onWorldLoaded={onWorldLoaded}
         onNpcSpawn={onNpcSpawn}
         onItemSpawn={onItemSpawn}
+        onWorldColliderData={onWorldColliderData}
       />
 
       {/* Camera position tracker */}
@@ -305,6 +310,7 @@ function Scene({
           showGroundProbeRay={viewSettings.showGroundProbeRay}
           showJumpDebugRange={viewSettings.showJumpDebugRange}
           hideHero={viewSettings.hideHero}
+          worldColliderData={worldColliderData}
         />
       )}
     </>
@@ -319,6 +325,10 @@ export function App() {
   const [world, setWorld] = useState<World | null>(null);
   const [zenKit, setZenKit] = useState<ZenKit | null>(null);
   const [cameraPosition, setCameraPosition] = useState(new THREE.Vector3(0, 0, 0));
+  const [worldColliderData, setWorldColliderData] = useState<{
+    vertices: Float32Array;
+    indices: Uint32Array;
+  } | null>(null);
   const [vobStats, setVobStats] = useState<{
     loaded: number;
     total: number;
@@ -351,12 +361,20 @@ export function App() {
     setWorld(loadedWorld);
     setZenKit(loadedZenKit);
     setSpawnedItems(new Map());
+    setWorldColliderData(null);
     setFreepointsWorld(loadedWorld);
   }, []);
 
   const handleCameraPositionChange = useCallback((position: THREE.Vector3) => {
     setCameraPosition(position);
   }, []);
+
+  const handleWorldColliderData = useCallback(
+    (data: { vertices: Float32Array; indices: Uint32Array } | null) => {
+      setWorldColliderData(data);
+    },
+    [],
+  );
 
   const handleVobStats = useCallback(
     (stats: {
@@ -657,6 +675,8 @@ export function App() {
               spawnedItems={spawnedItems}
               onNpcSpawn={handleNpcSpawn}
               onItemSpawn={handleItemSpawn}
+              worldColliderData={worldColliderData}
+              onWorldColliderData={handleWorldColliderData}
               viewSettings={viewSettings}
             />
             <FpsOverlay enabled={viewSettings.showFpsMeter} />

@@ -18,6 +18,12 @@ export type NpcWorkerInitMessage = {
   type: "npc_worker_init";
 };
 
+export type NpcWorkerWorldGeometryMessage = {
+  type: "npc_worker_world_geometry";
+  vertices: ArrayBuffer;
+  indices: ArrayBuffer;
+};
+
 export type NpcWorkerStopMessage = {
   type: "npc_worker_stop";
 };
@@ -25,6 +31,7 @@ export type NpcWorkerStopMessage = {
 export type NpcWorkerInboundMessage =
   | NpcIntentBatchMessage
   | NpcWorkerInitMessage
+  | NpcWorkerWorldGeometryMessage
   | NpcWorkerStopMessage;
 
 export type NpcSnapshotState = {
