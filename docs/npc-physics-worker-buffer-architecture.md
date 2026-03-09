@@ -175,20 +175,31 @@ Niezalecane:
 4. Monotoniczny `simTick` i odrzucanie starych/out-of-order snapshotów.
 5. Soft-correction przy większym drift (zamiast twardego teleportu).
 
+## Testing Requirement
+
+Mechanizm kliszy (`StateBuffer`/interpolacja/fallbacki) powinien być **gęsto pokryty testami jednostkowymi**.
+
+Minimalny zakres UT:
+
+1. Ring buffer overwrite i poprawność indeksowania.
+2. Dobór pary snapshotów `S0/S1` dla `renderTime`.
+3. Interpolacja (`lerp`/`slerp`) dla typowych i brzegowych `alpha` (`0`, `1`, out-of-range clamp).
+4. Obsługa `drop` (brak snapshotu pośredniego).
+5. Obsługa `out-of-order` (odrzucanie starych ticków).
+6. Fallback: krótka ekstrapolacja i soft-correction.
+7. Stabilność przy nieregularnym `delta` renderu.
+
 ## Rollout Plan (Phased)
 
-1. `Phase 0`: Telemetria
-- pomiar czasu `applyMoveConstraint`, liczby NPC, spadków FPS.
-
-2. `Phase 1`: Worker skeleton
+1. `Phase 1`: Worker skeleton
 - kanał `IntentBuffer` + `StateBuffer` bez Rapiera (mock movement).
 
-3. `Phase 2`: Rapier in worker
+2. `Phase 2`: Rapier in worker
 - przeniesienie KCC i ruchu NPC.
 - załadowanie pełnego świata colliderów dla domeny NPC do workera.
 - render nadal na main z interpolacją snapshotów.
 
-4. `Phase 3`: Hardening
+3. `Phase 3`: Hardening
 - timeout intentów, reconnect, snapshot drop handling, profiling.
 
 ## Acceptance Criteria
