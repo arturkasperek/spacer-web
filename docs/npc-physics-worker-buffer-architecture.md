@@ -202,6 +202,24 @@ Minimalny zakres UT:
 3. `Phase 3`: Hardening
 - timeout intentów, reconnect, snapshot drop handling, profiling.
 
+### Phase 3 Implementation Notes
+
+Aktualnie wdrożone:
+
+1. Intent timeout w runtime worker (`intentTimeoutMs`) - stary intent jest wygaszany do `stop`.
+2. Auto-reconnect klienta workera:
+- reconnect po `worker.onerror` i `worker.onmessageerror`,
+- reconnect przy stale snapshotach podczas aktywnego streamu intentów (`snapshotStaleMs`).
+3. Snapshot hardening:
+- odrzucanie out-of-order (`simTick` <= latest),
+- liczenie gapów ticków (`drop`), max obserwowany gap.
+4. Profiling/diagnostics:
+- klient udostępnia liczniki (`reconnectCount`, `workerErrorCount`, `snapshotReceivedCount`, `snapshotOutOfOrderCount`, `snapshotDropGapCount`, `maxObservedTickGap`, ostatnie czasy snapshot/intent).
+5. UT:
+- reconnect flow po error,
+- reconnect flow po stale snapshot,
+- zliczanie `drop` i `out-of-order`.
+
 ## Acceptance Criteria
 
 1. Brak widocznego jittera NPC przy 60 FPS.

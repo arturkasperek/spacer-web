@@ -5,21 +5,26 @@ type MockWorkerInstance = {
   postMessage: jest.Mock;
   terminate: jest.Mock;
   onmessage: ((event: MessageEvent<NpcSnapshotMessage>) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onmessageerror: ((event: MessageEvent<any>) => void) | null;
 };
 
 describe("NpcPhysicsWorkerClient", () => {
   const originalWorker = global.Worker;
-  let createdWorker: MockWorkerInstance | null = null;
+  let createdWorkers: MockWorkerInstance[] = [];
 
   beforeEach(() => {
-    createdWorker = null;
+    createdWorkers = [];
     const WorkerMock = jest.fn().mockImplementation(() => {
-      createdWorker = {
+      const worker: MockWorkerInstance = {
         postMessage: jest.fn(),
         terminate: jest.fn(),
         onmessage: null,
+        onerror: null,
+        onmessageerror: null,
       };
-      return createdWorker;
+      createdWorkers.push(worker);
+      return worker;
     });
     (global as any).Worker = WorkerMock;
   });
@@ -33,8 +38,8 @@ describe("NpcPhysicsWorkerClient", () => {
     client.start();
 
     expect(global.Worker).toHaveBeenCalledTimes(1);
-    expect(createdWorker).not.toBeNull();
-    expect(createdWorker?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
+    expect(createdWorkers[0]).toBeDefined();
+    expect(createdWorkers[0]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
   });
 
   it("pushes intent batch to worker", () => {
@@ -52,7 +57,7 @@ describe("NpcPhysicsWorkerClient", () => {
       },
     ]);
 
-    expect(createdWorker?.postMessage).toHaveBeenCalledWith(
+    expect(createdWorkers[0]?.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "npc_intent_batch",
         frameId: 7,
@@ -103,10 +108,10 @@ describe("NpcPhysicsWorkerClient", () => {
       ],
     });
 
-    createdWorker?.onmessage?.({
+    createdWorkers[0]?.onmessage?.({
       data: mkSnapshot(10, 1000, 10),
     } as MessageEvent<NpcSnapshotMessage>);
-    createdWorker?.onmessage?.({
+    createdWorkers[0]?.onmessage?.({
       data: mkSnapshot(11, 1016.67, 20),
     } as MessageEvent<NpcSnapshotMessage>);
 
@@ -124,8 +129,8 @@ describe("NpcPhysicsWorkerClient", () => {
     client.start();
     client.stop();
 
-    expect(createdWorker?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_stop" });
-    expect(createdWorker?.terminate).toHaveBeenCalledTimes(1);
+    expect(createdWorkers[0]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_stop" });
+    expect(createdWorkers[0]?.terminate).toHaveBeenCalledTimes(1);
 
     const sampledAfterStop = client.samplePairs(1000, 20);
     expect(sampledAfterStop).toBeNull();
@@ -134,13 +139,13 @@ describe("NpcPhysicsWorkerClient", () => {
   it("handles start/stop/start lifecycle race safely", () => {
     const client = new NpcPhysicsWorkerClient();
     client.start();
-    const firstWorker = createdWorker;
+    const firstWorker = createdWorkers[0];
     client.stop();
     client.start();
 
     expect(global.Worker).toHaveBeenCalledTimes(2);
     expect(firstWorker?.terminate).toHaveBeenCalledTimes(1);
-    expect(createdWorker?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
+    expect(createdWorkers[1]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
   });
 
   it("no-ops pushIntents when worker is not started", () => {
@@ -157,6 +162,101 @@ describe("NpcPhysicsWorkerClient", () => {
         },
       ]),
     ).not.toThrow();
-    expect(createdWorker).toBeNull();
+    expect(createdWorkers.length).toBe(0);
+  });
+
+  it("reconnects worker when worker emits error", () => {
+    const client = new NpcPhysicsWorkerClient();
+    client.start();
+
+    createdWorkers[0]?.onerror?.(new Event("error"));
+
+    expect(global.Worker).toHaveBeenCalledTimes(2);
+    expect(createdWorkers[0]?.terminate).toHaveBeenCalledTimes(1);
+    expect(createdWorkers[1]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
+    const diag = client.getDiagnostics();
+    expect(diag.workerErrorCount).toBe(1);
+    expect(diag.reconnectCount).toBe(1);
+  });
+
+  it("detects out-of-order and dropped snapshot gaps in diagnostics", () => {
+    const perfSpy = jest.spyOn(performance, "now");
+    perfSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1010)
+      .mockReturnValueOnce(1020)
+      .mockReturnValueOnce(1030);
+
+    const client = new NpcPhysicsWorkerClient();
+    client.start();
+    const worker = createdWorkers[0];
+    worker?.onmessage?.({
+      data: {
+        type: "npc_snapshot",
+        simTick: 10,
+        simTimeMs: 1000,
+        generatedAtMs: 1000,
+        states: [],
+      },
+    } as unknown as MessageEvent<NpcSnapshotMessage>);
+    worker?.onmessage?.({
+      data: {
+        type: "npc_snapshot",
+        simTick: 13,
+        simTimeMs: 1016.67,
+        generatedAtMs: 1016.67,
+        states: [],
+      },
+    } as unknown as MessageEvent<NpcSnapshotMessage>);
+    worker?.onmessage?.({
+      data: {
+        type: "npc_snapshot",
+        simTick: 12,
+        simTimeMs: 1033.34,
+        generatedAtMs: 1033.34,
+        states: [],
+      },
+    } as unknown as MessageEvent<NpcSnapshotMessage>);
+
+    const diag = client.getDiagnostics();
+    expect(diag.snapshotReceivedCount).toBe(3);
+    expect(diag.snapshotDropGapCount).toBe(1);
+    expect(diag.snapshotOutOfOrderCount).toBeGreaterThan(0);
+    expect(diag.maxObservedTickGap).toBe(3);
+    perfSpy.mockRestore();
+  });
+
+  it("reconnects when snapshots become stale while intents are being sent", () => {
+    const perfSpy = jest.spyOn(performance, "now");
+    perfSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1601);
+
+    const client = new NpcPhysicsWorkerClient({ snapshotStaleMs: 500 });
+    client.start();
+    createdWorkers[0]?.onmessage?.({
+      data: {
+        type: "npc_snapshot",
+        simTick: 1,
+        simTimeMs: 1000,
+        generatedAtMs: 1000,
+        states: [],
+      },
+    } as unknown as MessageEvent<NpcSnapshotMessage>);
+
+    client.pushIntents(2, [
+      {
+        npcId: "npc-1",
+        inputSeq: 2,
+        desiredX: 1,
+        desiredY: 0,
+        desiredZ: 0,
+        jumpRequested: false,
+      },
+    ]);
+
+    expect(global.Worker).toHaveBeenCalledTimes(2);
+    expect(createdWorkers[0]?.terminate).toHaveBeenCalledTimes(1);
+    expect(createdWorkers[1]?.postMessage).toHaveBeenCalledWith({ type: "npc_worker_init" });
+    expect(client.getDiagnostics().reconnectCount).toBe(1);
+    perfSpy.mockRestore();
   });
 });
