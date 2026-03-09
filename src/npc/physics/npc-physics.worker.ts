@@ -4,25 +4,12 @@ import type { NpcSnapshotMessage, NpcWorkerInboundMessage } from "./npc-physics-
 import { createNpcPhysicsWorkerRuntime } from "./npc-physics-worker-runtime";
 
 const ctx: DedicatedWorkerGlobalScope = self as DedicatedWorkerGlobalScope;
-let timerId: number | null = null;
 const runtime = createNpcPhysicsWorkerRuntime();
-const TICK_MS = 1000 / 60;
+let isRunning = false;
 
-const tick = () => {
-  runtime.tick();
-  const msg: NpcSnapshotMessage = runtime.makeSnapshot();
+const publishSnapshot = (nowMs?: number) => {
+  const msg: NpcSnapshotMessage = runtime.makeSnapshot(nowMs);
   ctx.postMessage(msg);
-};
-
-const startLoop = () => {
-  if (timerId != null) return;
-  timerId = ctx.setInterval(tick, TICK_MS);
-};
-
-const stopLoop = () => {
-  if (timerId == null) return;
-  ctx.clearInterval(timerId);
-  timerId = null;
 };
 
 ctx.onmessage = (event: MessageEvent<NpcWorkerInboundMessage>) => {
@@ -30,18 +17,21 @@ ctx.onmessage = (event: MessageEvent<NpcWorkerInboundMessage>) => {
   if (!msg) return;
 
   if (msg.type === "npc_worker_init") {
-    startLoop();
+    isRunning = true;
     return;
   }
 
   if (msg.type === "npc_worker_stop") {
-    stopLoop();
+    isRunning = false;
     runtime.clear();
     return;
   }
 
   if (msg.type === "npc_intent_batch") {
+    if (!isRunning) return;
     runtime.applyIntentBatch(msg.intents, msg.sentAtMs);
+    runtime.tick(msg.sentAtMs);
+    publishSnapshot(msg.sentAtMs);
   }
 };
 

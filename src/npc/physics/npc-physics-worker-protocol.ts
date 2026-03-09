@@ -2,6 +2,7 @@ export type NpcIntent = {
   npcId: string;
   inputSeq: number;
   desiredX: number;
+  desiredY: number;
   desiredZ: number;
   jumpRequested: boolean;
 };

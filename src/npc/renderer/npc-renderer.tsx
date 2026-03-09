@@ -37,6 +37,7 @@ import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
 import { useNpcStreaming } from "./hooks/use-npc-streaming";
 import { NpcPhysicsWorkerClient } from "../physics/npc-physics-worker-client";
 import type { NpcIntent } from "../physics/npc-physics-worker-protocol";
+import { npcPhysicsDebugLog } from "../physics/npc-physics-debug";
 import {
   type FrameContext,
   tickCombatStage,
@@ -97,8 +98,8 @@ export function NpcRenderer({
   hideHero = false,
 }: NpcRendererProps) {
   const { scene, camera } = useThree();
-  const NPC_WORKER_INTERPOLATION_DELAY_MS = 20;
-  const NPC_WORKER_APPLY_TO_TRANSFORMS = false;
+  const NPC_WORKER_INTERPOLATION_DELAY_MS = 0;
+  const NPC_WORKER_AUTHORITATIVE = true;
   const npcsGroupRef = useRef<THREE.Group | null>(null);
   const worldTime = useWorldTime();
   const playerInput = usePlayerInput();
@@ -118,6 +119,28 @@ export function NpcRenderer({
   const physicsFrameRef = useRef(0);
   const playerGroupRef = useRef<THREE.Group | null>(null);
   const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
+  const workerFrameIntentsRef = useRef<Map<string, NpcIntent>>(new Map());
+  const heroWorkerIntentLogAtMsRef = useRef(0);
+  const heroWorkerApplyLogAtMsRef = useRef(0);
+  const heroWorkerDiagRef = useRef<{
+    windowStartMs: number;
+    intentCount: number;
+    applyCount: number;
+    intentDistSum: number;
+    appliedDistSum: number;
+    lastAppliedPos: { x: number; y: number; z: number } | null;
+    lastIntent: { desiredX: number; desiredY: number; desiredZ: number; moved: boolean } | null;
+    lastApplied: { x: number; y: number; z: number; alpha: number } | null;
+  }>({
+    windowStartMs: performance.now(),
+    intentCount: 0,
+    applyCount: 0,
+    intentDistSum: 0,
+    appliedDistSum: 0,
+    lastAppliedPos: null,
+    lastIntent: null,
+    lastApplied: null,
+  });
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
   const loadedNpcsRef = useRef(new Map<string, THREE.Group>()); // npc id -> THREE.Group
@@ -451,6 +474,87 @@ export function NpcRenderer({
 
   const resolveFrameCameraPos = () => cameraPosition || (camera ? camera.position : undefined);
 
+  const applyMoveConstraintForTick = (
+    npcGroup: THREE.Group,
+    desiredX: number,
+    desiredZ: number,
+    deltaSeconds: number,
+  ) => {
+    if (!NPC_WORKER_AUTHORITATIVE) {
+      return applyMoveConstraint(npcGroup, desiredX, desiredZ, deltaSeconds);
+    }
+
+    const npcData = (npcGroup.userData as any)?.npcData as NpcData | undefined;
+    const npcId = getNpcRuntimeId(npcData);
+    const moved =
+      Math.abs(desiredX - npcGroup.position.x) > 1e-6 ||
+      Math.abs(desiredZ - npcGroup.position.z) > 1e-6;
+    const existing = workerFrameIntentsRef.current.get(npcId);
+    // `tickNpc` issues a final keepalive call with desired == current position.
+    // In worker-authoritative mode this would otherwise overwrite a real movement intent
+    // computed earlier in the same frame (e.g. manual hero movement).
+    if (!moved && existing) return { moved: false };
+
+    const intent: NpcIntent = {
+      npcId,
+      inputSeq: physicsFrameRef.current,
+      desiredX,
+      desiredY: npcGroup.position.y,
+      desiredZ,
+      jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
+    };
+    workerFrameIntentsRef.current.set(npcId, intent);
+
+    // Keep local transform in sync with intended movement so multi-substep motion logic inside `tickNpc`
+    // can accumulate movement within a single frame (it expects `applyMoveConstraint` to mutate position).
+    // Worker snapshots remain authoritative and will reconcile this on the next apply.
+    if (moved) {
+      npcGroup.position.x = desiredX;
+      npcGroup.position.z = desiredZ;
+    }
+
+    if (playerGroupRef.current === npcGroup) {
+      const nowMs = performance.now();
+      const diag = heroWorkerDiagRef.current;
+      diag.intentCount += 1;
+      if (moved) {
+        diag.intentDistSum += Math.hypot(
+          desiredX - npcGroup.position.x,
+          desiredZ - npcGroup.position.z,
+        );
+      }
+      diag.lastIntent = {
+        desiredX,
+        desiredY: npcGroup.position.y,
+        desiredZ,
+        moved,
+      };
+      if (nowMs - heroWorkerIntentLogAtMsRef.current > 1200) {
+        heroWorkerIntentLogAtMsRef.current = nowMs;
+        npcPhysicsDebugLog(
+          "[NPCHeroWorkerIntentJSON]" +
+            JSON.stringify({
+              t: nowMs,
+              frame: physicsFrameRef.current,
+              moved,
+              current: {
+                x: npcGroup.position.x,
+                y: npcGroup.position.y,
+                z: npcGroup.position.z,
+              },
+              desired: { x: desiredX, y: npcGroup.position.y, z: desiredZ },
+              intent,
+            }),
+        );
+      }
+    }
+    return { moved };
+  };
+
+  const trySnapNpcToGroundForTick = NPC_WORKER_AUTHORITATIVE
+    ? (_npcGroup: THREE.Group) => true
+    : trySnapNpcToGroundWithRapier;
+
   const tickNpc = createTickNpc({
     loadedNpcsRef,
     getNpcVisualRoot,
@@ -460,7 +564,7 @@ export function NpcRenderer({
     ensureJumpDebugLabel,
     attachCombatBindings,
     manualControlHeroEnabled,
-    trySnapNpcToGroundWithRapier,
+    trySnapNpcToGroundWithRapier: trySnapNpcToGroundForTick,
     playerInput,
     manualAttackSeqRef,
     manualAttackSeqAppliedRef,
@@ -475,7 +579,7 @@ export function NpcRenderer({
     tmpEmRootMotionWorld,
     tmpManualDesiredQuat,
     tmpManualUp,
-    applyMoveConstraint,
+    applyMoveConstraint: applyMoveConstraintForTick,
     waypointMoverRef,
     estimateAnimationDurationMs,
     getNearestWaypointDirectionQuat,
@@ -486,6 +590,7 @@ export function NpcRenderer({
 
   // Frame pipeline: keep stages explicit to reduce cognitive load and side-effect coupling.
   useFrame((_state, delta) => {
+    if (NPC_WORKER_AUTHORITATIVE) workerFrameIntentsRef.current.clear();
     const frameCtx: FrameContext = {
       loadedNpcsRef,
       waypointMoverRef,
@@ -521,14 +626,32 @@ export function NpcRenderer({
     const workerClient = npcPhysicsWorkerClientRef.current;
     if (workerClient) {
       const intents: NpcIntent[] = [];
-      for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
-        intents.push({
-          npcId,
-          inputSeq: physicsFrame,
-          desiredX: npcGroup.position.x,
-          desiredZ: npcGroup.position.z,
-          jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
-        });
+      if (NPC_WORKER_AUTHORITATIVE) {
+        for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+          const fromTick = workerFrameIntentsRef.current.get(npcId);
+          if (fromTick) intents.push(fromTick);
+          else {
+            intents.push({
+              npcId,
+              inputSeq: physicsFrame,
+              desiredX: npcGroup.position.x,
+              desiredY: npcGroup.position.y,
+              desiredZ: npcGroup.position.z,
+              jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
+            });
+          }
+        }
+      } else {
+        for (const [npcId, npcGroup] of loadedNpcsRef.current.entries()) {
+          intents.push({
+            npcId,
+            inputSeq: physicsFrame,
+            desiredX: npcGroup.position.x,
+            desiredY: npcGroup.position.y,
+            desiredZ: npcGroup.position.z,
+            jumpRequested: Boolean((npcGroup.userData as any)?._kccJumpActive),
+          });
+        }
       }
       workerClient.pushIntents(physicsFrame, intents);
 
@@ -536,13 +659,115 @@ export function NpcRenderer({
         performance.now(),
         NPC_WORKER_INTERPOLATION_DELAY_MS,
       );
-      if (sampledPairs && NPC_WORKER_APPLY_TO_TRANSFORMS) {
+      const sampledLatest = NPC_WORKER_AUTHORITATIVE ? workerClient.sampleLatestStates() : null;
+      if (sampledLatest && NPC_WORKER_AUTHORITATIVE) {
+        for (const [npcId, latest] of sampledLatest.entries()) {
+          const npcGroup = loadedNpcsRef.current.get(npcId);
+          if (!npcGroup) continue;
+          const isHero = playerGroupRef.current === npcGroup;
+          if (isHero) {
+            const dx = latest.px - npcGroup.position.x;
+            const dy = latest.py - npcGroup.position.y;
+            const dz = latest.pz - npcGroup.position.z;
+            const err = Math.hypot(dx, dz);
+            // Hero prediction: avoid tiny per-frame corrections that look like jitter.
+            if (err > 10) {
+              npcGroup.position.x = latest.px;
+              npcGroup.position.y = latest.py;
+              npcGroup.position.z = latest.pz;
+            } else if (err > 1.5) {
+              const k = 0.35;
+              npcGroup.position.x += dx * k;
+              npcGroup.position.y += dy * k;
+              npcGroup.position.z += dz * k;
+            }
+          } else {
+            npcGroup.position.x = latest.px;
+            npcGroup.position.y = latest.py;
+            npcGroup.position.z = latest.pz;
+          }
+          if (isHero) {
+            const nowMs = performance.now();
+            const diag = heroWorkerDiagRef.current;
+            diag.applyCount += 1;
+            if (diag.lastAppliedPos) {
+              diag.appliedDistSum += Math.hypot(
+                npcGroup.position.x - diag.lastAppliedPos.x,
+                npcGroup.position.z - diag.lastAppliedPos.z,
+              );
+            }
+            diag.lastAppliedPos = {
+              x: npcGroup.position.x,
+              y: npcGroup.position.y,
+              z: npcGroup.position.z,
+            };
+            diag.lastApplied = {
+              x: npcGroup.position.x,
+              y: npcGroup.position.y,
+              z: npcGroup.position.z,
+              alpha: 1,
+            };
+            if (nowMs - heroWorkerApplyLogAtMsRef.current > 1200) {
+              heroWorkerApplyLogAtMsRef.current = nowMs;
+              npcPhysicsDebugLog(
+                "[NPCHeroWorkerApplyJSON]" +
+                  JSON.stringify({
+                    t: nowMs,
+                    frame: physicsFrame,
+                    npcId,
+                    alpha: 1,
+                    prev: null,
+                    next: { x: latest.px, y: latest.py, z: latest.pz },
+                    applied: {
+                      x: npcGroup.position.x,
+                      y: npcGroup.position.y,
+                      z: npcGroup.position.z,
+                    },
+                  }),
+              );
+            }
+          }
+        }
+      } else if (sampledPairs && !NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, pair] of sampledPairs.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
           npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
           npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
           npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
+        }
+      }
+
+      const hero = playerGroupRef.current;
+      if (hero) {
+        const nowMs = performance.now();
+        const diag = heroWorkerDiagRef.current;
+        if (nowMs - diag.windowStartMs >= 1000) {
+          const ratio =
+            diag.intentDistSum > 1e-6
+              ? diag.appliedDistSum / Math.max(1e-6, diag.intentDistSum)
+              : null;
+          npcPhysicsDebugLog(
+            "[NPCHeroWorkerDiag1sJSON]" +
+              JSON.stringify({
+                t: nowMs,
+                frame: physicsFrame,
+                npcId: (hero.userData as any)?.npcId ?? null,
+                pos: { x: hero.position.x, y: hero.position.y, z: hero.position.z },
+                intentCount: diag.intentCount,
+                applyCount: diag.applyCount,
+                intentDistSum: diag.intentDistSum,
+                appliedDistSum: diag.appliedDistSum,
+                appliedToIntentRatio: ratio,
+                lastIntent: diag.lastIntent,
+                lastApplied: diag.lastApplied,
+              }),
+          );
+          diag.windowStartMs = nowMs;
+          diag.intentCount = 0;
+          diag.applyCount = 0;
+          diag.intentDistSum = 0;
+          diag.appliedDistSum = 0;
         }
       }
     }

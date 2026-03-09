@@ -5,6 +5,7 @@ const mkIntent = (desiredX: number, desiredZ: number): NpcIntent => ({
   npcId: "npc-1",
   inputSeq: 1,
   desiredX,
+  desiredY: 0,
   desiredZ,
   jumpRequested: false,
 });
@@ -22,7 +23,7 @@ describe("npc-physics-worker-runtime", () => {
   });
 
   it("moves toward desired position", () => {
-    const rt = createNpcPhysicsWorkerRuntime({ tickMs: 1000 / 60, maxSpeed: 120, now: () => 1000 });
+    const rt = createNpcPhysicsWorkerRuntime({ tickMs: 1000 / 60, now: () => 1000 });
     rt.applyIntentBatch([mkIntent(0, 0)], 1000);
     rt.tick(1000);
     rt.applyIntentBatch([mkIntent(120, 0)], 1001);
@@ -30,14 +31,13 @@ describe("npc-physics-worker-runtime", () => {
 
     const st = rt.getState("npc-1");
     expect(st).toBeDefined();
-    expect((st?.px ?? 0) > 0).toBe(true);
-    expect(st?.vx).toBe(120);
+    expect(st?.px).toBe(120);
+    expect((st?.vx ?? 0) > 0).toBe(true);
   });
 
   it("expires stale intent by timeout and stops movement", () => {
     const rt = createNpcPhysicsWorkerRuntime({
       tickMs: 1000 / 60,
-      maxSpeed: 120,
       intentTimeoutMs: 50,
       now: () => 1000,
     });
@@ -57,8 +57,8 @@ describe("npc-physics-worker-runtime", () => {
     const rt = createNpcPhysicsWorkerRuntime({ now: () => 1000 });
     rt.applyIntentBatch(
       [
-        { npcId: "a", inputSeq: 1, desiredX: 100, desiredZ: 0, jumpRequested: false },
-        { npcId: "b", inputSeq: 1, desiredX: 0, desiredZ: 100, jumpRequested: false },
+        { npcId: "a", inputSeq: 1, desiredX: 100, desiredY: 0, desiredZ: 0, jumpRequested: false },
+        { npcId: "b", inputSeq: 1, desiredX: 0, desiredY: 0, desiredZ: 100, jumpRequested: false },
       ],
       1000,
     );

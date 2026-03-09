@@ -7,24 +7,22 @@ import type {
 type InternalNpcState = NpcSnapshotState & {
   inputSeq: number;
   desiredX: number;
+  desiredY: number;
   desiredZ: number;
   lastIntentAtMs: number;
 };
 
 export type NpcWorkerRuntimeOptions = {
   tickMs?: number;
-  maxSpeed?: number;
   intentTimeoutMs?: number;
   now?: () => number;
 };
 
 const DEFAULT_TICK_MS = 1000 / 60;
-const DEFAULT_MAX_SPEED = 220;
 const DEFAULT_INTENT_TIMEOUT_MS = 100;
 
 export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions) {
   const tickMs = options?.tickMs ?? DEFAULT_TICK_MS;
-  const maxSpeed = options?.maxSpeed ?? DEFAULT_MAX_SPEED;
   const intentTimeoutMs = options?.intentTimeoutMs ?? DEFAULT_INTENT_TIMEOUT_MS;
   const nowFn = options?.now ?? (() => performance.now());
 
@@ -37,16 +35,18 @@ export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions)
     if (existing) {
       existing.inputSeq = intent.inputSeq;
       existing.desiredX = intent.desiredX;
+      existing.desiredY = intent.desiredY;
       existing.desiredZ = intent.desiredZ;
       existing.jumpActive = intent.jumpRequested;
       existing.lastIntentAtMs = nowMs;
+      existing.py = intent.desiredY;
       return existing;
     }
 
     const created: InternalNpcState = {
       npcId: intent.npcId,
       px: intent.desiredX,
-      py: 0,
+      py: intent.desiredY,
       pz: intent.desiredZ,
       qx: 0,
       qy: 0,
@@ -61,6 +61,7 @@ export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions)
       jumpActive: intent.jumpRequested,
       inputSeq: intent.inputSeq,
       desiredX: intent.desiredX,
+      desiredY: intent.desiredY,
       desiredZ: intent.desiredZ,
       lastIntentAtMs: nowMs,
     };
@@ -71,22 +72,19 @@ export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions)
   const stepState = (state: InternalNpcState) => {
     const dx = state.desiredX - state.px;
     const dz = state.desiredZ - state.pz;
-    const dist = Math.hypot(dx, dz);
-    const maxStep = maxSpeed * (tickMs / 1000);
-
-    if (dist <= 1e-6) {
+    const dt = Math.max(1e-6, tickMs / 1000);
+    if (Math.abs(dx) <= 1e-6 && Math.abs(dz) <= 1e-6) {
       state.vx = 0;
       state.vz = 0;
       return;
     }
 
-    const step = Math.min(maxStep, dist);
-    const nx = dx / dist;
-    const nz = dz / dist;
-    state.px += nx * step;
-    state.pz += nz * step;
-    state.vx = nx * maxSpeed;
-    state.vz = nz * maxSpeed;
+    // In phase-2 bridge mode, intents already encode per-frame desired translation.
+    // Do not apply another speed limiter here, otherwise movement becomes artificially slow.
+    state.vx = dx / dt;
+    state.vz = dz / dt;
+    state.px = state.desiredX;
+    state.pz = state.desiredZ;
   };
 
   const applyIntentBatch = (batchIntents: NpcIntent[], nowMs: number) => {
@@ -102,6 +100,7 @@ export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions)
       const stale = nowMs - st.lastIntentAtMs > intentTimeoutMs;
       if (stale) {
         st.desiredX = st.px;
+        st.desiredY = st.py;
         st.desiredZ = st.pz;
         st.vx = 0;
         st.vz = 0;

@@ -65,6 +65,15 @@ export function createNpcStateBuffer(capacity = 128) {
     return out;
   };
 
+  const sampleLatest = (): Map<string, NpcSnapshotState> | null => {
+    if (latestTick < 0) return null;
+    const latest = slots[latestTick % size];
+    if (!latest) return null;
+    const out = new Map<string, NpcSnapshotState>();
+    for (const s of latest.states) out.set(s.npcId, s);
+    return out;
+  };
+
   const clear = () => {
     for (let i = 0; i < slots.length; i++) slots[i] = null;
     latestTick = -1;
@@ -73,6 +82,7 @@ export function createNpcStateBuffer(capacity = 128) {
   return {
     push,
     sample,
+    sampleLatest,
     clear,
     capacity: size,
     getLatestTick: () => latestTick,

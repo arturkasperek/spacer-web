@@ -46,6 +46,7 @@ describe("NpcPhysicsWorkerClient", () => {
         npcId: "npc-1",
         inputSeq: 7,
         desiredX: 10,
+        desiredY: 0,
         desiredZ: 20,
         jumpRequested: false,
       },
@@ -60,6 +61,7 @@ describe("NpcPhysicsWorkerClient", () => {
             npcId: "npc-1",
             inputSeq: 7,
             desiredX: 10,
+            desiredY: 0,
             desiredZ: 20,
             jumpRequested: false,
           },
@@ -69,6 +71,9 @@ describe("NpcPhysicsWorkerClient", () => {
   });
 
   it("stores incoming snapshots and returns sampled pairs", () => {
+    const perfSpy = jest.spyOn(performance, "now");
+    perfSpy.mockReturnValueOnce(1000).mockReturnValueOnce(1016.67);
+
     const client = new NpcPhysicsWorkerClient();
     client.start();
 
@@ -108,6 +113,10 @@ describe("NpcPhysicsWorkerClient", () => {
     const sampled = client.samplePairs(1030, 20); // renderTime ~1010 (between tick 10 and 11)
     expect(sampled).not.toBeNull();
     expect(sampled?.get("npc-1")).toBeDefined();
+    const latest = client.sampleLatestStates();
+    expect(latest).not.toBeNull();
+    expect(latest?.get("npc-1")?.px).toBe(20);
+    perfSpy.mockRestore();
   });
 
   it("stops worker and clears state", () => {
@@ -138,7 +147,14 @@ describe("NpcPhysicsWorkerClient", () => {
     const client = new NpcPhysicsWorkerClient();
     expect(() =>
       client.pushIntents(1, [
-        { npcId: "npc-1", inputSeq: 1, desiredX: 0, desiredZ: 0, jumpRequested: false },
+        {
+          npcId: "npc-1",
+          inputSeq: 1,
+          desiredX: 0,
+          desiredY: 0,
+          desiredZ: 0,
+          jumpRequested: false,
+        },
       ]),
     ).not.toThrow();
     expect(createdWorker).toBeNull();

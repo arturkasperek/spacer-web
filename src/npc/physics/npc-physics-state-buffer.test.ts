@@ -102,6 +102,16 @@ describe("npc-physics-state-buffer", () => {
     expect(buf.sample(110)).toBeNull();
   });
 
+  it("returns latest snapshot states map", () => {
+    const buf = createNpcStateBuffer(16);
+    expect(buf.sampleLatest()).toBeNull();
+    buf.push(mkSnapshot(1, 1000, 10));
+    buf.push(mkSnapshot(2, 1016.67, 20));
+    const latest = buf.sampleLatest();
+    expect(latest).not.toBeNull();
+    expect(latest?.get("npc-1")?.px).toBe(20);
+  });
+
   it("handles very large simTick values without overflow issues", () => {
     const buf = createNpcStateBuffer(32);
     const base = 9_007_199_254_740_900; // near Number.MAX_SAFE_INTEGER
