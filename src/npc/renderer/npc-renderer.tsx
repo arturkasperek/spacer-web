@@ -664,29 +664,21 @@ export function NpcRenderer({
         for (const [npcId, latest] of sampledLatest.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
-          const isHero = playerGroupRef.current === npcGroup;
-          if (isHero) {
-            const dx = latest.px - npcGroup.position.x;
-            const dy = latest.py - npcGroup.position.y;
-            const dz = latest.pz - npcGroup.position.z;
-            const err = Math.hypot(dx, dz);
-            // Hero prediction in bridge mode:
-            // keep local movement authoritative for responsiveness/speed and only hard-correct
-            // when divergence is clearly abnormal.
-            if (err > 80) {
-              npcGroup.position.x = latest.px;
-              npcGroup.position.y = latest.py;
-              npcGroup.position.z = latest.pz;
-            } else {
-              // Keep XZ untouched to avoid per-frame pullback that slows hero movement.
-              // Sync Y only (for future cases where terrain correction comes from worker).
-              npcGroup.position.y += dy;
-            }
-          } else {
+          const dx = latest.px - npcGroup.position.x;
+          const dy = latest.py - npcGroup.position.y;
+          const dz = latest.pz - npcGroup.position.z;
+          const err = Math.hypot(dx, dz);
+          // Bridge mode: keep local XZ movement responsive and use worker state for
+          // coarse correction only. This avoids per-frame pullback jitter/slowdown.
+          if (err > 80) {
             npcGroup.position.x = latest.px;
             npcGroup.position.y = latest.py;
             npcGroup.position.z = latest.pz;
+          } else {
+            npcGroup.position.y += dy;
           }
+
+          const isHero = playerGroupRef.current === npcGroup;
           if (isHero) {
             const nowMs = performance.now();
             const diag = heroWorkerDiagRef.current;
