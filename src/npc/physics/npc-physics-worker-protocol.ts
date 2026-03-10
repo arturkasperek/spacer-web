@@ -28,11 +28,17 @@ export type NpcWorkerStopMessage = {
   type: "npc_worker_stop";
 };
 
+export type NpcWorkerRemoveMessage = {
+  type: "npc_worker_remove";
+  npcIds: string[];
+};
+
 export type NpcWorkerInboundMessage =
   | NpcIntentBatchMessage
   | NpcWorkerInitMessage
   | NpcWorkerWorldGeometryMessage
-  | NpcWorkerStopMessage;
+  | NpcWorkerStopMessage
+  | NpcWorkerRemoveMessage;
 
 export type NpcSnapshotState = {
   npcId: string;

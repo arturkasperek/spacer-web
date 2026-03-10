@@ -37,6 +37,7 @@ import { useNpcCombatTick } from "./hooks/use-npc-combat-tick";
 import { useNpcStreaming } from "./hooks/use-npc-streaming";
 import { NpcPhysicsWorkerClient } from "../physics/npc-physics-worker-client";
 import type { NpcIntent } from "../physics/npc-physics-worker-protocol";
+import { writeNpcPhysicsStateToGroup } from "../physics/npc-physics-main-adapter";
 import {
   type FrameContext,
   tickCombatStage,
@@ -122,6 +123,7 @@ export function NpcRenderer({
   const npcPhysicsWorkerClientRef = useRef<NpcPhysicsWorkerClient | null>(null);
   const workerFrameIntentsRef = useRef<Map<string, NpcIntent>>(new Map());
   const workerLogicPositionRef = useRef<Map<string, THREE.Vector3>>(new Map());
+  const workerKnownNpcIdsRef = useRef<Set<string>>(new Set());
   const workerWorldGeometrySentRef = useRef(false);
 
   // ZenGin-like streaming (routine "wayboxes" + active-area bbox intersection)
@@ -143,6 +145,7 @@ export function NpcRenderer({
 
   useEffect(() => {
     if (!enabled) {
+      workerKnownNpcIdsRef.current.clear();
       npcPhysicsWorkerClientRef.current?.stop();
       npcPhysicsWorkerClientRef.current = null;
       workerWorldGeometrySentRef.current = false;
@@ -153,6 +156,7 @@ export function NpcRenderer({
     npcPhysicsWorkerClientRef.current = client;
     workerWorldGeometrySentRef.current = false;
     return () => {
+      workerKnownNpcIdsRef.current.clear();
       client.stop();
       if (npcPhysicsWorkerClientRef.current === client) npcPhysicsWorkerClientRef.current = null;
       workerWorldGeometrySentRef.current = false;
@@ -496,6 +500,94 @@ export function NpcRenderer({
       else logicPos.set(npcId, npcGroup.position.clone());
     }
   };
+  const syncWorkerNpcMembership = () => {
+    if (!NPC_WORKER_AUTHORITATIVE) return;
+    const client = npcPhysicsWorkerClientRef.current;
+    const loaded = loadedNpcsRef.current;
+    const currentWorkerNpcIds = new Set<string>();
+    for (const [npcId, npcGroup] of loaded.entries()) {
+      if (!isWorkerDrivenNpc(npcGroup)) continue;
+      currentWorkerNpcIds.add(npcId);
+    }
+    const removedNpcIds: string[] = [];
+    for (const npcId of workerKnownNpcIdsRef.current) {
+      if (!currentWorkerNpcIds.has(npcId)) removedNpcIds.push(npcId);
+    }
+    if (client && removedNpcIds.length > 0) {
+      client.removeNpcs(removedNpcIds);
+    }
+    workerKnownNpcIdsRef.current = currentWorkerNpcIds;
+  };
+  const applyWorkerStateInterpolated = (
+    npcGroup: THREE.Group,
+    prev: {
+      px: number;
+      py: number;
+      pz: number;
+      vx: number;
+      vy: number;
+      vz: number;
+      grounded: boolean;
+      falling: boolean;
+      sliding: boolean;
+      jumpActive: boolean;
+    },
+    next: {
+      px: number;
+      py: number;
+      pz: number;
+      vx: number;
+      vy: number;
+      vz: number;
+      grounded: boolean;
+      falling: boolean;
+      sliding: boolean;
+      jumpActive: boolean;
+    },
+    alpha: number,
+  ) => {
+    const a = THREE.MathUtils.clamp(alpha, 0, 1);
+    writeNpcPhysicsStateToGroup(npcGroup, {
+      px: prev.px + (next.px - prev.px) * a,
+      py: prev.py + (next.py - prev.py) * a,
+      pz: prev.pz + (next.pz - prev.pz) * a,
+      vx: prev.vx + (next.vx - prev.vx) * a,
+      vy: prev.vy + (next.vy - prev.vy) * a,
+      vz: prev.vz + (next.vz - prev.vz) * a,
+      grounded: a < 0.5 ? prev.grounded : next.grounded,
+      falling: a < 0.5 ? prev.falling : next.falling,
+      sliding: a < 0.5 ? prev.sliding : next.sliding,
+      jumpActive: a < 0.5 ? prev.jumpActive : next.jumpActive,
+    });
+  };
+  const applyWorkerStateLatest = (
+    npcGroup: THREE.Group,
+    latest: {
+      px: number;
+      py: number;
+      pz: number;
+      vx: number;
+      vy: number;
+      vz: number;
+      grounded: boolean;
+      falling: boolean;
+      sliding: boolean;
+      jumpActive: boolean;
+    },
+  ) => {
+    writeNpcPhysicsStateToGroup(npcGroup, {
+      px: latest.px,
+      py: latest.py,
+      pz: latest.pz,
+      vx: latest.vx,
+      vy: latest.vy,
+      vz: latest.vz,
+      grounded: latest.grounded,
+      falling: latest.falling,
+      sliding: latest.sliding,
+      jumpActive: latest.jumpActive,
+    });
+  };
 
   const applyMoveConstraintForTick = (
     npcGroup: THREE.Group,
@@ -584,6 +676,7 @@ export function NpcRenderer({
       freepointOwnerOverlayRef,
       enabled,
     });
+    if (NPC_WORKER_AUTHORITATIVE) syncWorkerNpcMembership();
     if (!enabled || loadedNpcsRef.current.size === 0) return;
 
     tickWorldSyncStage(frameCtx);
@@ -655,27 +748,21 @@ export function NpcRenderer({
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
           if (!isWorkerDrivenNpc(npcGroup)) continue;
-          npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
-          npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
-          npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
+          applyWorkerStateInterpolated(npcGroup, pair.prev, pair.next, pair.alpha);
         }
       } else if (sampledLatest && NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, latest] of sampledLatest.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
           if (!isWorkerDrivenNpc(npcGroup)) continue;
-          npcGroup.position.x = latest.px;
-          npcGroup.position.y = latest.py;
-          npcGroup.position.z = latest.pz;
+          applyWorkerStateLatest(npcGroup, latest);
         }
       } else if (sampledPairs && !NPC_WORKER_AUTHORITATIVE) {
         for (const [npcId, pair] of sampledPairs.entries()) {
           const npcGroup = loadedNpcsRef.current.get(npcId);
           if (!npcGroup) continue;
           if (!isWorkerDrivenNpc(npcGroup)) continue;
-          npcGroup.position.x = pair.prev.px + (pair.next.px - pair.prev.px) * pair.alpha;
-          npcGroup.position.y = pair.prev.py + (pair.next.py - pair.prev.py) * pair.alpha;
-          npcGroup.position.z = pair.prev.pz + (pair.next.pz - pair.prev.pz) * pair.alpha;
+          applyWorkerStateInterpolated(npcGroup, pair.prev, pair.next, pair.alpha);
         }
       }
     }

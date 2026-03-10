@@ -34,6 +34,11 @@ ctx.onmessage = (event: MessageEvent<NpcWorkerInboundMessage>) => {
     return;
   }
 
+  if (msg.type === "npc_worker_remove") {
+    runtime.removeNpcs(msg.npcIds);
+    return;
+  }
+
   if (msg.type === "npc_intent_batch") {
     if (!isRunning) return;
     runtime.applyIntentBatch(msg.intents, msg.sentAtMs);

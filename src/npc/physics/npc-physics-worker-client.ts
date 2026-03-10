@@ -76,6 +76,16 @@ export class NpcPhysicsWorkerClient {
     this.maybeReconnectForStaleSnapshot();
   }
 
+  removeNpcs(npcIds: string[]) {
+    if (!this.worker) return;
+    const unique = Array.from(new Set(npcIds.filter(Boolean)));
+    if (unique.length === 0) return;
+    this.post({
+      type: "npc_worker_remove",
+      npcIds: unique,
+    });
+  }
+
   setWorldGeometry(vertices: Float32Array, indices: Uint32Array) {
     this.worldGeometry = { vertices: vertices.slice(), indices: indices.slice() };
     if (!this.worker) return;

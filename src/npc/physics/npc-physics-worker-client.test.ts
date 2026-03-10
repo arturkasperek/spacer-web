@@ -75,6 +75,18 @@ describe("NpcPhysicsWorkerClient", () => {
     );
   });
 
+  it("sends npc remove batch to worker", () => {
+    const client = new NpcPhysicsWorkerClient();
+    client.start();
+
+    client.removeNpcs(["npc-1", "npc-2", "npc-1"]);
+
+    expect(createdWorkers[0]?.postMessage).toHaveBeenCalledWith({
+      type: "npc_worker_remove",
+      npcIds: ["npc-1", "npc-2"],
+    });
+  });
+
   it("sends world geometry to worker", () => {
     const client = new NpcPhysicsWorkerClient();
     client.start();

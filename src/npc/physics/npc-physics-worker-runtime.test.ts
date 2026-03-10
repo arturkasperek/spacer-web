@@ -71,4 +71,16 @@ describe("npc-physics-worker-runtime", () => {
     expect((a?.px ?? 0) > 0).toBe(true);
     expect((b?.pz ?? 0) > 0).toBe(true);
   });
+
+  it("removes npc state and stops reporting it in snapshots", () => {
+    const rt = createNpcPhysicsWorkerRuntime({ now: () => 1000 });
+    rt.applyIntentBatch([mkIntent(10, 0)], 1000);
+    rt.tick(1000);
+    expect(rt.getState("npc-1")).toBeDefined();
+
+    rt.removeNpcs(["npc-1"]);
+    expect(rt.getState("npc-1")).toBeUndefined();
+    const snap = rt.makeSnapshot(1001);
+    expect(snap.states.find((s) => s.npcId === "npc-1")).toBeUndefined();
+  });
 });
