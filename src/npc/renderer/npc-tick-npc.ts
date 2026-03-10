@@ -543,6 +543,39 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
     applyMoveConstraint(npcGroup, npcGroup.position.x, npcGroup.position.z, delta);
   }
 
+  if (!isManualHero) {
+    const workerAuthoritative = Boolean(getNpcRuntimeValue(ud, "workerAuthoritative"));
+    const workerStateAtMs = Number(getNpcRuntimeValue(ud, "workerStateAtMs"));
+    const nowMs = Date.now();
+    const workerStateFresh =
+      Number.isFinite(workerStateAtMs) &&
+      nowMs - workerStateAtMs >= 0 &&
+      nowMs - workerStateAtMs <= 250;
+    if (workerAuthoritative && workerStateFresh) {
+      const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
+      if (!ud.isFalling && !ud.isSliding && !jumpActive) {
+        const vx = Number((ud as any)._kccVx ?? 0);
+        const vz = Number((ud as any)._kccVz ?? 0);
+        const speed = Math.hypot(vx, vz);
+        const wasMoving = Boolean(getNpcRuntimeValue(ud, "workerLocomotionMoving"));
+        const moveEnterSpeed = 35;
+        const moveExitSpeed = 20;
+        const holdMs = 140;
+        let moving = wasMoving ? speed > moveExitSpeed : speed > moveEnterSpeed;
+        const holdUntilMs = Number(getNpcRuntimeValue(ud, "workerMoveHoldUntilMs"));
+        if (!moving && Number.isFinite(holdUntilMs) && nowMs < holdUntilMs) moving = true;
+        if (moving) setNpcRuntimeValue(ud, "workerMoveHoldUntilMs", nowMs + holdMs);
+        setNpcRuntimeValue(ud, "workerLocomotionMoving", moving);
+        if (moving) {
+          const runThresholdSpeed = 170;
+          locomotionMode = speed >= runThresholdSpeed ? "run" : "walk";
+        } else {
+          locomotionMode = "idle";
+        }
+      }
+    }
+  }
+
   runtime.movedThisFrame = movedThisFrame;
   runtime.locomotionMode = locomotionMode;
 }

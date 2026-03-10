@@ -69,6 +69,10 @@ export type NpcRuntimeState = {
   kccDbg?: unknown;
   fallDbg?: unknown;
   slideDbg?: unknown;
+  workerAuthoritative?: boolean;
+  workerStateAtMs?: number;
+  workerLocomotionMoving?: boolean;
+  workerMoveHoldUntilMs?: number;
 };
 
 type RuntimeField = keyof NpcRuntimeState;
@@ -119,6 +123,10 @@ const RUNTIME_KEY_MAP: Record<RuntimeField, string> = {
   kccDbg: "_kccDbg",
   fallDbg: "_fallDbg",
   slideDbg: "_slideDbg",
+  workerAuthoritative: "_workerAuthoritative",
+  workerStateAtMs: "_workerStateAtMs",
+  workerLocomotionMoving: "_workerLocomotionMoving",
+  workerMoveHoldUntilMs: "_workerMoveHoldUntilMs",
 };
 
 export type NpcRendererUserData = RawUserData & {

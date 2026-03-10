@@ -506,7 +506,13 @@ export function NpcRenderer({
     const loaded = loadedNpcsRef.current;
     const currentWorkerNpcIds = new Set<string>();
     for (const [npcId, npcGroup] of loaded.entries()) {
-      if (!isWorkerDrivenNpc(npcGroup)) continue;
+      const ud = ensureNpcUserData(npcGroup);
+      const workerDriven = isWorkerDrivenNpc(npcGroup);
+      setNpcRuntimeValue(ud, "workerAuthoritative", workerDriven);
+      if (!workerDriven) {
+        clearNpcRuntimeValue(ud, "workerStateAtMs");
+        continue;
+      }
       currentWorkerNpcIds.add(npcId);
     }
     const removedNpcIds: string[] = [];
@@ -559,6 +565,9 @@ export function NpcRenderer({
       sliding: a < 0.5 ? prev.sliding : next.sliding,
       jumpActive: a < 0.5 ? prev.jumpActive : next.jumpActive,
     });
+    const ud = ensureNpcUserData(npcGroup);
+    setNpcRuntimeValue(ud, "workerAuthoritative", true);
+    setNpcRuntimeValue(ud, "workerStateAtMs", performance.now());
   };
   const applyWorkerStateLatest = (
     npcGroup: THREE.Group,
@@ -587,6 +596,9 @@ export function NpcRenderer({
       sliding: latest.sliding,
       jumpActive: latest.jumpActive,
     });
+    const ud = ensureNpcUserData(npcGroup);
+    setNpcRuntimeValue(ud, "workerAuthoritative", true);
+    setNpcRuntimeValue(ud, "workerStateAtMs", performance.now());
   };
 
   const applyMoveConstraintForTick = (
