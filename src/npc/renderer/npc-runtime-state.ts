@@ -73,6 +73,9 @@ export type NpcRuntimeState = {
   workerStateAtMs?: number;
   workerLocomotionMoving?: boolean;
   workerMoveHoldUntilMs?: number;
+  workerPrevPx?: number;
+  workerPrevPz?: number;
+  workerPrevAtMs?: number;
 };
 
 type RuntimeField = keyof NpcRuntimeState;
@@ -127,6 +130,9 @@ const RUNTIME_KEY_MAP: Record<RuntimeField, string> = {
   workerStateAtMs: "_workerStateAtMs",
   workerLocomotionMoving: "_workerLocomotionMoving",
   workerMoveHoldUntilMs: "_workerMoveHoldUntilMs",
+  workerPrevPx: "_workerPrevPx",
+  workerPrevPz: "_workerPrevPz",
+  workerPrevAtMs: "_workerPrevAtMs",
 };
 
 export type NpcRendererUserData = RawUserData & {

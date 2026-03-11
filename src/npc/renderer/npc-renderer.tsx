@@ -511,6 +511,9 @@ export function NpcRenderer({
       setNpcRuntimeValue(ud, "workerAuthoritative", workerDriven);
       if (!workerDriven) {
         clearNpcRuntimeValue(ud, "workerStateAtMs");
+        clearNpcRuntimeValue(ud, "workerPrevPx");
+        clearNpcRuntimeValue(ud, "workerPrevPz");
+        clearNpcRuntimeValue(ud, "workerPrevAtMs");
         continue;
       }
       currentWorkerNpcIds.add(npcId);

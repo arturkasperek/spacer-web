@@ -43,12 +43,17 @@ describe("npc-physics-core", () => {
   });
 
   it("uses movement solver result when available", () => {
-    const next = stepNpcPhysicsCore(mkState({ desiredX: 5, desiredZ: 1 }), 1 / 60, CFG, () => ({
-      px: 2,
-      py: 3,
-      pz: 4,
-      grounded: false,
-    }));
+    const next = stepNpcPhysicsCore(
+      mkState({ desiredX: 5, desiredZ: 1, grounded: false }),
+      1 / 60,
+      CFG,
+      () => ({
+        px: 2,
+        py: 3,
+        pz: 4,
+        grounded: false,
+      }),
+    );
     expect(next.px).toBe(2);
     expect(next.py).toBe(3);
     expect(next.pz).toBe(4);
@@ -65,5 +70,41 @@ describe("npc-physics-core", () => {
     });
     expect(dxSeen).toBe(0);
     expect(dzSeen).toBe(0);
+  });
+
+  it("enters sliding when standing on a slope above climb angle", () => {
+    const next = stepNpcPhysicsCore(
+      mkState({ desiredX: 5, desiredZ: 0, grounded: true }),
+      1 / 60,
+      CFG,
+      () => ({
+        px: 1,
+        py: 0,
+        pz: 0,
+        grounded: true,
+        groundedRaw: true,
+        groundNy: Math.cos((55 * Math.PI) / 180),
+      }),
+    );
+    expect(next.grounded).toBe(true);
+    expect(next.sliding).toBe(true);
+  });
+
+  it("forces non-grounded state on too steep surfaces", () => {
+    const next = stepNpcPhysicsCore(
+      mkState({ grounded: true, sliding: false }),
+      1 / 60,
+      CFG,
+      () => ({
+        px: 0,
+        py: -1,
+        pz: 0,
+        grounded: true,
+        groundedRaw: true,
+        groundNy: Math.cos((75 * Math.PI) / 180),
+      }),
+    );
+    expect(next.grounded).toBe(false);
+    expect(next.sliding).toBe(false);
   });
 });

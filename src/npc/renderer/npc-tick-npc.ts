@@ -557,18 +557,39 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
         const vx = Number((ud as any)._kccVx ?? 0);
         const vz = Number((ud as any)._kccVz ?? 0);
         const speed = Math.hypot(vx, vz);
+        const prevPx = Number(getNpcRuntimeValue(ud, "workerPrevPx"));
+        const prevPz = Number(getNpcRuntimeValue(ud, "workerPrevPz"));
+        const prevAtMs = Number(getNpcRuntimeValue(ud, "workerPrevAtMs"));
+        let renderSpeed = 0;
+        if (
+          Number.isFinite(prevPx) &&
+          Number.isFinite(prevPz) &&
+          Number.isFinite(prevAtMs) &&
+          nowMs > prevAtMs
+        ) {
+          const dtMs = nowMs - prevAtMs;
+          if (dtMs > 1 && dtMs <= 250) {
+            const dist = Math.hypot(npcGroup.position.x - prevPx, npcGroup.position.z - prevPz);
+            renderSpeed = dist / (dtMs / 1000);
+          }
+        }
+        setNpcRuntimeValue(ud, "workerPrevPx", npcGroup.position.x);
+        setNpcRuntimeValue(ud, "workerPrevPz", npcGroup.position.z);
+        setNpcRuntimeValue(ud, "workerPrevAtMs", nowMs);
+
+        const locomotionSpeed = Math.max(speed, renderSpeed);
         const wasMoving = Boolean(getNpcRuntimeValue(ud, "workerLocomotionMoving"));
         const moveEnterSpeed = 35;
         const moveExitSpeed = 20;
-        const holdMs = 140;
-        let moving = wasMoving ? speed > moveExitSpeed : speed > moveEnterSpeed;
+        const holdMs = 220;
+        let moving = wasMoving ? locomotionSpeed > moveExitSpeed : locomotionSpeed > moveEnterSpeed;
         const holdUntilMs = Number(getNpcRuntimeValue(ud, "workerMoveHoldUntilMs"));
         if (!moving && Number.isFinite(holdUntilMs) && nowMs < holdUntilMs) moving = true;
         if (moving) setNpcRuntimeValue(ud, "workerMoveHoldUntilMs", nowMs + holdMs);
         setNpcRuntimeValue(ud, "workerLocomotionMoving", moving);
         if (moving) {
           const runThresholdSpeed = 170;
-          locomotionMode = speed >= runThresholdSpeed ? "run" : "walk";
+          locomotionMode = locomotionSpeed >= runThresholdSpeed ? "run" : "walk";
         } else {
           locomotionMode = "idle";
         }

@@ -100,11 +100,16 @@ export class NpcPhysicsWorkerAdapter {
       this.world.updateSceneQueries();
     }
 
+    const groundNy = this.computeBestGroundNy();
+    const rawGrounded = Boolean(this.controller.computedGrounded?.());
+
     return {
       px: next.x,
       py: next.y - this.config.capsuleHeight / 2,
       pz: next.z,
-      grounded: Boolean(this.controller.computedGrounded?.()),
+      grounded: rawGrounded,
+      groundedRaw: rawGrounded,
+      groundNy,
     };
   }
 
@@ -176,5 +181,20 @@ export class NpcPhysicsWorkerAdapter {
     }
     this.world = null;
     this.controller = null;
+  }
+
+  private computeBestGroundNy(): number | null {
+    if (!this.controller) return null;
+    const minGroundNy = 0.06;
+    const collisions = this.controller.numComputedCollisions?.() ?? 0;
+    let bestNy: number | null = null;
+    for (let i = 0; i < collisions; i += 1) {
+      const c = this.controller.computedCollision?.(i);
+      const ny = c?.normal1?.y;
+      if (typeof ny !== "number" || !Number.isFinite(ny)) continue;
+      if (!(ny > minGroundNy)) continue;
+      if (bestNy == null || ny > bestNy) bestNy = ny;
+    }
+    return bestNy;
   }
 }

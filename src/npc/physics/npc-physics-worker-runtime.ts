@@ -28,6 +28,13 @@ const CORE_CONFIG: NpcPhysicsCoreConfig = {
   gravity: 1200,
   maxFallSpeed: 3000,
   moveDeadZone: 0.25,
+  maxSlopeClimbAngle: (48 * Math.PI) / 180,
+  slideToFallAngle: (67 * Math.PI) / 180,
+  fallGraceSeconds: 0.08,
+  landGraceSeconds: 0.02,
+  slideExitGraceSeconds: 0.1,
+  slideToFallGraceSeconds: 0.08,
+  fallVyThreshold: -20,
 };
 
 export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions) {
@@ -76,6 +83,10 @@ export function createNpcPhysicsWorkerRuntime(options?: NpcWorkerRuntimeOptions)
       desiredY: intent.desiredY,
       desiredZ: intent.desiredZ,
       lastIntentAtMs: nowMs,
+      groundedFor: 0,
+      ungroundedFor: 0,
+      slideExitFor: 0,
+      slideToFallFor: 0,
     };
     states.set(intent.npcId, created);
     return created;
