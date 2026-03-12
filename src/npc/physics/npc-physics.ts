@@ -2185,40 +2185,6 @@ export function useNpcPhysics({
         }
       }
 
-      // Slope/step speed compensation: KCC tends to reduce the XZ component by ~normal.y when it has to climb.
-      // This can make climbing ramps/step-like slopes feel slower than flat ground.
-      if (
-        !jumpSkipKccActive &&
-        kccConfig.slopeSpeedCompEnabled &&
-        desiredDistXZ > 1e-6 &&
-        move.y > 1e-3 &&
-        bestGroundNy != null &&
-        bestGroundNy > 0.2 &&
-        bestGroundNy < 0.999
-      ) {
-        const moveXZ = Math.hypot(move.x, move.z);
-        const ratio = moveXZ / desiredDistXZ;
-        if (ratio < 0.98 && Math.abs(ratio - bestGroundNy) < 0.2) {
-          boostFactor = Math.min(1 / bestGroundNy, kccConfig.slopeSpeedCompMaxFactor);
-          if (boostFactor > 1.001) {
-            controller.computeColliderMovement(
-              collider,
-              { x: dx * boostFactor, y: dy, z: dz * boostFactor },
-              rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-              filterGroups,
-            );
-            move = controller.computedMovement();
-            try {
-              bestGroundNormal = computeBestGroundNormal();
-              bestGroundNy = bestGroundNormal?.y ?? null;
-            } catch {
-              // ignore
-            }
-            boostApplied = true;
-          }
-        }
-      }
-
       // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
       // Instead, start a short pushback transition (fixed duration) and keep falling.
       const minWalkNy = Math.cos(kccConfig.maxSlopeClimbAngle + 1e-3);
