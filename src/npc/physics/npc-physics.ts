@@ -2214,49 +2214,17 @@ export function useNpcPhysics({
           const totalDist = fallSlidePushSpeedEffective * seedDt;
           ud._kccFallWallPushTotalDist = totalDist;
 
-          const u1 = Math.max(0, Math.min(1, dtClamped / FALL_WALL_PUSH_DURATION_S));
-          const s1 = u1 * u1 * (3 - 2 * u1); // smoothstep(0->u1)
-          const pushDistRaw = s1 * totalDist;
-          let pushDist = pushDistRaw;
-          if (kccConfig.fallSlidePushMaxPerFrame > 0)
-            pushDist = Math.min(pushDist, kccConfig.fallSlidePushMaxPerFrame);
-          const pushX = pushN.x * pushDist;
-          const pushZ = pushN.z * pushDist;
-
-          // Apply the first step immediately (same frame) and recompute movement.
-          dx += pushX;
-          dz += pushZ;
-          desiredX = fromX + dx;
-          desiredZ = fromZ + dz;
-          desiredDistXZ = Math.hypot(dx, dz);
-
-          controller.computeColliderMovement(
-            collider,
-            { x: dx, y: dy, z: dz },
-            rapier.QueryFilterFlags.EXCLUDE_SENSORS,
-            filterGroups,
-          );
-          move = controller.computedMovement();
-          try {
-            bestGroundNormal = computeBestGroundNormal();
-            bestGroundNy = bestGroundNormal?.y ?? null;
-          } catch {
-            // ignore
-          }
-          fallSlidePush = { x: pushX, z: pushZ };
+          // Arm pushback for the next frame to keep a single KCC compute per tick.
+          // The active pushback block above will apply this smoothly from t=0.
+          ud._kccFallWallPushT = 0;
           fallWallPushDbg = {
-            phase: "start",
+            phase: "armed",
             duration: FALL_WALL_PUSH_DURATION_S,
-            u1,
-            s1,
             seedDt,
-            pushDistRaw,
-            pushDist,
             pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
-            push: { x: pushX, z: pushZ },
+            pushDir: { x: pushN.x, z: pushN.z },
             totalDist,
           };
-          ud._kccFallWallPushT = Math.min(FALL_WALL_PUSH_DURATION_S, dtClamped);
 
           // Always log fall->wall pushback (independent of motion-debug UI) for easier tuning.
           try {
@@ -2275,19 +2243,17 @@ export function useNpcPhysics({
                       y: npcGroup.position.y,
                       z: npcGroup.position.z,
                     },
-                    push: { x: pushX, z: pushZ },
+                    push: null,
                     pushSpeed: fallSlidePushSpeedBase,
                     pushSpeedEffective: fallSlidePushSpeedEffective,
                     fallDownDistY,
                     fallPhase: inFallDownPhase ? "fallDown" : "fall",
                     pushTotalDist: totalDist,
-                    pushDistRaw,
-                    pushDist,
                     pushMaxPerFrame: kccConfig.fallSlidePushMaxPerFrame,
                     duration: FALL_WALL_PUSH_DURATION_S,
                     seedDt,
-                    u1,
-                    s1,
+                    pushDir: { x: pushN.x, z: pushN.z },
+                    armed: true,
                     dt: dtClamped,
                   }),
               );
