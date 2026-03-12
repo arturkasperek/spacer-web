@@ -50,23 +50,10 @@ function queryRayHit(params: {
   solid: boolean;
   filterFlags?: number;
   filterGroups?: number;
-  excludeCollider?: any;
   excludeColliderId?: number;
 }): QueryRayHit | null {
-  const {
-    rapierPort,
-    origin,
-    dir,
-    maxToi,
-    solid,
-    filterFlags,
-    filterGroups,
-    excludeCollider,
-    excludeColliderId,
-  } = params;
-  const derivedExcludeId =
-    excludeColliderId ??
-    (typeof excludeCollider?.handle === "number" ? (excludeCollider.handle as number) : undefined);
+  const { rapierPort, origin, dir, maxToi, solid, filterFlags, filterGroups, excludeColliderId } =
+    params;
   const hit = rapierPort.castRayAndGetNormal({
     origin,
     dir,
@@ -74,7 +61,7 @@ function queryRayHit(params: {
     solid,
     filterFlags,
     filterGroups,
-    excludeColliderId: derivedExcludeId,
+    excludeColliderId,
   });
   if (!hit) return null;
   return {
@@ -356,7 +343,7 @@ function processJumpLedgeScan(params: {
   ud: any;
   npcGroup: THREE.Group;
   rapierPort: NpcPhysicsRapierPort;
-  collider: any;
+  colliderId: number;
   filterFlags: number;
   filterGroups: number;
   ox: number;
@@ -372,7 +359,7 @@ function processJumpLedgeScan(params: {
     ud,
     npcGroup,
     rapierPort,
-    collider,
+    colliderId,
     filterFlags,
     filterGroups,
     ox,
@@ -406,7 +393,7 @@ function processJumpLedgeScan(params: {
       solid: true,
       filterFlags,
       filterGroups,
-      excludeCollider: collider,
+      excludeColliderId: colliderId,
     });
     const upHit = queryRayHit({
       rapierPort,
@@ -416,7 +403,7 @@ function processJumpLedgeScan(params: {
       solid: true,
       filterFlags,
       filterGroups,
-      excludeCollider: collider,
+      excludeColliderId: colliderId,
     });
 
     const floorY = downHit ? downHit.point.y : npcGroup.position.y;
@@ -453,7 +440,7 @@ function processJumpLedgeScan(params: {
         solid: true,
         filterFlags,
         filterGroups,
-        excludeCollider: collider,
+        excludeColliderId: colliderId,
       });
       if (!cast) return null;
       const point = new THREE.Vector3(cast.point.x, cast.point.y, cast.point.z);
@@ -481,7 +468,7 @@ function processJumpLedgeScan(params: {
         solid: true,
         filterFlags,
         filterGroups,
-        excludeCollider: collider,
+        excludeColliderId: colliderId,
       });
       let hit = false;
       let hitColliderHandle: number | null = null;
@@ -1280,7 +1267,6 @@ export function useNpcPhysics({
   ]);
 
   const ensureNpcKccCollider = (npcGroup: THREE.Object3D) => {
-    if (!rapierWorld || !rapier) return null;
     const rapierPort = rapierPortRef.current;
     if (!rapierPort) return null;
     const ud: any = npcGroup.userData ?? {};
@@ -1289,7 +1275,7 @@ export function useNpcPhysics({
     ud._kccCapsuleHeight = height;
 
     if (typeof handle === "number") {
-      const existing = rapierWorld.getCollider(handle);
+      const existing = rapierPort.getColliderTranslation(handle);
       if (existing) {
         const centerY = npcGroup.position.y + height / 2;
         rapierPort.setColliderTranslation(handle, {
@@ -1297,7 +1283,7 @@ export function useNpcPhysics({
           y: centerY,
           z: npcGroup.position.z,
         });
-        return existing;
+        return handle;
       }
       delete ud._kccColliderHandle;
     }
@@ -1314,11 +1300,10 @@ export function useNpcPhysics({
     });
     ud._kccColliderHandle = colliderId;
     npcGroup.userData = ud;
-    return rapierWorld.getCollider(colliderId);
+    return colliderId;
   };
 
   const removeNpcKccCollider = (npcGroup: THREE.Object3D) => {
-    if (!rapierWorld) return;
     const rapierPort = rapierPortRef.current;
     if (!rapierPort) return;
     const ud: any = npcGroup.userData ?? {};
@@ -1566,7 +1551,7 @@ export function useNpcPhysics({
 
     const rapierPort = rapierPortRef.current;
     const controllerId = kccControllerIdRef.current;
-    if (!rapierPort || controllerId == null || !rapier || !rapierWorld) {
+    if (!rapierPort || controllerId == null) {
       const beforeX = npcGroup.position.x;
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
@@ -1579,8 +1564,8 @@ export function useNpcPhysics({
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
 
-    const collider = ensureNpcKccCollider(npcGroup);
-    if (!collider) {
+    const colliderId = ensureNpcKccCollider(npcGroup);
+    if (colliderId == null) {
       const beforeX = npcGroup.position.x;
       const beforeZ = npcGroup.position.z;
       npcGroup.position.x = desiredX;
@@ -2015,13 +2000,11 @@ export function useNpcPhysics({
         npcGroup.position.x = assist.end.x;
         npcGroup.position.y = assist.end.y;
         npcGroup.position.z = assist.end.z;
-        if (collider) {
-          collider.setTranslation({
-            x: assist.end.x,
-            y: assist.end.y + kccConfig.capsuleHeight / 2,
-            z: assist.end.z,
-          });
-        }
+        rapierPort.setColliderTranslation(colliderId, {
+          x: assist.end.x,
+          y: assist.end.y + kccConfig.capsuleHeight / 2,
+          z: assist.end.z,
+        });
         vy = 0;
         (ud as any)._kccVy = 0;
         (ud as any)._kccGrounded = true;
@@ -2163,8 +2146,7 @@ export function useNpcPhysics({
     try {
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-      const colliderHandle = (collider as any)?.handle;
-      const colliderId = typeof colliderHandle === "number" ? colliderHandle : null;
+      const filterFlagsExcludeSensors = rapierPort.getQueryExcludeSensorsFlag();
       let computedCollisions: Array<{ normal: { x: number; y: number; z: number } | null }> = [];
 
       const computeBestGroundNormal = () => {
@@ -2211,12 +2193,11 @@ export function useNpcPhysics({
       let bestGroundNy: number | null = null;
       let computedGroundedNow = false;
       if (!jumpSkipKccActive) {
-        if (colliderId == null) throw new Error("KCC collider handle is missing");
         const compute = rapierPort.computeColliderMovement({
           controllerId,
           colliderId,
           desired: { x: dx, y: dy, z: dz },
-          filterFlags: rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+          filterFlags: filterFlagsExcludeSensors,
           filterGroups,
         });
         move = compute.movement;
@@ -2311,10 +2292,11 @@ export function useNpcPhysics({
       }
 
       const capsuleHeight = (ud._kccCapsuleHeight as number | undefined) ?? kccConfig.capsuleHeight;
-      const cur = collider.translation();
+      const cur = rapierPort.getColliderTranslation(colliderId);
+      if (!cur) throw new Error("KCC collider translation unavailable");
       const prevTranslation = { x: cur.x, y: cur.y, z: cur.z };
       const next = { x: cur.x + move.x, y: cur.y + move.y, z: cur.z + move.z };
-      collider.setTranslation(next);
+      rapierPort.setColliderTranslation(colliderId, next);
       npcGroup.position.set(next.x, next.y - capsuleHeight / 2, next.z);
 
       const rawGroundedNow = jumpSkipKccActive ? false : computedGroundedNow;
@@ -2332,7 +2314,7 @@ export function useNpcPhysics({
       let floorProbeNy: number | null = null;
       let floorProbeNormal: { x: number; y: number; z: number } | null = null;
       let floorProbeSrc: string | null = null;
-      if (rawGroundedNow && rapierWorld && rapier && kccConfig.groundRecoverDistance > 0) {
+      if (rawGroundedNow && kccConfig.groundRecoverDistance > 0) {
         const needsProbe =
           bestGroundNy == null ||
           (Number.isFinite(bestGroundNy) && bestGroundNy < minWalkNy - 1e-6);
@@ -2340,7 +2322,7 @@ export function useNpcPhysics({
           try {
             const WORLD_MEMBERSHIP = 0x0001;
             const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+            const filterFlags = filterFlagsExcludeSensors;
             const feetY = npcGroup.position.y;
             const startAbove = kccConfig.groundRecoverRayStartAbove;
             const maxToi = startAbove + kccConfig.groundRecoverDistance;
@@ -2356,7 +2338,7 @@ export function useNpcPhysics({
                 solid: true,
                 filterFlags,
                 filterGroups,
-                excludeCollider: collider,
+                excludeColliderId: colliderId,
               });
               if (!hit) return null;
               const nx = hit.normal?.x ?? 0;
@@ -2425,17 +2407,12 @@ export function useNpcPhysics({
           (ud as any)._kccGroundNyFallback = probeNy;
         }
       }
-      if (
-        effectiveGroundNy == null &&
-        rapierWorld &&
-        rapier &&
-        kccConfig.groundRecoverDistance > 0
-      ) {
+      if (effectiveGroundNy == null && kccConfig.groundRecoverDistance > 0) {
         // Fallback: raycast down to recover a ground normal when KCC provides none.
         try {
           const WORLD_MEMBERSHIP = 0x0001;
           const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const filterFlags = filterFlagsExcludeSensors;
           const feetY = npcGroup.position.y;
           const startAbove = kccConfig.groundRecoverRayStartAbove;
           const maxToi = startAbove + kccConfig.groundRecoverDistance;
@@ -2447,7 +2424,7 @@ export function useNpcPhysics({
             solid: true,
             filterFlags,
             filterGroups,
-            excludeCollider: collider,
+            excludeColliderId: colliderId,
           });
           if (hit) {
             const ny = hit.normal?.y ?? null;
@@ -2471,7 +2448,7 @@ export function useNpcPhysics({
       (ud as any)._kccFloorProbeNormal = floorProbeNormal;
 
       // Forward ground probe (no slide logic; just debug + height).
-      if (rapierWorld && rapier) {
+      if (rapierPort) {
         try {
           const forward =
             (ud._kccForwardDir as THREE.Vector3 | undefined) ??
@@ -2489,7 +2466,7 @@ export function useNpcPhysics({
           const oy = npcGroup.position.y + startAbove;
           const WORLD_MEMBERSHIP = 0x0001;
           const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const filterFlags = filterFlagsExcludeSensors;
           const hit = queryRayHit({
             rapierPort,
             origin: { x: ox, y: oy, z: oz },
@@ -2498,7 +2475,7 @@ export function useNpcPhysics({
             solid: true,
             filterFlags,
             filterGroups,
-            excludeCollider: collider,
+            excludeColliderId: colliderId,
           });
           const hitPoint = hit ? hit.point : null;
           const hitNy = hit?.normal?.y ?? null;
@@ -2547,7 +2524,7 @@ export function useNpcPhysics({
             ud,
             npcGroup,
             rapierPort,
-            collider,
+            colliderId,
             filterFlags,
             filterGroups,
             ox,
@@ -2651,7 +2628,7 @@ export function useNpcPhysics({
           if (kccConfig.groundRecoverDistance > 0) {
             const WORLD_MEMBERSHIP = 0x0001;
             const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-            const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+            const filterFlags = filterFlagsExcludeSensors;
             const startAbove = kccConfig.groundRecoverRayStartAbove;
             const maxToi = startAbove + kccConfig.groundRecoverDistance;
             const feetYPrev = prevTranslation.y - capsuleHeight / 2;
@@ -2663,7 +2640,7 @@ export function useNpcPhysics({
               solid: true,
               filterFlags,
               filterGroups,
-              excludeCollider: collider,
+              excludeColliderId: colliderId,
             });
             if (hit) {
               const ny = hit.normal?.y ?? 0;
@@ -2685,7 +2662,7 @@ export function useNpcPhysics({
         if (!hasWalkableFloorUnderPrev) {
           // Let the normal KCC/fall logic handle it (likely a real ledge).
         } else {
-          collider.setTranslation(prevTranslation);
+          rapierPort.setColliderTranslation(colliderId, prevTranslation);
           npcGroup.position.set(
             prevTranslation.x,
             prevTranslation.y - capsuleHeight / 2,
@@ -2823,7 +2800,7 @@ export function useNpcPhysics({
         try {
           const WORLD_MEMBERSHIP = 0x0001;
           const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-          const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+          const filterFlags = filterFlagsExcludeSensors;
           const feetY = npcGroup.position.y;
           const startAbove = kccConfig.groundRecoverRayStartAbove;
           const maxToi = startAbove + kccConfig.groundRecoverDistance;
@@ -2835,7 +2812,7 @@ export function useNpcPhysics({
             solid: true,
             filterFlags,
             filterGroups,
-            excludeCollider: collider,
+            excludeColliderId: colliderId,
           });
           if (hit) {
             groundRayToi = hit.timeOfImpact;
@@ -2863,7 +2840,7 @@ export function useNpcPhysics({
                 groundRecoverDropApplied = drop;
                 if (drop > 1e-3) {
                   const targetFeetY = feetY - drop;
-                  collider.setTranslation({
+                  rapierPort.setColliderTranslation(colliderId, {
                     x: npcGroup.position.x,
                     y: targetFeetY + capsuleHeight / 2,
                     z: npcGroup.position.z,
@@ -3176,14 +3153,13 @@ export function useNpcPhysics({
   };
 
   const trySnapNpcToGroundWithRapier = (npcGroup: THREE.Group): boolean => {
-    if (!rapierWorld || !rapier) return false;
     const rapierPort = rapierPortRef.current;
     if (!rapierPort) return false;
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     if (ud._kccSnapped === true) return true;
 
-    const collider = ensureNpcKccCollider(npcGroup);
-    if (!collider) return false;
+    const colliderId = ensureNpcKccCollider(npcGroup);
+    if (colliderId == null) return false;
 
     const x = npcGroup.position.x;
     const z = npcGroup.position.z;
@@ -3191,7 +3167,7 @@ export function useNpcPhysics({
     const castDown = (rayStartAbove: number, maxDownDistance: number) => {
       const WORLD_MEMBERSHIP = 0x0001;
       const filterGroups = (WORLD_MEMBERSHIP << 16) | WORLD_MEMBERSHIP;
-      const filterFlags = rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+      const filterFlags = rapierPort.getQueryExcludeSensorsFlag();
       const maxToi = rayStartAbove + maxDownDistance;
       const minNormalY = 0.2;
 
@@ -3202,7 +3178,7 @@ export function useNpcPhysics({
         solid: true,
         filterFlags,
         filterGroups,
-        excludeColliderId: (collider as any)?.handle,
+        excludeColliderId: colliderId,
       });
       let bestY: number | null = null;
       let bestToi: number | null = null;
@@ -3225,7 +3201,7 @@ export function useNpcPhysics({
     if (!hit) return false;
 
     const feetY = hit.y + kccConfig.groundClearance;
-    collider.setTranslation({ x, y: feetY + kccConfig.capsuleHeight / 2, z });
+    rapierPort.setColliderTranslation(colliderId, { x, y: feetY + kccConfig.capsuleHeight / 2, z });
     npcGroup.position.y = feetY;
 
     ud._kccVy = 0;

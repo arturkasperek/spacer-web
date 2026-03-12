@@ -53,6 +53,8 @@ export type NpcPhysicsRapierCapsuleColliderConfig = {
 };
 
 export interface NpcPhysicsRapierPort {
+  getQueryExcludeSensorsFlag(): number;
+
   createCharacterController(offset: number): number;
   configureCharacterController(
     controllerId: number,

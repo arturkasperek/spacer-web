@@ -56,6 +56,10 @@ export class NpcPhysicsRapierWorkerPort implements NpcPhysicsRapierPort {
     return typeof this.worker.postMessage === "function";
   }
 
+  getQueryExcludeSensorsFlag(): number {
+    return this.fallback.getQueryExcludeSensorsFlag();
+  }
+
   createCharacterController(offset: number): number {
     return this.fallback.createCharacterController(offset);
   }

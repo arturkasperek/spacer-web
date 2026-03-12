@@ -25,6 +25,10 @@ export class NpcPhysicsRapierMainThreadPort implements NpcPhysicsRapierPort {
     this.rapier = rapier;
   }
 
+  getQueryExcludeSensorsFlag(): number {
+    return this.rapier.QueryFilterFlags.EXCLUDE_SENSORS;
+  }
+
   createCharacterController(offset: number): number {
     const controller = this.rapierWorld.createCharacterController(offset);
     const id = this.nextControllerId++;
