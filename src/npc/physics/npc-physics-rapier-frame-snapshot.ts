@@ -11,6 +11,8 @@ import type {
 
 export type NpcPhysicsRapierFrameSnapshotOptions = {
   simulatedFrameDelay?: number;
+  simulatedFrameDelayMin?: number;
+  simulatedFrameDelayMax?: number;
 };
 
 type SnapshotOpKind = "compute" | "castRay" | "intersections";
@@ -35,23 +37,33 @@ function cloneSnapshotValue<T>(value: T): T {
 
 export class NpcPhysicsRapierFrameSnapshotPort implements NpcPhysicsRapierPort {
   private readonly inner: NpcPhysicsRapierPort;
-  private readonly simulatedFrameDelay: number;
+  private readonly simulatedFrameDelayMin: number;
+  private readonly simulatedFrameDelayMax: number;
   private readonly frameOps = new Map<number, SnapshotFrameOps>();
   private activeFrameId: number | null = null;
+  private lastAckFrameId: number | null = null;
+  private currentFrameDelay = 0;
 
   constructor(inner: NpcPhysicsRapierPort, options?: NpcPhysicsRapierFrameSnapshotOptions) {
     this.inner = inner;
-    const rawDelay = Number(options?.simulatedFrameDelay ?? 0);
-    this.simulatedFrameDelay = Number.isFinite(rawDelay) && rawDelay > 0 ? Math.floor(rawDelay) : 0;
+    const rawBase = Number(options?.simulatedFrameDelay ?? 0);
+    const base = Number.isFinite(rawBase) && rawBase > 0 ? Math.floor(rawBase) : 0;
+    const rawMin = Number(options?.simulatedFrameDelayMin ?? base);
+    const rawMax = Number(options?.simulatedFrameDelayMax ?? base);
+    const min = Number.isFinite(rawMin) && rawMin >= 0 ? Math.floor(rawMin) : base;
+    const max = Number.isFinite(rawMax) && rawMax >= 0 ? Math.floor(rawMax) : base;
+    this.simulatedFrameDelayMin = Math.min(min, max);
+    this.simulatedFrameDelayMax = Math.max(min, max);
   }
 
   beginFrame(frameId: number): void {
     if (!Number.isFinite(frameId)) return;
     if (this.activeFrameId === frameId) return;
     this.activeFrameId = frameId;
+    this.currentFrameDelay = this.pickFrameDelay();
+    this.lastAckFrameId = frameId;
     if (!this.frameOps.has(frameId)) this.frameOps.set(frameId, new Map());
-    if (this.simulatedFrameDelay <= 0) return;
-    const minKeepFrame = frameId - this.simulatedFrameDelay - 2;
+    const minKeepFrame = frameId - this.simulatedFrameDelayMax - 2;
     for (const k of this.frameOps.keys()) {
       if (k < minKeepFrame) this.frameOps.delete(k);
     }
@@ -59,6 +71,10 @@ export class NpcPhysicsRapierFrameSnapshotPort implements NpcPhysicsRapierPort {
 
   getQueryExcludeSensorsFlag(): number {
     return this.inner.getQueryExcludeSensorsFlag();
+  }
+
+  getLastAckFrameId(): number | null {
+    return this.lastAckFrameId;
   }
 
   createCharacterController(offset: number): number {
@@ -111,7 +127,7 @@ export class NpcPhysicsRapierFrameSnapshotPort implements NpcPhysicsRapierPort {
     input: unknown,
     value: T,
   ): T {
-    if (this.simulatedFrameDelay <= 0 || this.activeFrameId == null) return value;
+    if (this.activeFrameId == null) return value;
 
     const frameId = this.activeFrameId;
     const opKey = this.makeOpKey(kind, input);
@@ -123,7 +139,9 @@ export class NpcPhysicsRapierFrameSnapshotPort implements NpcPhysicsRapierPort {
     } as SnapshotOp);
     this.frameOps.set(frameId, currentOps);
 
-    const delayedOps = this.frameOps.get(frameId - this.simulatedFrameDelay);
+    if (this.currentFrameDelay <= 0) return value;
+
+    const delayedOps = this.frameOps.get(frameId - this.currentFrameDelay);
     if (!delayedOps) return value;
     const delayed = delayedOps.get(opKey);
     if (!delayed || delayed.kind !== kind) return value;
@@ -132,6 +150,14 @@ export class NpcPhysicsRapierFrameSnapshotPort implements NpcPhysicsRapierPort {
 
   private makeOpKey(kind: SnapshotOpKind, input: unknown): string {
     return `${kind}:${stableSerialize(input)}`;
+  }
+
+  private pickFrameDelay(): number {
+    if (this.simulatedFrameDelayMax <= this.simulatedFrameDelayMin) {
+      return this.simulatedFrameDelayMin;
+    }
+    const span = this.simulatedFrameDelayMax - this.simulatedFrameDelayMin + 1;
+    return this.simulatedFrameDelayMin + Math.floor(Math.random() * span);
   }
 }
 

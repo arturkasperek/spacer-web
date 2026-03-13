@@ -25,6 +25,7 @@ import {
   type NpcPhysicsRapierBackendMode,
 } from "./npc-physics-rapier-backend";
 import type { NpcPhysicsRapierPort } from "./npc-physics-rapier-port";
+import { getNpcRapierSimulatedDelayRange } from "./npc-physics-runtime-flags";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
 type PendingJumpRequest = { atMs: number; readyFrame?: number };
@@ -50,12 +51,6 @@ type QueryRayHit = {
   normal: { x: number; y: number; z: number } | null;
   colliderHandle: number | null;
 };
-
-function getNpcRapierSimulatedFrameDelay(): number {
-  const raw = Number((globalThis as any).__npcRapierSimulatedFrameDelay ?? 1);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return Math.floor(raw);
-}
 
 function getNpcRapierBackendMode(): NpcPhysicsRapierBackendMode {
   const raw = (globalThis as any).__npcRapierBackendMode;
@@ -116,7 +111,7 @@ function tryConsumeJumpRequestAndStart(params: {
   npcGroup: THREE.Group;
   jumpReq: PendingJumpRequest | undefined;
   nowMs: number;
-  physicsFrame: number;
+  ackFrame: number;
   wasStableGrounded: boolean;
   jumpActive: boolean;
   jumpBlocked: boolean;
@@ -128,7 +123,7 @@ function tryConsumeJumpRequestAndStart(params: {
     npcGroup,
     jumpReq,
     nowMs,
-    physicsFrame,
+    ackFrame,
     wasStableGrounded,
     jumpActive,
     jumpBlocked,
@@ -137,7 +132,7 @@ function tryConsumeJumpRequestAndStart(params: {
   } = params;
 
   const jumpReqReady =
-    !jumpReq || typeof jumpReq.readyFrame !== "number" || physicsFrame >= jumpReq.readyFrame;
+    !jumpReq || typeof jumpReq.readyFrame !== "number" || ackFrame >= jumpReq.readyFrame;
   if (jumpReq) {
     const ageMs = Math.max(0, nowMs - jumpReq.atMs);
     if (ageMs > JUMP_REQUEST_MAX_WAIT_MS) {
@@ -251,7 +246,7 @@ function updateJumpLifecycleAndMaybeStart(params: {
   kccConfig: JumpStartConfig & { jumpGraceSeconds?: number; jumpGraceMinDistDown?: number };
   nowMs: number;
   wasStableGrounded: boolean;
-  physicsFrame: number;
+  ackFrame: number;
   vy: number;
 }): {
   vy: number;
@@ -259,7 +254,7 @@ function updateJumpLifecycleAndMaybeStart(params: {
   didJumpThisFrame: boolean;
   jumpReq: PendingJumpRequest | undefined;
 } {
-  const { ud, npcGroup, kccConfig, nowMs, wasStableGrounded, physicsFrame, vy } = params;
+  const { ud, npcGroup, kccConfig, nowMs, wasStableGrounded, ackFrame, vy } = params;
   let nextVy = vy;
   let didJumpThisFrame = false;
   let jumpActive = Boolean(ud._kccJumpActive);
@@ -356,7 +351,7 @@ function updateJumpLifecycleAndMaybeStart(params: {
     npcGroup,
     jumpReq,
     nowMs,
-    physicsFrame,
+    ackFrame,
     wasStableGrounded,
     jumpActive,
     jumpBlocked,
@@ -1278,8 +1273,10 @@ export function useNpcPhysics({
       mode: getNpcRapierBackendMode(),
       worker: getNpcRapierWorkerHandle(),
     });
+    const delayRange = getNpcRapierSimulatedDelayRange();
     const rapierPort = createNpcPhysicsRapierFrameSnapshotPort(rapierPortBackend, {
-      simulatedFrameDelay: getNpcRapierSimulatedFrameDelay(),
+      simulatedFrameDelayMin: delayRange.min,
+      simulatedFrameDelayMax: delayRange.max,
     });
     rapierPortRef.current = rapierPort;
     const controllerId = rapierPort.createCharacterController(NPC_RENDER_TUNING.controllerOffset);
@@ -1636,6 +1633,12 @@ export function useNpcPhysics({
     let desiredDistXZ = Math.hypot(dx, dz);
 
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
+    const ackFrameRaw = rapierPort.getLastAckFrameId();
+    const ackFrame =
+      typeof ackFrameRaw === "number" && Number.isFinite(ackFrameRaw)
+        ? ackFrameRaw
+        : physicsFrameRef.current;
+    ud._kccLastAckFrame = ackFrame;
     const wasStableGrounded = Boolean(ud._kccStableGrounded ?? ud._kccGrounded);
     const wasSliding = Boolean(ud.isSliding);
     const wasFalling = Boolean(ud.isFalling);
@@ -1675,7 +1678,7 @@ export function useNpcPhysics({
       npcGroup,
       nowMs,
       wasStableGrounded,
-      physicsFrame: physicsFrameRef.current,
+      ackFrame,
       vy,
       kccConfig,
     });

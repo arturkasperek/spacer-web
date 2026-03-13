@@ -13,6 +13,7 @@ import type { NpcData } from "../../shared/types";
 import type { CharacterInstance } from "../../character/character-instance";
 import type { ManualKeysState } from "./hooks/use-npc-manual-control";
 import type { NpcAnimationRef } from "./hooks/use-npc-animation-state";
+import { getNpcRapierSimulatedDelayRange } from "../physics/npc-physics-runtime-flags";
 import {
   clearNpcRuntimeValue,
   ensureNpcUserData,
@@ -106,12 +107,6 @@ type TickNpcBaseCtx = {
   deps: CreateTickNpcDeps;
   runtime: TickNpcRuntime;
 };
-
-function getNpcRapierSimulatedFrameDelay(): number {
-  const raw = Number((globalThis as any).__npcRapierSimulatedFrameDelay ?? 1);
-  if (!Number.isFinite(raw) || raw <= 0) return 0;
-  return Math.floor(raw);
-}
 
 function tickNpcUiStage(ctx: TickNpcBaseCtx) {
   const {
@@ -291,10 +286,15 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
       if (!jumpActive) {
         // Always arm request (even if grounded reads false for one delayed frame).
         // Physics will consume only when grounded/allowed.
-        const simulatedDelayFrames = getNpcRapierSimulatedFrameDelay();
+        const simulatedDelayFrames = getNpcRapierSimulatedDelayRange().max;
+        const ackFrameRaw = getNpcRuntimeValue(ud, "kccLastAckFrame");
+        const ackFrame =
+          typeof ackFrameRaw === "number" && Number.isFinite(ackFrameRaw)
+            ? ackFrameRaw
+            : physicsFrame;
         setNpcRuntimeValue(ud, "kccJumpRequest", {
           atMs: nowMs,
-          readyFrame: physicsFrame + 1 + simulatedDelayFrames,
+          readyFrame: ackFrame + 1 + simulatedDelayFrames,
         });
         clearNpcRuntimeValue(ud, "kccJumpBlockedReason");
       } else if (!grounded) {

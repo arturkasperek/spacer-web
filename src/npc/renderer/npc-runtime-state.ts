@@ -44,6 +44,7 @@ export type NpcRuntimeState = {
   kccJumpBlockedReason?: string;
   kccIgnoreInputUntilMs?: number;
   kccLastFrame?: number;
+  kccLastAckFrame?: number;
   kccJumpStartWasRun?: boolean;
   kccJumpMinAirMs?: number;
   kccJumpBlockUntilMs?: number;
@@ -94,6 +95,7 @@ const RUNTIME_KEY_MAP: Record<RuntimeField, string> = {
   kccJumpBlockedReason: "_kccJumpBlockedReason",
   kccIgnoreInputUntilMs: "_kccIgnoreInputUntilMs",
   kccLastFrame: "_kccLastFrame",
+  kccLastAckFrame: "_kccLastAckFrame",
   kccJumpStartWasRun: "_kccJumpStartWasRun",
   kccJumpMinAirMs: "_kccJumpMinAirMs",
   kccJumpBlockUntilMs: "_kccJumpBlockUntilMs",
