@@ -107,6 +107,12 @@ type TickNpcBaseCtx = {
   runtime: TickNpcRuntime;
 };
 
+function getNpcRapierSimulatedFrameDelay(): number {
+  const raw = Number((globalThis as any).__npcRapierSimulatedFrameDelay ?? 1);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.floor(raw);
+}
+
 function tickNpcUiStage(ctx: TickNpcBaseCtx) {
   const {
     npcGroup,
@@ -282,11 +288,16 @@ function tickNpcMotionStage(ctx: TickNpcBaseCtx) {
         getNpcRuntimeValue(ud, "kccStableGrounded") ?? getNpcRuntimeValue(ud, "kccGrounded"),
       );
       const jumpActive = Boolean(getNpcRuntimeValue(ud, "kccJumpActive"));
-      if (grounded && !jumpActive) {
-        // Arm jump and consume on the next physics frame so decision uses fresh scan data.
-        setNpcRuntimeValue(ud, "kccJumpRequest", { atMs: nowMs, readyFrame: physicsFrame + 1 });
+      if (!jumpActive) {
+        // Always arm request (even if grounded reads false for one delayed frame).
+        // Physics will consume only when grounded/allowed.
+        const simulatedDelayFrames = getNpcRapierSimulatedFrameDelay();
+        setNpcRuntimeValue(ud, "kccJumpRequest", {
+          atMs: nowMs,
+          readyFrame: physicsFrame + 1 + simulatedDelayFrames,
+        });
         clearNpcRuntimeValue(ud, "kccJumpBlockedReason");
-      } else {
+      } else if (!grounded) {
         clearNpcRuntimeValue(ud, "kccJumpRequest");
       }
     }

@@ -16,11 +16,20 @@ import {
   type JumpType,
   type LedgeCandidate,
 } from "./npc-jump-decision";
-import { createNpcPhysicsRapierMainThreadPort } from "./npc-physics-rapier-main-thread";
+import {
+  createNpcPhysicsRapierFrameSnapshotPort,
+  type NpcPhysicsRapierFrameSnapshotPort,
+} from "./npc-physics-rapier-frame-snapshot";
+import {
+  createNpcPhysicsRapierBackendPort,
+  type NpcPhysicsRapierBackendMode,
+} from "./npc-physics-rapier-backend";
 import type { NpcPhysicsRapierPort } from "./npc-physics-rapier-port";
 
 type MoveConstraintResult = { blocked: boolean; moved: boolean };
 type PendingJumpRequest = { atMs: number; readyFrame?: number };
+const JUMP_REQUEST_MAX_WAIT_MS = 220;
+const JUMP_TAKEOFF_LOCK_MS = 120;
 
 type JumpStartConfig = {
   jumpUpTeleportOnStart: boolean;
@@ -41,6 +50,23 @@ type QueryRayHit = {
   normal: { x: number; y: number; z: number } | null;
   colliderHandle: number | null;
 };
+
+function getNpcRapierSimulatedFrameDelay(): number {
+  const raw = Number((globalThis as any).__npcRapierSimulatedFrameDelay ?? 1);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.floor(raw);
+}
+
+function getNpcRapierBackendMode(): NpcPhysicsRapierBackendMode {
+  const raw = (globalThis as any).__npcRapierBackendMode;
+  return raw === "worker" ? "worker" : "main-thread";
+}
+
+function getNpcRapierWorkerHandle(): Worker | null {
+  const maybe = (globalThis as any).__npcRapierWorker;
+  if (maybe && typeof maybe.postMessage === "function") return maybe as Worker;
+  return null;
+}
 
 function queryRayHit(params: {
   rapierPort: NpcPhysicsRapierPort;
@@ -112,6 +138,14 @@ function tryConsumeJumpRequestAndStart(params: {
 
   const jumpReqReady =
     !jumpReq || typeof jumpReq.readyFrame !== "number" || physicsFrame >= jumpReq.readyFrame;
+  if (jumpReq) {
+    const ageMs = Math.max(0, nowMs - jumpReq.atMs);
+    if (ageMs > JUMP_REQUEST_MAX_WAIT_MS) {
+      ud._kccJumpRequest = undefined;
+      ud._kccJumpBlockedReason = "request_timeout";
+      return { vy, didJumpThisFrame: false };
+    }
+  }
   if (!jumpReq || !jumpReqReady || !wasStableGrounded || jumpActive || jumpBlocked) {
     return { vy, didJumpThisFrame: false };
   }
@@ -122,7 +156,8 @@ function tryConsumeJumpRequestAndStart(params: {
     | undefined;
   const canJumpByDecision = jumpDecisionNow?.canJump !== false;
   if (!canJumpByDecision) {
-    ud._kccJumpRequest = undefined;
+    // Keep request for a short grace window so delayed snapshot frames
+    // don't cause one-frame decision flicker to drop jump input.
     ud._kccJumpBlockedReason = String(jumpDecisionNow?.reason ?? "decision_blocked");
     return { vy, didJumpThisFrame: false };
   }
@@ -130,6 +165,7 @@ function tryConsumeJumpRequestAndStart(params: {
   ud._kccJumpRequest = undefined;
   ud._kccJumpBlockedReason = undefined;
   ud._kccJumpAtMs = jumpReq.atMs;
+  ud._kccJumpTakeoffLockUntilMs = nowMs + JUMP_TAKEOFF_LOCK_MS;
   ud._kccJumpType = resolveJumpType(jumpDecisionNow?.type);
 
   const jumpTypeNow = ud._kccJumpType as JumpType | undefined;
@@ -1185,7 +1221,7 @@ export function useNpcPhysics({
   }, []);
 
   const kccControllerIdRef = useRef<number | null>(null);
-  const rapierPortRef = useRef<NpcPhysicsRapierPort | null>(null);
+  const rapierPortRef = useRef<NpcPhysicsRapierFrameSnapshotPort | null>(null);
 
   const getNpcVisualRoot = (npcGroup: THREE.Group): THREE.Object3D => {
     const ud: any = npcGroup.userData ?? {};
@@ -1236,7 +1272,15 @@ export function useNpcPhysics({
     if (!rapierWorld) return;
     if (!rapier) return;
 
-    const rapierPort = createNpcPhysicsRapierMainThreadPort(rapierWorld, rapier);
+    const rapierPortBackend = createNpcPhysicsRapierBackendPort({
+      rapierWorld,
+      rapier,
+      mode: getNpcRapierBackendMode(),
+      worker: getNpcRapierWorkerHandle(),
+    });
+    const rapierPort = createNpcPhysicsRapierFrameSnapshotPort(rapierPortBackend, {
+      simulatedFrameDelay: getNpcRapierSimulatedFrameDelay(),
+    });
     rapierPortRef.current = rapierPort;
     const controllerId = rapierPort.createCharacterController(NPC_RENDER_TUNING.controllerOffset);
     const minWidth = Math.max(1, kccConfig.radius * 0.5);
@@ -1563,6 +1607,7 @@ export function useNpcPhysics({
       npcGroup.userData._kccLastFrame = physicsFrameRef.current;
       return { blocked: Boolean(npcGroup.userData._npcNpcBlocked), moved };
     }
+    rapierPort.beginFrame(physicsFrameRef.current);
 
     const colliderId = ensureNpcKccCollider(npcGroup);
     if (colliderId == null) {
@@ -2210,6 +2255,20 @@ export function useNpcPhysics({
           bestGroundNormal = null;
           bestGroundNy = null;
         }
+      }
+      const jumpTakeoffLockUntilMs = (ud as any)._kccJumpTakeoffLockUntilMs as number | undefined;
+      const jumpTakeoffLockActive =
+        jumpActive &&
+        typeof jumpTakeoffLockUntilMs === "number" &&
+        Number.isFinite(jumpTakeoffLockUntilMs) &&
+        nowMs < jumpTakeoffLockUntilMs;
+      if (jumpTakeoffLockActive) {
+        // During takeoff, keep guaranteed upward movement even with delayed KCC snapshots.
+        if (Number.isFinite(dy) && move.y < dy) move.y = dy;
+        computedGroundedNow = false;
+      } else if (didJumpThisFrame) {
+        // First frame of jump should not immediately report grounded.
+        computedGroundedNow = false;
       }
 
       // ZenGin-like behavior: if we are already falling and we touch a too-steep surface, do NOT switch back to sliding.
@@ -3155,6 +3214,7 @@ export function useNpcPhysics({
   const trySnapNpcToGroundWithRapier = (npcGroup: THREE.Group): boolean => {
     const rapierPort = rapierPortRef.current;
     if (!rapierPort) return false;
+    rapierPort.beginFrame(physicsFrameRef.current);
     const ud: any = npcGroup.userData ?? (npcGroup.userData = {});
     if (ud._kccSnapped === true) return true;
 
